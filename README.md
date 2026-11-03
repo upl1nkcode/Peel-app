@@ -1,5 +1,7 @@
 # Peel
 
+[![CI](https://github.com/upl1nkcode/Peel-app/actions/workflows/ci.yml/badge.svg)](https://github.com/upl1nkcode/Peel-app/actions/workflows/ci.yml)
+
 Phone-first web app that cuts anything out of a photo onto a transparent background — precisely, on-device, free, installable from a link.
 
 - Plan: [STICKER_WEBAPP_PLAN.md](STICKER_WEBAPP_PLAN.md)
