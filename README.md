@@ -8,4 +8,5 @@ Phone-first web app that cuts anything out of a photo onto a transparent backgro
 - Decisions: [docs/decisions.md](docs/decisions.md)
 - Rules for contributors and Claude Code: [CLAUDE.md](CLAUDE.md)
 - Specs: [docs/specs/](docs/specs/) · Plans: [docs/plans/](docs/plans/)
+- Deploying: [docs/deploy.md](docs/deploy.md)
 - Backlog: GitHub Issues and the "Peel" project board
