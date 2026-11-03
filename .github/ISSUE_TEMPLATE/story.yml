@@ -1,0 +1,32 @@
+name: Story
+description: A user-facing outcome that groups several tasks
+title: ""
+labels: ["story"]
+body:
+  - type: textarea
+    id: story
+    attributes:
+      label: Story
+      description: "As a user, I can … so that …"
+    validations:
+      required: true
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Tasks
+      description: Link the task issues, e.g. "- [ ] #12"
+      value: |
+        - [ ] 
+  - type: input
+    id: ref
+    attributes:
+      label: Plan reference
+      placeholder: "STICKER_WEBAPP_PLAN.md — §3.2, Phase 8"

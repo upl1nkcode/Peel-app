@@ -1,0 +1,49 @@
+name: Bug
+description: Something doesn't work as expected
+title: ""
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1. 
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options:
+        - iPhone (installed to Home Screen)
+        - iPhone (Safari tab)
+        - Android (installed)
+        - Android (Chrome tab)
+        - Desktop
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: OS / browser version
+  - type: textarea
+    id: shots
+    attributes:
+      label: Screenshots or test photo
+  - type: checkboxes
+    id: tdd
+    attributes:
+      label: Fix process
+      options:
+        - label: A failing test reproducing the bug is added before the fix

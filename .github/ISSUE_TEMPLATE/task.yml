@@ -1,0 +1,33 @@
+name: Task
+description: One TDD unit of work (test first, then code)
+title: ""
+labels: ["task"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+    validations:
+      required: true
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance criteria — write these as tests first
+      value: |
+        - [ ] 
+    validations:
+      required: true
+  - type: checkboxes
+    id: dod
+    attributes:
+      label: Definition of done
+      options:
+        - label: Failing test written first and seen failing (RED)
+        - label: Minimal implementation makes it pass (GREEN), then refactored
+        - label: Lint, typecheck and tests green in CI
+        - label: UI changes checked on a real phone via the PR preview URL
+  - type: input
+    id: story
+    attributes:
+      label: Parent story
+      placeholder: "#1"
