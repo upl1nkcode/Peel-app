@@ -33,3 +33,10 @@ Anything not listed here is out of scope for v1 (YAGNI). See plan §13.
 ## Open items
 
 - Cloudflare account and API token are needed for issue #6 (deploy). The product owner provides these as repository secrets.
+
+## Tooling decisions (issue #3)
+
+- **ESLint 10 + Prettier**, not the oxlint that the current Vite template ships, as the plan specifies. ESLint uses `strictTypeChecked` rules so lint also catches unsafe `any` and loose types.
+- **TypeScript pinned to 6.0.x** (not 7): `typescript-eslint` 8.x only supports TypeScript `<6.1`. Revisit when it supports 7.
+- **tsconfig** turns on `strict`, `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` explicitly, because geometry code indexes arrays constantly and accuracy is the product.
+- `npm audit` reports a moderate `minimatch` advisory that is reachable only through ESLint (dev tooling, never shipped). Accepted; `npm audit fix --force` would downgrade ESLint to a broken version.
