@@ -52,3 +52,84 @@ jobs:
           name: playwright-report
           path: playwright-report
           if-no-files-found: ignore
+
+  deploy:
+    name: deploy
+    needs: [check, e2e]
+    # Fork PRs get no secrets, so only deploy pushes and same-repo PRs.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+      pull-requests: write
+    env:
+      PROJECT_NAME: peel-app
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check Cloudflare secrets
+        id: secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::Deploy skipped: add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID as repository secrets."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.secrets.outputs.enabled == 'true'
+      - uses: actions/setup-node@v7
+        if: steps.secrets.outputs.enabled == 'true'
+        with:
+          node-version: 24
+          cache: npm
+      - name: Build
+        if: steps.secrets.outputs.enabled == 'true'
+        run: |
+          npm ci
+          npm run build
+
+      - name: Create Pages project if missing
+        if: steps.secrets.outputs.enabled == 'true'
+        run: npx --yes wrangler@4 pages project create "$PROJECT_NAME" --production-branch=main || echo "Project already exists"
+
+      - name: Deploy to Cloudflare Pages
+        id: deploy
+        if: steps.secrets.outputs.enabled == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          command: pages deploy dist --project-name=${{ env.PROJECT_NAME }} --branch=${{ github.head_ref || github.ref_name }}
+
+      - name: Smoke-test the deployed site
+        if: steps.secrets.outputs.enabled == 'true'
+        env:
+          URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: |
+          echo "Deployed: $URL"
+          curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "$URL/manifest.webmanifest" | grep -q '"name":"Peel"'
+          curl --fail --silent --show-error "$URL/" | grep -q '<div id="root">'
+
+      - name: Comment preview URL on the PR
+        if: steps.secrets.outputs.enabled == 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.pages-deployment-alias-url || steps.deploy.outputs.deployment-url }}
+          COMMIT_URL: ${{ steps.deploy.outputs.deployment-url }}
+        with:
+          script: |
+            const marker = '<!-- peel-preview -->'
+            const body = `${marker}\n**Preview** (open on your phone): ${process.env.PREVIEW_URL}\n\nThis commit: ${process.env.COMMIT_URL}`
+            const { owner, repo } = context.repo
+            const issue_number = context.issue.number
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number })
+            const existing = comments.find((c) => c.body?.includes(marker))
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body })
+            }
