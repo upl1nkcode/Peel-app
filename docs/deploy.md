@@ -2,7 +2,7 @@
 
 Deploys run from `.github/workflows/ci.yml` in the `deploy` job, only after `check` and `e2e` pass:
 
-- push to `main` -> production at `https://peel-app.pages.dev`
+- push to `main` -> production at `https://peel-app-9kg.pages.dev`
 - pull request -> preview at a per-branch URL, posted as a comment on the PR (open it on your phone)
 
 The job creates the Pages project `peel-app` on first run. Until the two secrets below exist, the job is skipped with a notice.
@@ -19,4 +19,4 @@ The job creates the Pages project `peel-app` on first run. Until the two secrets
    ```
 5. Re-run the latest CI run, or push to `main`.
 
-If `peel-app.pages.dev` is taken, Cloudflare picks a suffixed name; the real URL is printed in the deploy job log.
+`peel-app` was taken, so Cloudflare named the project `peel-app-9kg`. A new deployment URL needs a short while before its TLS certificate works, hence the smoke test retries.
