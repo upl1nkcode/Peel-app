@@ -157,6 +157,45 @@ describe('dot density', () => {
     expect(resimplifyRing(ring, 0.01).length).toBeGreaterThan(64)
   })
 
+  // AC-22 for hand-placed (Dots mode) rings, not just even circles
+  it('should_give_fewer_dots_on_hand_placed_rings', () => {
+    const rand = mulberry32(77)
+    for (let trial = 0; trial < 12; trial++) {
+      const count = 8 + Math.floor(rand() * 24)
+      const ring = Array.from({ length: count }, (_, i) => {
+        const theta = ((i + rand() * 0.8) / count) * 2 * Math.PI
+        const r = 300 * (0.6 + rand() * 0.8)
+        return n(r * Math.cos(theta), r * Math.sin(theta))
+      })
+      // Very wavy few-dot rings need more dots than placed, even at 8 px,
+      // to keep RDP's spacing (spec AC-22 model); the slider still thins.
+      const loose = resimplifyRing(ring, 8)
+      const tight = resimplifyRing(ring, 2)
+      expect(loose.length, `trial ${String(trial)}`).toBeLessThan(tight.length)
+      expect(hausdorffBothWays(ring, loose, 8)).toBe(0)
+    }
+    // Gently wobbling rings with unevenly spaced dots. Re-picking dots by
+    // RDP gives at least as many as placed here; removing placed dots gives
+    // far fewer.
+    const gentle = (count: number, wobble: number): Node[] =>
+      Array.from({ length: count }, (_, i) => {
+        const theta = ((i + 0.3 * Math.sin(i * 2.3)) / count) * 2 * Math.PI
+        const r = 300 * (1 + wobble * Math.sin(3 * theta))
+        return n(r * Math.cos(theta), r * Math.sin(theta))
+      })
+    for (const [ring, tol] of [
+      [gentle(16, 0.05), 8],
+      [gentle(36, 0.1), 2],
+    ] as const) {
+      const out = resimplifyRing(ring, tol)
+      expect(
+        out.length,
+        `${String(ring.length)} dots, tol ${String(tol)}`,
+      ).toBeLessThan(ring.length * 0.8)
+      expect(hausdorffBothWays(ring, out, tol)).toBe(0)
+    }
+  }, 30_000)
+
   // AC-23
   it('should_keep_every_corner', () => {
     // rounded rectangle: 4 corners, 5 smooth bulging nodes on each side
@@ -262,6 +301,13 @@ describe('dot density', () => {
     expect(topped[0]).toEqual(n(0, 0, 'corner'))
     expect(topped.filter((p) => p.kind === 'corner')).toHaveLength(1)
     expect(hausdorffBothWays(tiny, topped, 8)).toBe(0)
+
+    // a small ring thins too (checked against the whole curve)
+    const small = circle(7, 20)
+    const thinned = resimplifyRing(small, 8)
+    expect(thinned.length).toBeLessThan(7)
+    expect(thinned.length).toBeGreaterThanOrEqual(3)
+    expect(hausdorffBothWays(small, thinned, 8)).toBe(0)
 
     // fewer than 3 nodes is not a ring: returned as a copy
     const two = [n(0, 0), n(5, 5)]
