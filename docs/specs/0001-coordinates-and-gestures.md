@@ -1,6 +1,6 @@
 # 0001 — Coordinates, gestures and hit-testing
 
-- **Status:** Approved
+- **Status:** Implemented
 - **Issues:** story #9; tasks #10 (transforms), #11 (gesture state machine), #12 (pinch/pan math), #13 (hit-testing)
 - **Plan reference:** §3.6, §4, §7 (gesture rules), Phase 1
 - **Code:** `src/core/coords/`, `src/core/gestures/`, `src/core/geometry/hitTest.ts` — pure TypeScript, no DOM imports.

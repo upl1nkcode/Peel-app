@@ -1,0 +1,12 @@
+{
+  // src/core is pure TypeScript (plan §11): no DOM lib, no browser types.
+  // Any use of window, document, canvas, fetch, requestAnimationFrame... fails typecheck here.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.core.tsbuildinfo",
+    "lib": ["ES2023"],
+    "types": [],
+    "jsx": "preserve"
+  },
+  "include": ["src/core"]
+}
