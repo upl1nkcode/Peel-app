@@ -26,8 +26,8 @@ export default defineConfig([
   },
   {
     // src/core is pure TypeScript: no DOM, React or browser APIs (plan §11).
+    // Main guard is tsconfig.core.json (no DOM lib); this catches imports and the obvious globals.
     files: ['src/core/**/*.{ts,tsx}'],
-    languageOptions: { globals: {} },
     rules: {
       'no-restricted-globals': [
         'error',
