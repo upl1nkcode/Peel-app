@@ -5,7 +5,11 @@ import type { Bounds, Point } from './types'
  * In image space (y down) a positive signed area means clockwise on screen.
  */
 
-/** Relative tolerance for "on the boundary": distance ≤ 1e-9 × segment length. */
+/**
+ * Absolute tolerance (image px) for "on the boundary". Rounding error for a
+ * point computed on an edge near 1e4 px is ~1e-12, far below this; a point
+ * 1e-6 px outside is outside at any edge length.
+ */
 const BOUNDARY_EPSILON = 1e-9
 
 /**
@@ -67,7 +71,7 @@ function onSegment(p: Point, a: Point, b: Point): boolean {
     Math.max(0, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2),
   )
   const d = Math.hypot(a.x + u * dx - p.x, a.y + u * dy - p.y)
-  return d <= BOUNDARY_EPSILON * Math.sqrt(len2)
+  return d <= BOUNDARY_EPSILON
 }
 
 /** Fewer than 3 points, or every point on one line (encloses nothing). */

@@ -77,6 +77,20 @@ describe('polygon utilities', () => {
     expect(contains({ x: 5, y: -1e-6 }, square)).toBe(false)
   })
 
+  it('should_keep_the_1e-6_boundary_exact_on_photo_sized_edges (AC-21)', () => {
+    for (const side of [1000, 4000, 10000]) {
+      const big = pts([0, 0], [side, 0], [side, side], [0, side])
+      expect(contains({ x: side, y: side / 2 }, big)).toBe(true)
+      expect(contains({ x: side / 3, y: 0 }, big)).toBe(true)
+      expect(contains({ x: side + 1e-6, y: side / 2 }, big)).toBe(false)
+      expect(contains({ x: side / 2, y: -1e-6 }, big)).toBe(false)
+    }
+    // a point computed on a long diagonal edge still counts as on it
+    const tri = pts([0, 0], [4032, 3024], [0, 3024])
+    const t = 0.37
+    expect(contains({ x: 4032 * t, y: 3024 * t }, tri)).toBe(true)
+  })
+
   // AC-22
   it('should_handle_degenerate_rings_without_throwing', () => {
     const degenerate = [
