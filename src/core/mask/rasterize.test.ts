@@ -33,9 +33,24 @@ function expectExactArea(
   size: Size,
   polys: readonly (readonly Point[])[],
 ): void {
+  expectArea(
+    data,
+    size,
+    (i, j) => polys.reduce((s, p) => s + pixelArea(p, i, j), 0),
+    polys,
+  )
+}
+
+/** AC-2's bounds against an exact per-pixel area; pixels holding a vertex of `polys` get 1.5. */
+function expectArea(
+  data: Uint8Array,
+  size: Size,
+  exact: (i: number, j: number) => number,
+  polys: readonly (readonly Point[])[],
+): void {
   for (let j = 0; j < size.height; j++) {
     for (let i = 0; i < size.width; i++) {
-      const area = polys.reduce((s, p) => s + pixelArea(p, i, j), 0)
+      const area = exact(i, j)
       const v = data[j * size.width + i] as number
       const err = Math.abs(v - 255 * area)
       const bound = polys.some((p) => hasVertex(p, i, j)) ? 1.5 : 1
@@ -192,5 +207,81 @@ describe('rasterizeRings', () => {
       ],
     }
     expect(render([ring], size)).toEqual(new Uint8Array([255]))
+  })
+})
+
+const subtract = (pts: readonly Point[]): Ring => ({
+  op: 'subtract',
+  nodes: corners(pts),
+})
+const polygonCircle = (cx: number, cy: number, r: number, n: number): Point[] =>
+  Array.from({ length: n }, (_, k) => ({
+    x: cx + r * Math.cos((k / n) * 2 * Math.PI),
+    y: cy + r * Math.sin((k / n) * 2 * Math.PI),
+  }))
+const inRect = (r: readonly Point[], x: number, y: number): boolean => {
+  const [a, , c] = r as [Point, Point, Point, Point]
+  return x >= a.x && x < c.x && y >= a.y && y < c.y
+}
+
+describe('rasterizeRings compositing', () => {
+  it('should_make_a_donut (AC-6)', () => {
+    const size = { width: 32, height: 32 }
+    const outer = polygonCircle(16.2, 15.7, 12, 48)
+    const hole = polygonCircle(16.2, 15.7, 6, 32)
+    const data = render([add(outer), subtract(hole)], size)
+    expectArea(
+      data,
+      size,
+      (i, j) => pixelArea(outer, i, j) - pixelArea(hole, i, j),
+      [outer, hole],
+    )
+    for (let j = 0; j < 32; j++) {
+      for (let i = 0; i < 32; i++) {
+        const v = data[j * 32 + i]
+        if (pixelArea(hole, i, j) === 1) expect(v).toBe(0)
+        else if (pixelArea(outer, i, j) === 1 && pixelArea(hole, i, j) === 0) {
+          expect(v).toBe(255)
+        }
+      }
+    }
+  })
+
+  it('should_apply_rings_in_order (AC-7)', () => {
+    const size = { width: 20, height: 20 }
+    const a = rect(2, 2, 12, 12)
+    const b = rect(8, 8, 18, 18)
+    const c = rect(10, 4, 16, 10)
+    const expectSet = (
+      data: Uint8Array,
+      inside: (x: number, y: number) => boolean,
+    ) => {
+      for (let j = 0; j < 20; j++) {
+        for (let i = 0; i < 20; i++) {
+          expect(data[j * 20 + i]).toBe(inside(i + 0.5, j + 0.5) ? 255 : 0)
+        }
+      }
+    }
+    expectSet(
+      render([add(a), subtract(b), add(c)], size),
+      (x, y) => (inRect(a, x, y) && !inRect(b, x, y)) || inRect(c, x, y),
+    )
+    expectSet(
+      render([add(a), add(c), subtract(b)], size),
+      (x, y) => (inRect(a, x, y) || inRect(c, x, y)) && !inRect(b, x, y),
+    )
+    expect(render([subtract(b), add(a)], size)).toEqual(render([add(a)], size))
+  })
+
+  it('should_leave_no_seam_between_touching_rings (AC-8)', () => {
+    const size = { width: 12, height: 12 }
+    const o = 0.37
+    const left = rect(o, o, 5 + o, 10 + o)
+    const right = rect(5 + o, o, 10 + o, 10 + o)
+    const both = render([add(left), add(right)], size)
+    for (let j = 1; j < 10; j++) expect(both[j * 12 + 5]).toBe(255)
+    expect(both).toEqual(render([add(rect(o, o, 10 + o, 10 + o))], size))
+    const cut = render([add(rect(o, o, 10 + o, 10 + o)), subtract(right)], size)
+    expectExactArea(cut, size, [left])
   })
 })

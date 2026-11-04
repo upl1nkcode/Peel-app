@@ -152,11 +152,31 @@ function union(a: Intervals, b: Intervals, out: Intervals): void {
   }
 }
 
+/** a − b into out (all sorted, non-overlapping). */
+function difference(a: Intervals, b: Intervals, out: Intervals): void {
+  out.n = 0
+  let j = 0
+  for (let i = 0; i < a.n; i++) {
+    let s = a.s[i] as number
+    const e = a.e[i] as number
+    while (j < b.n && (b.e[j] as number) <= s) j++
+    let k = j
+    while (k < b.n && (b.s[k] as number) < e) {
+      out.push(s, b.s[k] as number)
+      s = Math.max(s, b.e[k] as number)
+      if (s >= e) break
+      k++
+    }
+    out.push(s, e)
+  }
+}
+
 /**
  * Anti-aliased coverage (0..1) of the rings, `size.width × size.height`,
  * with ring coordinates multiplied by `scale`. Each pixel row is sampled on
  * `SUBROWS` sub-rows; on each, every ring's inside intervals (nonzero rule)
- * are combined and their exact horizontal overlap with each pixel is added.
+ * are folded in order (add = union, subtract = difference) and the exact
+ * horizontal overlap of the result with each pixel is added.
  * Nothing outside the image is written.
  */
 export function rasterizeRings(
@@ -167,6 +187,7 @@ export function rasterizeRings(
   const { width: w, height: h } = size
   const out = new Float32Array(w * h)
   const scans = rings.map((r) => new RingScan(flattenRing(r.nodes, scale)))
+  const ops = rings.map((r) => r.op)
   const capacity = scans.reduce((s, r) => s + r.count, 0) + 1
   const ring = new Intervals(capacity)
   let acc = new Intervals(capacity)
@@ -187,10 +208,15 @@ export function rasterizeRings(
     for (let s = 0; s < SUBROWS; s++) {
       const y = j + (s + 0.5) / SUBROWS
       acc.n = 0
-      for (const scan of scans) {
-        scan.scan(y, ring)
+      // Fold in order: add = union, subtract = difference. A scan may be
+      // skipped (nothing to subtract from); it catches up on its next call.
+      for (let r = 0; r < scans.length; r++) {
+        const subtract = ops[r] === 'subtract'
+        if (subtract && acc.n === 0) continue
+        ;(scans[r] as RingScan).scan(y, ring)
         if (ring.n === 0) continue
-        union(acc, ring, spare)
+        if (subtract) difference(acc, ring, spare)
+        else union(acc, ring, spare)
         ;[acc, spare] = [spare, acc]
       }
       for (let k = 0; k < acc.n; k++) {
