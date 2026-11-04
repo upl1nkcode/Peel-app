@@ -5,19 +5,22 @@ import type { Point } from './types'
  * kept when its distance to the current chord *segment* exceeds epsilon, so
  * every removed point is within epsilon of the output polyline (a point beyond
  * a chord's end, like a hairpin tip, is measured to the nearer endpoint).
- * Iterative: no recursion depth limit.
+ * Iterative: no recursion depth limit. Distances are compared squared
+ * (Math.hypot is slow and the comparison is monotonic).
  */
 
-function distToSegment(p: Point, a: Point, b: Point): number {
+function distToSegmentSq(p: Point, a: Point, b: Point): number {
   const dx = b.x - a.x
   const dy = b.y - a.y
   const len2 = dx * dx + dy * dy
-  if (len2 === 0) return Math.hypot(p.x - a.x, p.y - a.y)
-  const u = Math.min(
-    1,
-    Math.max(0, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2),
-  )
-  return Math.hypot(a.x + u * dx - p.x, a.y + u * dy - p.y)
+  let ex = p.x - a.x
+  let ey = p.y - a.y
+  if (len2 !== 0) {
+    const u = Math.min(1, Math.max(0, (ex * dx + ey * dy) / len2))
+    ex -= u * dx
+    ey -= u * dy
+  }
+  return ex * ex + ey * ey
 }
 
 const copy = (p: Point): Point => ({ x: p.x, y: p.y })
@@ -29,22 +32,36 @@ export function simplifyPath(path: readonly Point[], epsilon: number): Point[] {
   const keep = new Uint8Array(n)
   keep[0] = 1
   keep[n - 1] = 1
+  // Negative epsilon keeps everything, like comparing d > epsilon would.
+  const eps2 = epsilon < 0 ? -1 : epsilon * epsilon
   const stack: number[] = [0, n - 1]
   while (stack.length > 0) {
     const end = stack.pop() as number
     const start = stack.pop() as number
     const a = path[start] as Point
     const b = path[end] as Point
-    let maxD = -1
+    // distToSegmentSq inlined with the chord terms hoisted: this loop is the hot path.
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const len2 = dx * dx + dy * dy
+    let maxD2 = -1
     let index = -1
     for (let i = start + 1; i < end; i++) {
-      const d = distToSegment(path[i] as Point, a, b)
-      if (d > maxD) {
-        maxD = d
+      const p = path[i] as Point
+      let ex = p.x - a.x
+      let ey = p.y - a.y
+      if (len2 !== 0) {
+        const u = Math.min(1, Math.max(0, (ex * dx + ey * dy) / len2))
+        ex -= u * dx
+        ey -= u * dy
+      }
+      const d2 = ex * ex + ey * ey
+      if (d2 > maxD2) {
+        maxD2 = d2
         index = i
       }
     }
-    if (maxD > epsilon) {
+    if (maxD2 > eps2) {
       keep[index] = 1
       stack.push(start, index, index, end)
     }
@@ -176,7 +193,7 @@ export function simplifyRing(ring: readonly Point[], epsilon: number): Point[] {
   let far: { point: Point; half: number } | null = null
   for (const [h, half] of halves.entries()) {
     for (const r of half) {
-      const d = distToSegment(r, p, q)
+      const d = distToSegmentSq(r, p, q)
       if (d > farD) {
         farD = d
         far = { point: r, half: h }
