@@ -80,6 +80,25 @@ export function toBezierSegments(
   })
 }
 
+/**
+ * Points along a cubic Bézier from p0 to p3 (both exact), consecutive samples
+ * at most `maxStepPx` apart. Uniform in t with n = ⌈3·maxLeg / step⌉ because
+ * the speed |B′(t)| never exceeds 3 × the longest control-polygon leg.
+ */
+export function sampleSegment(seg: BezierSegment, maxStepPx: number): Point[] {
+  const leg = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y)
+  const maxLeg = Math.max(
+    leg(seg.p0, seg.c1),
+    leg(seg.c1, seg.c2),
+    leg(seg.c2, seg.p3),
+  )
+  const n = Math.max(1, Math.ceil((3 * maxLeg) / maxStepPx))
+  const out: Point[] = [xy(seg.p0)]
+  for (let i = 1; i < n; i++) out.push(pointOnSegment(seg, i / n))
+  out.push(xy(seg.p3))
+  return out
+}
+
 /** Point on a cubic Bézier at t ∈ [0, 1] (exact at t = 0 and t = 1). */
 export function pointOnSegment(seg: BezierSegment, t: number): Point {
   const u = 1 - t

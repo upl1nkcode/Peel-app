@@ -27,8 +27,16 @@ const copy = (p: Point): Point => ({ x: p.x, y: p.y })
 
 /** Simplifies an open path; both endpoints are always kept. */
 export function simplifyPath(path: readonly Point[], epsilon: number): Point[] {
+  return simplifyPathIndices(path, epsilon).map((i) => copy(path[i] as Point))
+}
+
+/** `simplifyPath`, returning the kept indices into `path` (ascending). */
+export function simplifyPathIndices(
+  path: readonly Point[],
+  epsilon: number,
+): number[] {
   const n = path.length
-  if (n <= 2) return path.map(copy)
+  if (n <= 2) return Array.from({ length: n }, (_, i) => i)
   const keep = new Uint8Array(n)
   keep[0] = 1
   keep[n - 1] = 1
@@ -66,7 +74,9 @@ export function simplifyPath(path: readonly Point[], epsilon: number): Point[] {
       stack.push(start, index, index, end)
     }
   }
-  return path.filter((_, i) => keep[i] === 1).map(copy)
+  const kept: number[] = []
+  for (let i = 0; i < n; i++) if (keep[i] === 1) kept.push(i)
+  return kept
 }
 
 const lexLess = (a: Point, b: Point): boolean =>
@@ -157,12 +167,11 @@ function diameter(points: readonly Point[]): [Point, Point] | null {
 const indexOf = (ring: readonly Point[], p: Point): number =>
   ring.findIndex((q) => q.x === p.x && q.y === p.y)
 
-/** ring[from..to] following ring order, wrapping around, inclusive. */
-function walk(ring: readonly Point[], from: number, to: number): Point[] {
-  const n = ring.length
-  const out: Point[] = []
+/** Indices from..to following ring order (length n), wrapping around, inclusive. */
+function walk(n: number, from: number, to: number): number[] {
+  const out: number[] = []
   for (let i = from; ; i = (i + 1) % n) {
-    out.push(ring[i] as Point)
+    out.push(i)
     if (i === to) return out
   }
 }
@@ -174,35 +183,47 @@ function walk(ring: readonly Point[], from: number, to: number): Point[] {
  * 3 points; identical points give 1, collinear points give 2.
  */
 export function simplifyRing(ring: readonly Point[], epsilon: number): Point[] {
-  if (ring.length < 3) return ring.map(copy)
+  return simplifyRingIndices(ring, epsilon).map((i) => copy(ring[i] as Point))
+}
+
+/** `simplifyRing`, returning the kept indices into `ring` in output order. */
+export function simplifyRingIndices(
+  ring: readonly Point[],
+  epsilon: number,
+): number[] {
+  const n = ring.length
+  if (n < 3) return Array.from({ length: n }, (_, i) => i)
   const pair = diameter(ring)
   if (pair === null) return []
   const [p, q] = pair
-  if (p.x === q.x && p.y === q.y) return [copy(p)]
   const a = indexOf(ring, p)
+  if (p.x === q.x && p.y === q.y) return [a]
   const b = indexOf(ring, q)
-  const first = simplifyPath(walk(ring, a, b), epsilon)
-  const second = simplifyPath(walk(ring, b, a), epsilon)
-  const out = [...first, ...second.slice(1, -1)]
+  const halves = [walk(n, a, b), walk(n, b, a)] as const
+  const simplifyHalf = (half: readonly number[]): number[] =>
+    simplifyPathIndices(
+      half.map((i) => ring[i] as Point),
+      epsilon,
+    ).map((k) => half[k] as number)
+  const out = [
+    ...simplifyHalf(halves[0]),
+    ...simplifyHalf(halves[1]).slice(1, -1),
+  ]
   if (out.length >= 3) return out
 
   // Everything is within epsilon of the chord: keep the farthest point so the
   // ring still encloses something (a thin sliver stays a sliver).
-  const halves = [walk(ring, a, b), walk(ring, b, a)] as const
   let farD = 0
-  let far: { point: Point; half: number } | null = null
+  let far: { index: number; half: number } | null = null
   for (const [h, half] of halves.entries()) {
-    for (const r of half) {
-      const d = distToSegmentSq(r, p, q)
+    for (const i of half) {
+      const d = distToSegmentSq(ring[i] as Point, p, q)
       if (d > farD) {
         farD = d
-        far = { point: r, half: h }
+        far = { index: i, half: h }
       }
     }
   }
   if (far === null) return out
-  const { point, half } = far
-  return half === 0
-    ? [copy(p), copy(point), copy(q)]
-    : [copy(p), copy(q), copy(point)]
+  return far.half === 0 ? [a, far.index, b] : [a, b, far.index]
 }

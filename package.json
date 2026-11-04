@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "vitest run --exclude \"**/*.perf.test.ts\"",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage --exclude \"**/*.perf.test.ts\"",
     "test:perf": "vitest run perf.test",

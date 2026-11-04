@@ -102,14 +102,13 @@
   - `should_undo_and_redo_a_sequence` (AC-16): 5 commands. Undo all, checking each intermediate state deep-equal to a reference list, then redo all. Check `canUndo`/`canRedo` at both ends.
   - `should_discard_the_redo_branch_on_a_new_command` (AC-17).
   - `should_ignore_throwing_and_no_op_commands` (AC-18): after a throwing command, `current` and `canRedo` are unchanged. A no-op command does not add an undo step (undo goes back past it to the earlier state).
-  - `should_drop_the_oldest_steps_beyond_the_point_cap` (AC-19): with `maxPoints: 100`, 10 `addRing` commands of 30 nodes each leave exactly the last 3 undoable and keep `current`.
-  - `should_keep_a_single_step_larger_than_the_cap` (Review Focus 3): `maxPoints: 1000` and a 5,000-node ring. Undo still returns the empty selection.
+  - `should_drop_the_oldest_steps_beyond_the_point_cap` (AC-19): with `maxPoints: 100`, 10 `moveNode` commands on a 30-node ring leave exactly the last 3 undoable and keep `current`. Each older state holds its own 30-node copy of the ring. Ten `addRing` commands cost nothing, because every older state is shared by the newer ones.
+  - `should_keep_a_single_step_larger_than_the_cap` (Review Focus 3): `maxPoints: 1000`, add a 5,000-node ring, then `moveNode`. One undo still returns the unmoved ring.
   - `should_undo_and_redo_without_replaying` (AC-20): execute 1,000 `moveNode` commands and keep each returned selection. Every `undo()` and `redo()` must return the **same object** (`toBe`) that `execute` returned for that step. A replay would build new objects.
 - [ ] **Step 2: Run** `npx vitest run src/core/history` — Expected: FAIL.
 - [ ] **Step 3: Implement.** Keep `states: Selection[]`, `index`, `costs: number[]`, `total`.
-  - **Step cost:** the points (nodes plus stroke points) of rings and strokes in the new state that are not present by identity (a `Set` of the previous state's ring and stroke objects).
-  - **Base cost:** `states[0]` costs its full point count.
-  - **Execute:** truncate after `index`, push, then drop from the front while `total > maxPoints` and `index > 0`. When dropping, recompute the new base's full cost.
+  - **Step cost:** `back[k]` is the points (nodes plus stroke points) of the rings and strokes in `states[k]` that are not in `states[k+1]` by identity. That is the memory history holds only so it can undo; shared objects are free.
+  - **Execute:** truncate after `index`, push the new state and its `back` cost, then drop from the front while `total > maxPoints` and more than one undo step remains.
 - [ ] **Step 4: Run** the Step 2 command, then `npm run lint && npm run typecheck` — Expected: PASS.
 - [ ] **Step 5: Commit** `feat(core): add undo/redo history with a memory cap`
 

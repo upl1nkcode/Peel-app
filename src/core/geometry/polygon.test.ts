@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { area, bounds, contains, orientation, signedArea } from './polygon'
+import {
+  area,
+  bounds,
+  contains,
+  isDegenerateRing,
+  orientation,
+  signedArea,
+} from './polygon'
 import type { Point } from './types'
 
 const pts = (...xy: [number, number][]): Point[] =>
@@ -106,6 +113,16 @@ describe('polygon utilities', () => {
       expect(contains({ x: 5, y: 5 }, ring)).toBe(false)
       expect(contains({ x: 1, y: 1 }, ring)).toBe(false)
     }
+  })
+
+  // spec 0003 AC-13 support
+  it('should_detect_degenerate_rings', () => {
+    expect(isDegenerateRing([])).toBe(true)
+    expect(isDegenerateRing(pts([0, 0], [5, 5]))).toBe(true)
+    expect(isDegenerateRing(pts([0, 0], [5, 5], [10, 10]))).toBe(true)
+    expect(isDegenerateRing(pts([1, 1], [1, 1], [1, 1]))).toBe(true)
+    expect(isDegenerateRing(pts([0, 0], [10, 0], [0, 10]))).toBe(false)
+    expect(isDegenerateRing(figure8)).toBe(false)
   })
 
   // AC-24

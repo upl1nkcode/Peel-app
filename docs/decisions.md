@@ -44,3 +44,9 @@ Anything not listed here is out of scope for v1 (YAGNI). See plan §13.
 ## Geometry decisions (spec 0002)
 
 - **Lasso simplification tolerance is 1.0 image px** (decided 2026-11-04 by the product owner, replacing the draft value of 0.75). The draft could not meet its own dot-count bound. 1.0 px gives roughly half as many dots to edit, and every dot stays within 1 px of the true outline. The other options were 0.75 px (about 70 dots on a radius-100 circle) and 1.5 px (about 27 dots).
+
+## Selection decisions (spec 0003)
+
+- **The history cap counts the points that undo alone keeps alive.** For each step, it counts the dots and stroke points of an older state that the next state no longer shares. Rings and strokes that several states share are free, so adding rings costs almost nothing and editing a large ring costs one copy of it. The newest undo step is always kept, even when it alone is bigger than the cap.
+- **Dot density means RDP dot spacing, checked on the drawn curves.** The tolerance sets how far apart RDP would space dots. If that is more dots than the ring has, the ring gets RDP's denser dots. Otherwise it gets the fewest dots that hold the curve: RDP's picks, or the ring's own dots with every removable smooth dot taken out (hand-placed dots are often already efficient). Corners always stay. Both curves are sampled at most every 0.1 image px and checked at 95% of the tolerance. If no valid result can be built, the ring is left as it was. Very wavy rings with few hand-placed dots still get more dots, even at 8 px, because their straight-line spacing is coarser than 8 px.
+- **Selection JSON paths name the full field** (for example `selection.rings[2].nodes[5].x`, or `$` for the whole document). Image sizes must be positive whole pixels. `-0` is saved as `0`. Rings whose dots all lie on one line are accepted when loading, because moving or deleting dots can make one and every reachable selection must reopen.
