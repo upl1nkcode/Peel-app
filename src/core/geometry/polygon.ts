@@ -75,7 +75,7 @@ function onSegment(p: Point, a: Point, b: Point): boolean {
 }
 
 /** Fewer than 3 points, or every point on one line (encloses nothing). */
-function isDegenerate(ring: readonly Point[]): boolean {
+export function isDegenerateRing(ring: readonly Point[]): boolean {
   const p0 = ring[0]
   if (ring.length < 3 || p0 === undefined) return true
   const p1 = ring.find((p) => p.x !== p0.x || p.y !== p0.y)
@@ -88,7 +88,7 @@ function isDegenerate(ring: readonly Point[]): boolean {
  * Degenerate rings contain nothing.
  */
 export function contains(point: Point, ring: readonly Point[]): boolean {
-  if (isDegenerate(ring)) return false
+  if (isDegenerateRing(ring)) return false
   const n = ring.length
   let winding = 0
   for (let i = 0; i < n; i++) {
