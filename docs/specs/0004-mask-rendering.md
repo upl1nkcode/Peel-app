@@ -1,6 +1,6 @@
 # 0004 — Mask rendering: selection → alpha mask → transparent PNG
 
-- **Status:** Approved
+- **Status:** Implemented
 - **Issues:** story #26; tasks #27 (ring rasterization), #28 (add/subtract compositing), #29 (brush strokes), #30 (feather, trim, resize, outline), #31 (render pipeline order), #32 (apply mask, encode PNG)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §4 (render), §8 (output), Phase 3
 
