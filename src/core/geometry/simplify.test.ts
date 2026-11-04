@@ -181,30 +181,6 @@ describe('simplifyRing', () => {
     expect(out).toHaveLength(3)
   })
 
-  // AC-23
-  it('should_simplify_50000_points_quickly_without_stack_overflow', () => {
-    // a realistic trace: 50,000 samples ~0.63 px apart (above the 0.5 px dedupe), ±1 px jitter
-    const ring = noisyCircle(50_000, 5000, 1, 23)
-    let best = Infinity
-    let out: Point[] = []
-    for (let run = 0; run < 3; run++) {
-      const t0 = Date.now()
-      out = simplifyRing(ring, 0.75)
-      best = Math.min(best, Date.now() - t0)
-    }
-    expect(best).toBeLessThan(100)
-    expect(out.length).toBeGreaterThan(3)
-
-    // Adversarial input: each split peels off one point, so recursion would be
-    // 12,000 frames deep (enough to overflow a recursive RDP). RDP's worst case is
-    // O(n²), so this one is not timed; real traces are covered by the timing above.
-    const deep: Point[] = Array.from({ length: 12_000 }, (_, i) => ({
-      x: i,
-      y: i % 2 === 0 ? 0 : 10 + i * 1e-3,
-    }))
-    expect(simplifyPath(deep, 0.5)).toHaveLength(12_000)
-  })
-
   // AC-25
   it('should_handle_identical_and_collinear_rings_without_throwing', () => {
     expect(simplifyRing(pts([2, 2], [2, 2], [2, 2]), 0.5)).toEqual(pts([2, 2]))

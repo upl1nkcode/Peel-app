@@ -40,6 +40,6 @@ Acceptance criteria met and tested; spec Implemented (stories); lint, typecheck,
 
 - `npm run dev` / `build` / `preview`
 - `npm run lint` · `typecheck` · `format:check` (`format` to fix)
-- `npm test` (Vitest + React Testing Library, jsdom) · `test:coverage` · `test:watch`
+- `npm test` (Vitest + React Testing Library, jsdom) · `test:coverage` (skips `*.perf.test.ts`) · `test:perf` (timing budgets, uninstrumented) · `test:watch`
 - `npm run test:e2e` (Playwright: iPhone 15 on WebKit, Pixel 8 and Desktop Chrome on Chromium; builds and serves the app itself). First run: `npx playwright install chromium webkit`.
 - Test names: `should_...`; unit tests live next to the code as `*.test.ts(x)`, e2e in `e2e/`.
