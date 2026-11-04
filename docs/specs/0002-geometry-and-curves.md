@@ -1,6 +1,6 @@
 # 0002 — Lasso paths, smoothing, simplification, curves, polygons
 
-- **Status:** Approved
+- **Status:** Implemented
 - **Issues:** story #14; tasks #15 (lasso recording), #16 (smoothing), #17 (RDP), #18 (Catmull-Rom to Bézier), #19 (polygon utilities)
 - **Plan reference:** §3.2, §3.3, §4, Phase 1
 - **Code:** `src/core/geometry/` — pure TypeScript, no DOM imports. All coordinates are imagePts (image pixels, float, y down).
