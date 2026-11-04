@@ -22,7 +22,8 @@ const isSize = (n: number): boolean => Number.isInteger(n) && n >= 1
  * Renders the selection to an 8-bit alpha mask: (1) rings, (2) soft edge via
  * `refineEdge` when the selection has one, (3) brush strokes in order,
  * (4) feather, then one rounding. `scale` in (0, 1] renders a preview at
- * ⌈size · scale⌉ with geometry, brush sizes, soft-edge band and feather scaled.
+ * ⌈size · scale⌉ with geometry, brush sizes, soft-edge band and feather scaled;
+ * a scale that rounds up to the full size renders at scale 1.
  */
 export function renderMask(
   selection: Selection,
@@ -34,14 +35,19 @@ export function renderMask(
       `image size must be positive integers, got ${String(imageSize.width)}×${String(imageSize.height)}`,
     )
   }
-  const scale = options.scale ?? 1
-  if (!(scale > 0 && scale <= 1)) {
-    throw new RangeError(`scale must be in (0, 1], got ${String(scale)}`)
+  const requested = options.scale ?? 1
+  if (!(requested > 0 && requested <= 1)) {
+    throw new RangeError(`scale must be in (0, 1], got ${String(requested)}`)
   }
   const size = {
-    width: Math.ceil(imageSize.width * scale),
-    height: Math.ceil(imageSize.height * scale),
+    width: Math.ceil(imageSize.width * requested),
+    height: Math.ceil(imageSize.height * requested),
   }
+  // A scale just under 1 rounds up to the full size; render it exactly at
+  // full resolution so a full-size mask never carries shrunken geometry.
+  const full =
+    size.width === imageSize.width && size.height === imageSize.height
+  const scale = full ? 1 : requested
   const coverage = rasterizeRings(selection.rings, size, scale)
   if (selection.softEdge && options.refineEdge) {
     options.refineEdge(coverage, size, {

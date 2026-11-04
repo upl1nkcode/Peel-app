@@ -218,3 +218,19 @@ describe('renderMask', () => {
     }
   })
 })
+
+describe('renderMask previews', () => {
+  it('should_never_render_a_shrunken_mask_at_full_size (AC-21, AC-22)', () => {
+    const size = { width: 1000, height: 800 }
+    const sel = selection({
+      rings: [box('add', 100.25, 80, 900, 720.5)],
+      strokes: [dot('erase', { x: 500, y: 400 }, 30, 0.5)],
+      feather: 1,
+    })
+    // ⌈1000 · 0.9995⌉ = 1000: a near-1 scale gives the full size, so it must
+    // render exactly the full-resolution mask, never shrunken geometry.
+    expect(renderMask(sel, size, { scale: 0.9995 })).toEqual(
+      renderMask(sel, size),
+    )
+  }, 30_000)
+})

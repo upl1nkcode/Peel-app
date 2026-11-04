@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Point, Size } from '../geometry/types'
 import type { BrushStroke } from '../selection/types'
+import { mulberry32 } from '../../test/random'
 import { applyStrokes, strokeStrength } from './strokes'
 
 const filled = (size: Size, v: number) =>
@@ -182,5 +183,56 @@ describe('applyStrokes', () => {
       { mode: 'erase', sizePx: 6, hardness: 0.5, points: [{ x: 10, y: 11 }] },
     ])
     expect(scaled).toEqual(direct)
+  })
+})
+
+describe('applyStrokes against brute force', () => {
+  it('should_match_the_brute_force_distance_on_any_polyline (AC-9, AC-10)', () => {
+    const size = { width: 48, height: 40 }
+    for (let seed = 1; seed <= 60; seed++) {
+      const rand = mulberry32(seed)
+      const n = 1 + Math.floor(rand() * 7)
+      const points: Point[] = []
+      for (let k = 0; k < n; k++) {
+        // Repeats, reversals and sharp turns on purpose.
+        const prev = points[k - 1]
+        if (prev && rand() < 0.15) points.push({ ...prev })
+        else if (k >= 2 && rand() < 0.15)
+          points.push({ ...(points[k - 2] as Point) })
+        else points.push({ x: -6 + rand() * 60, y: -6 + rand() * 52 })
+      }
+      const stroke: BrushStroke = {
+        mode: 'erase',
+        sizePx: 0.5 + rand() * 24,
+        hardness: rand() < 0.2 ? 1 : rand(),
+        points,
+      }
+      const got = filled(size, 1)
+      applyStrokes(got, size, [stroke])
+      const r = stroke.sizePx / 2
+      for (let j = 0; j < size.height; j++) {
+        for (let i = 0; i < size.width; i++) {
+          const p = { x: i + 0.5, y: j + 0.5 }
+          let d = Infinity
+          for (let k = 0; k < Math.max(1, n - 1); k++) {
+            d = Math.min(
+              d,
+              segDist(
+                p,
+                points[k] as Point,
+                points[Math.min(k + 1, n - 1)] as Point,
+              ),
+            )
+          }
+          const want = 1 - strokeStrength(d, r, stroke.hardness)
+          const v = got[j * size.width + i] as number
+          if (Math.abs(v - want) > 1e-6) {
+            throw new Error(
+              `seed ${String(seed)} pixel (${String(i)}, ${String(j)}): ${String(v)} vs ${String(want)}`,
+            )
+          }
+        }
+      }
+    }
   })
 })

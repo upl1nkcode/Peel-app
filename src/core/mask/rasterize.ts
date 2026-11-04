@@ -97,13 +97,14 @@ class RingScan {
     while (this.next < this.count && (this.y0[this.next] as number) <= y) {
       this.active[this.activeCount++] = this.next++
     }
-    let kept = 0
+    // Drop finished edges and insertion-sort the rest by x, moving the active
+    // list along with xs/ds. The list stays in x order between sub-rows and
+    // crossings barely move from one sub-row to the next, so the sort is
+    // close to linear instead of quadratic in the number of crossings.
     let m = 0
     for (let k = 0; k < this.activeCount; k++) {
       const e = this.active[k] as number
       if ((this.y1[e] as number) <= y) continue
-      this.active[kept++] = e
-      // Insertion sort by x into xs/ds.
       const x =
         (this.x0[e] as number) +
         (y - (this.y0[e] as number)) * (this.dxdy[e] as number)
@@ -111,12 +112,14 @@ class RingScan {
       while (p > 0 && (this.xs[p - 1] as number) > x) {
         this.xs[p] = this.xs[p - 1] as number
         this.ds[p] = this.ds[p - 1] as number
+        this.active[p] = this.active[p - 1] as number
         p--
       }
       this.xs[p] = x
       this.ds[p] = this.dir[e] as number
+      this.active[p] = e
     }
-    this.activeCount = kept
+    this.activeCount = m
     let winding = 0
     let start = 0
     for (let k = 0; k < m; k++) {
@@ -189,7 +192,7 @@ export function rasterizeRings(
   const scans = rings.map((r) => new RingScan(flattenRing(r.nodes, scale)))
   const ops = rings.map((r) => r.op)
   const capacity = scans.reduce((s, r) => s + r.count, 0) + 1
-  const ring = new Intervals(capacity)
+  let ring = new Intervals(capacity)
   let acc = new Intervals(capacity)
   let spare = new Intervals(capacity)
 
@@ -215,6 +218,11 @@ export function rasterizeRings(
         if (subtract && acc.n === 0) continue
         ;(scans[r] as RingScan).scan(y, ring)
         if (ring.n === 0) continue
+        if (acc.n === 0) {
+          // Nothing to combine with: the ring's intervals are the result.
+          ;[acc, ring] = [ring, acc]
+          continue
+        }
         if (subtract) difference(acc, ring, spare)
         else union(acc, ring, spare)
         ;[acc, spare] = [spare, acc]
