@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { mulberry32 } from '../../test/random'
-import { pointOnSegment, toBezierSegments } from './bezier'
+import { pointOnSegment, sampleSegment, toBezierSegments } from './bezier'
 import type { BezierSegment, Node, Point } from './types'
 
 const node = (x: number, y: number, kind: Node['kind'] = 'smooth'): Node => ({
@@ -243,6 +243,46 @@ describe('toBezierSegments', () => {
           expect(p.x).toBeGreaterThanOrEqual(-1e-9)
           expect(p.x).toBeLessThanOrEqual(100 + 1e-9)
         }
+      }
+    }
+  })
+
+  // spec 0003 AC-21 support
+  it('should_sample_a_segment_with_bounded_steps_and_exact_ends', () => {
+    const rand = mulberry32(41)
+    const r = () => rand() * 400 - 200
+    const segs: BezierSegment[] = Array.from({ length: 30 }, () => ({
+      p0: { x: r(), y: r() },
+      c1: { x: r(), y: r() },
+      c2: { x: r(), y: r() },
+      p3: { x: r(), y: r() },
+    }))
+    // fast then slow: c1 on p0, c2 far away
+    segs.push({
+      p0: { x: 0, y: 0 },
+      c1: { x: 0, y: 0 },
+      c2: { x: 300, y: 0 },
+      p3: { x: 301, y: 1 },
+    })
+    // a single point
+    segs.push({
+      p0: { x: 5, y: 5 },
+      c1: { x: 5, y: 5 },
+      c2: { x: 5, y: 5 },
+      p3: { x: 5, y: 5 },
+    })
+    for (const seg of segs) {
+      for (const step of [0.1, 0.5]) {
+        const pts = sampleSegment(seg, step)
+        expect(pts[0]).toEqual(seg.p0)
+        expect(pts.at(-1)).toEqual(seg.p3)
+        let maxStep = 0
+        for (let i = 1; i < pts.length; i++) {
+          const a = pts[i - 1] as Point
+          const b = pts[i] as Point
+          maxStep = Math.max(maxStep, Math.hypot(b.x - a.x, b.y - a.y))
+        }
+        expect(maxStep).toBeLessThanOrEqual(step + 1e-12)
       }
     }
   })

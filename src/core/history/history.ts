@@ -67,7 +67,7 @@ export function createHistory(
       let total = back.reduce((a, b) => a + b, 0)
       while (total > maxPoints && states.length > 2) {
         states.shift()
-        total -= back.shift() ?? 0
+        total -= back.shift() as number
       }
       index = states.length - 1
       return next

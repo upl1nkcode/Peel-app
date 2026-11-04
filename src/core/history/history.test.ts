@@ -65,12 +65,14 @@ describe('history', () => {
     },
     { type: 'setFeather', px: 1.25 },
     { type: 'setSoftEdge', softEdge: { source: 'model', bandPx: 8 } },
+    { type: 'setDensity', ring: 1, tolerancePx: 0.05 },
   ])(
     'should_round_trip_every_command_type_through_undo_and_redo ($type)',
     (command) => {
       const initial = start()
       const history = createHistory(initial)
       const applied = history.execute(command)
+      expect(applied).not.toBe(initial) // every row is a real change
       expect(applied).toEqual(applyCommand(initial, command))
       expect(history.undo()).toEqual(initial)
       expect(history.current).toEqual(initial)

@@ -1,5 +1,6 @@
 import { isDegenerateRing } from '../geometry/polygon'
 import type { Node, Point } from '../geometry/types'
+import { resimplifyRing } from './density'
 import { InvalidCommandError } from './errors'
 import type {
   BrushStroke,
@@ -204,8 +205,20 @@ export function applyCommand(sel: Selection, command: Command): Selection {
       }
       return { ...sel, rings: [...sel.rings, ring] }
     }
-    case 'setDensity':
-      return fail('setDensity is not implemented')
+    case 'setDensity': {
+      const ring = ringAt(sel, command.ring)
+      if (!inRange(command.tolerancePx, DENSITY_TOLERANCE_RANGE)) {
+        fail('density tolerance must be in [0.01, 8] px')
+      }
+      const nodes = resimplifyRing(ring.nodes, command.tolerancePx)
+      const same =
+        nodes.length === ring.nodes.length &&
+        nodes.every((p, i) => {
+          const q = ring.nodes[i] as Node
+          return p.x === q.x && p.y === q.y && p.kind === q.kind
+        })
+      return same ? sel : withNodes(sel, command.ring, nodes)
+    }
     case 'addStroke':
       return { ...sel, strokes: [...sel.strokes, checkStroke(command.stroke)] }
     case 'setFeather': {
