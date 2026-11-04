@@ -45,23 +45,37 @@ export function feather(coverage: Float32Array, size: Size, px: number): void {
   const k = featherKernel(px)
   const r = (k.length - 1) / 2
   const { width: w, height: h } = size
-  const line = new Float64Array(Math.max(w, h) + 2 * r)
+  const taps = k.length
 
-  const blur = (start: number, stride: number, n: number) => {
-    // Clamp-extended copy of the line, then convolve back into place.
-    for (let i = -r; i < n + r; i++) {
-      const src = i < 0 ? 0 : i >= n ? n - 1 : i
-      line[i + r] = coverage[start + src * stride] as number
+  // Rows: clamp-extended copy of each row, convolved into `rows`.
+  const rows = new Float32Array(w * h)
+  const line = new Float64Array(w + 2 * r)
+  for (let j = 0; j < h; j++) {
+    const base = j * w
+    for (let i = -r; i < w + r; i++) {
+      line[i + r] = coverage[base + (i < 0 ? 0 : i >= w ? w - 1 : i)] as number
     }
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < w; i++) {
       let acc = 0
-      for (let q = 0; q < k.length; q++) {
+      for (let q = 0; q < taps; q++) {
         acc += (k[q] as number) * (line[i + q] as number)
       }
-      coverage[start + i * stride] = acc
+      rows[base + i] = acc
     }
   }
 
-  for (let j = 0; j < h; j++) blur(j * w, 1, w)
-  for (let i = 0; i < w; i++) blur(i, w, h)
+  // Columns, a whole row at a time (contiguous reads): output row j is the
+  // weighted sum of rows j − r … j + r, clamped at the top and bottom.
+  const acc = new Float64Array(w)
+  for (let j = 0; j < h; j++) {
+    acc.fill(0)
+    for (let q = 0; q < taps; q++) {
+      const src = Math.min(h - 1, Math.max(0, j + q - r)) * w
+      const kq = k[q] as number
+      for (let i = 0; i < w; i++) {
+        acc[i] = (acc[i] as number) + kq * (rows[src + i] as number)
+      }
+    }
+    coverage.set(acc, j * w)
+  }
 }
