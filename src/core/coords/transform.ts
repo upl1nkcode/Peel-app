@@ -23,7 +23,15 @@ export function assertViewport(vp: Viewport): void {
   }
 }
 
-function assertView(view: View): void {
+/** Throws `RangeError` for a non-finite point. */
+export function assertPoint(p: Point, name = 'point'): void {
+  if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+    throw new RangeError(`${name} must be finite`)
+  }
+}
+
+/** Throws `RangeError` for a non-positive/non-finite zoom or a non-finite centre. */
+export function assertView(view: View): void {
   if (!isPositiveFinite(view.zoom)) {
     throw new RangeError(`zoom must be positive, got ${String(view.zoom)}`)
   }

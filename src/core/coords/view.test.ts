@@ -212,4 +212,39 @@ describe('pinch and pan', () => {
       canvasToImage(vp, start, p),
     )
   })
+
+  // AC-7, fractional canvas widths (float rounding on the limiting axis)
+  it('should_keep_a_fitted_image_centred_for_fractional_canvas_sizes', () => {
+    for (let w = 300; w <= 500; w += 0.25) {
+      for (const imageWidth of [2268, 3024, 4032, 1179, 3000]) {
+        const fvp: Viewport = {
+          canvas: { width: w, height: 2000 },
+          image: { width: imageWidth, height: 1000 },
+          dpr: 2.625,
+        }
+        const v = clampView(fvp, { zoom: 1, center: { x: 0, y: 0 } })
+        expect(v.center.x).toBe(imageWidth / 2)
+        expect(v.center.y).toBe(500)
+      }
+    }
+  })
+
+  // AC-19
+  it('should_throw_range_error_for_non_finite_views_and_fingers', () => {
+    const p = { x: 1, y: 1 }
+    const nan = { x: Number.NaN, y: 1 }
+    expect(() =>
+      clampView(vp, { zoom: Number.NaN, center: { x: 1, y: 1 } }),
+    ).toThrow(RangeError)
+    expect(() =>
+      clampView(vp, { zoom: 2, center: { x: Number.NaN, y: 1 } }),
+    ).toThrow(RangeError)
+    expect(() => applyTwoFingerGesture(vp, start, [p, p], [p, nan])).toThrow(
+      RangeError,
+    )
+    expect(() => applyTwoFingerGesture(vp, start, [nan, p], [p, p])).toThrow(
+      RangeError,
+    )
+    expect(() => toggleActualSize(vp, start, nan)).toThrow(RangeError)
+  })
 })

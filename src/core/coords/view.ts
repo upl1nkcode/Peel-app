@@ -1,5 +1,5 @@
 import type { Point } from '../geometry/types'
-import { canvasToImage, fitScale } from './transform'
+import { assertPoint, assertView, canvasToImage, fitScale } from './transform'
 import { MAX_ZOOM, MIN_ZOOM, type View, type Viewport } from './types'
 
 const clamp = (v: number, lo: number, hi: number): number =>
@@ -7,18 +7,27 @@ const clamp = (v: number, lo: number, hi: number): number =>
 
 const clampZoom = (zoom: number): number => clamp(zoom, MIN_ZOOM, MAX_ZOOM)
 
-/** Tolerance for "already at actual size" in `toggleActualSize`. */
+/** A zoom within 1% of actual size counts as "at actual size" in `toggleActualSize`. */
 const ACTUAL_SIZE_TOLERANCE = 0.01
+
+/**
+ * Relative slack for "the scaled image fits the canvas": at fit,
+ * `image × (canvas / image)` can land 1 ulp above `canvas`.
+ */
+const FIT_EPSILON = 1e-9
 
 /**
  * Clamps zoom to [1, 16] and the centre to the image. On an axis where the
  * scaled image fits inside the canvas, the centre is fixed to the image middle.
  */
 export function clampView(vp: Viewport, view: View): View {
+  assertView(view)
   const zoom = clampZoom(view.zoom)
   const scale = fitScale(vp) * zoom
   const axis = (c: number, imageSize: number, canvasSize: number): number =>
-    imageSize * scale <= canvasSize ? imageSize / 2 : clamp(c, 0, imageSize)
+    imageSize * scale <= canvasSize * (1 + FIT_EPSILON)
+      ? imageSize / 2
+      : clamp(c, 0, imageSize)
   return {
     zoom,
     center: {
@@ -60,6 +69,7 @@ export function applyTwoFingerGesture(
   startPts: readonly [Point, Point],
   nowPts: readonly [Point, Point],
 ): View {
+  for (const p of [...startPts, ...nowPts]) assertPoint(p, 'finger point')
   const startDist = Math.hypot(
     startPts[1].x - startPts[0].x,
     startPts[1].y - startPts[0].y,
