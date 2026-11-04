@@ -1,6 +1,6 @@
 # 0003 — Selection model, edit commands, undo/redo, density, serialization
 
-- **Status:** Approved
+- **Status:** Implemented
 - **Issues:** story #20; tasks #21 (model), #22 (edit commands), #23 (history), #24 (density), #25 (serialization)
 - **Plan reference:** §3 (crop modes), §3.2 (dots), §3.6 (undo), §4 (selection model), §8 (saved selections), Phase 2
 - **Code:** `src/core/selection/`, `src/core/history/`. Pure TypeScript, no DOM imports. All coordinates are imagePts (image pixels, float, y down).
