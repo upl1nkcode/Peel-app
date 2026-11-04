@@ -1,4 +1,3 @@
-import { isDegenerateRing } from '../geometry/polygon'
 import type { Node, Point, Size } from '../geometry/types'
 import { FEATHER_RANGE, MIN_RING_NODES, SOFT_EDGE_BAND_RANGE } from './commands'
 import {
@@ -100,8 +99,10 @@ function readRing(v: unknown, path: string): Ring {
     )
     return { x: p.x, y: p.y, kind }
   })
-  if (nodes.length < MIN_RING_NODES || isDegenerateRing(nodes)) {
-    fail(`${path}.nodes`, 'a ring needs at least 3 dots not all on one line')
+  // Collinear rings are accepted: moving or deleting dots can make one, and
+  // every selection the commands can reach must reopen (AC-26).
+  if (nodes.length < MIN_RING_NODES) {
+    fail(`${path}.nodes`, 'a ring needs at least 3 dots')
   }
   return { op, nodes }
 }

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import { mulberry32 } from '../../test/random'
 import type { Node, Point, Size } from '../geometry/types'
+import { applyCommand } from './commands'
+import { emptySelection } from './model'
 import {
   InvalidSelectionError,
   UnsupportedSelectionVersionError,
@@ -159,6 +161,32 @@ describe('selection JSON', () => {
     expect(Object.keys(doc.selection as object)).not.toContain('softEdge')
   })
 
+  // AC-26: every selection the commands can reach must reopen
+  it('should_round_trip_rings_made_collinear_by_edits', () => {
+    const corner = (x: number, y: number): Node => ({ x, y, kind: 'corner' })
+    let sel = applyCommand(emptySelection(), {
+      type: 'addRing',
+      nodes: [corner(0, 0), corner(50, 0), corner(100, 0), corner(50, 50)],
+    })
+    sel = applyCommand(sel, { type: 'deleteNode', ring: 0, node: 3 })
+    expect(
+      parseSelection(serializeSelection(sel, imageSize)).selection,
+    ).toEqual(sel)
+    let tri = applyCommand(emptySelection(), {
+      type: 'addRing',
+      nodes: [corner(0, 0), corner(10, 0), corner(0, 10)],
+    })
+    tri = applyCommand(tri, {
+      type: 'moveNode',
+      ring: 0,
+      node: 2,
+      to: { x: 0, y: 0 },
+    })
+    expect(
+      parseSelection(serializeSelection(tri, imageSize)).selection,
+    ).toEqual(tri)
+  })
+
   // Review Focus 5
   it('should_normalise_negative_zero', () => {
     const sel: Selection = {
@@ -256,16 +284,6 @@ describe('selection JSON', () => {
     [
       'a ring with 2 nodes',
       () => mutated(nodes, awkward.rings[0]?.nodes.slice(0, 2)),
-      nodes,
-    ],
-    [
-      'a collinear ring',
-      () =>
-        mutated(nodes, [
-          { x: 0, y: 0, kind: 'corner' },
-          { x: 1, y: 1, kind: 'corner' },
-          { x: 2, y: 2, kind: 'corner' },
-        ]),
       nodes,
     ],
     [
