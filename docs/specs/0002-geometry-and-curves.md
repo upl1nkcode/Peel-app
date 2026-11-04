@@ -26,7 +26,7 @@ Smoothing is Chaikin corner cutting on a closed ring (cut at ¼ and ¾ of each e
 - **AC-5** Given strength 0, then the output equals the input (same points, same order).
 - **AC-6** Given a ring of n points and strength k, then the output has `n · 2ᵏ` points.
 - **AC-7** Given a square and any strength, then every output point lies within the square's original bounds.
-- **AC-8** Given a noisy circle (radius 100, ±1 px noise, ≥ 200 samples), when running the lasso pipeline (dedupe → smooth strength 1 → simplify ε = 0.75), then every output point is within 1.5 px of the true circle, the enclosed area is within 1% of the true area, and the point count is below 10% of the input count.
+- **AC-8** Given a noisy circle (radius 100, ±1 px noise, ≥ 200 samples), when running the lasso pipeline (dedupe → smooth strength 1 → simplify ε = 1.0), then every output point is within 1.5 px of the true circle, the enclosed area is within 1% of the true area, and the point count is below 25% of the input count. *(Revised 2026-11-04: the first draft had ε = 0.75 and 10%, which cannot pass. With ±1 px per-sample jitter, RDP has to keep jitter larger than ε, and even a perfect circle needs about 26 points at ε = 0.75. Measured at ε = 1.0 over 20 seeds with 240 samples: worst error 0.99 px, worst area error 0.40%, at most 48 points.)*
 
 ### Simplification (#17)
 Ramer–Douglas–Peucker with epsilon in image pixels (sub-pixel values allowed). `simplifyPath` for open paths (endpoints kept); `simplifyRing` for rings (start from the two mutually farthest points so the result does not depend on where the user began).
@@ -72,7 +72,7 @@ area(ring): number
 bounds(ring): Bounds
 orientation(ring): 'cw' | 'ccw'
 contains(point, ring): boolean
-refineLasso(ring, { strength, epsilon }): Point[]   // smoothRing then simplifyRing; DEFAULT_LASSO_REFINE = { strength: 1, epsilon: 0.75 }
+refineLasso(ring, { strength, epsilon }): Point[]   // smoothRing then simplifyRing; DEFAULT_LASSO_REFINE = { strength: 1, epsilon: 1.0 }
 pointOnSegment(segment, t): Point
 ```
 
@@ -86,4 +86,4 @@ Flattening Béziers to polylines and anti-aliased rasterization (Phase 3), conto
 1. Smoothing is Chaikin (matches the "points per iteration" criterion in #16), strength = integer iterations; default in the lasso is 1. Chaikin rounds sharp corners slightly, which is why strength 0 exists and corner-heavy objects use dots to restore them.
 2. Rings never repeat the first point; closure is implicit everywhere.
 3. `contains` includes the boundary and uses nonzero winding to match the planned renderer.
-4. The noisy-circle accuracy bounds in AC-8 (1.5 px, 1%, 10%) are my starting values; if they prove unrealistic we change the spec first, then the test.
+4. The noisy-circle accuracy bounds in AC-8 started as 1.5 px, 1% and 10% with ε = 0.75. They proved unrealistic. On 2026-11-04 the product owner chose ε = 1.0 with a 25% point-count bound; the accuracy bounds are unchanged.
