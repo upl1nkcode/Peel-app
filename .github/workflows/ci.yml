@@ -27,6 +27,8 @@ jobs:
       - run: npm run typecheck
       - run: npm run format:check
       - run: npm run test:coverage
+      # Timing budgets (AC-23) run uninstrumented; coverage slows code ~3x.
+      - run: npm run test:perf
       - uses: actions/upload-artifact@v7
         if: always()
         with:

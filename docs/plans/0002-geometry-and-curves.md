@@ -15,7 +15,7 @@
 - `src/core/` has no DOM/React/browser imports; coordinates are image pixels (float, y down).
 - Rings never repeat the first point; closure is implicit. Orientation is reported as seen on screen: positive shoelace sum = `'cw'`.
 - Lasso dedupe distance **0.5** px; smoothing strength is an integer **0–4** (Chaikin ¼/¾); Catmull-Rom is **centripetal (α = 0.5)**.
-- Accuracy test values (AC-8): radius 100, ±1 px noise, within **1.5 px**, area within **1%**, point count below **10%**.
+- Accuracy test values (AC-8): radius 100, ±1 px noise, within **1.5 px**, area within **1%**, point count below **25%** with ε = **1.0** (revised from 10% / 0.75, see spec AC-8).
 - Test names `should_...` with the AC id; seeded randomness only (no `Math.random` in tests); coverage for `src/core/` ≥ 90%.
 - Branch `feat/14-19-geometry-and-curves`; one commit per task; Conventional Commits.
 
@@ -156,9 +156,9 @@ Each is pinned by a test in the owning task and added to the spec as an AC (AC-2
 
 **Interfaces:**
 - Consumes: `createLasso`, `smoothRing`, `simplifyRing`, `area`, `SmoothStrength`
-- Produces: `refineLasso(ring: readonly Point[], options: { strength: SmoothStrength; epsilon: number }): Point[]` (smooth then simplify); default options exported as `DEFAULT_LASSO_REFINE = { strength: 1, epsilon: 0.75 }`
+- Produces: `refineLasso(ring: readonly Point[], options: { strength: SmoothStrength; epsilon: number }): Point[]` (smooth then simplify); default options exported as `DEFAULT_LASSO_REFINE = { strength: 1, epsilon: 1.0 }`
 
-- [ ] **Step 1: Write the failing test:** `should_turn_a_noisy_circle_into_a_clean_ring_within_tolerance` (AC-8): seeded ±1 px noise on a radius-100 circle with 240 samples run through `createLasso().addMany(...).close()` then `refineLasso(ring, DEFAULT_LASSO_REFINE)`; assert every output point is within 1.5 px of the true circle, the area is within 1% of `π·100²`, and the point count is below 24.
+- [ ] **Step 1: Write the failing test:** `should_turn_a_noisy_circle_into_a_clean_ring_within_tolerance` (AC-8): seeded ±1 px noise on a radius-100 circle with 240 samples run through `createLasso().addMany(...).close()` then `refineLasso(ring, DEFAULT_LASSO_REFINE)`; assert every output point is within 1.5 px of the true circle, the area is within 1% of `π·100²`, and the point count is below 60 (25%).
 - [ ] **Step 2: Run** `npm test -- refine` — Expected: FAIL.
 - [ ] **Step 3: Implement** `refineLasso` as `simplifyRing(smoothRing(ring, strength), epsilon)`.
 - [ ] **Step 4: Run** the full verification: `npm run lint && npm run typecheck && npm run test:coverage` — Expected: all PASS, `src/core/` coverage ≥ 90%. If AC-8 fails, stop and change the spec's numbers first, then the test.
