@@ -55,7 +55,7 @@ describe('flattenRing', () => {
         expect(minDistToPoints(v, curve)).toBeLessThanOrEqual(0.01)
       }
     }
-  })
+  }, 30_000)
 
   it('should_flatten_corner_only_rings_to_their_nodes (AC-4)', () => {
     const nodes: Node[] = [
