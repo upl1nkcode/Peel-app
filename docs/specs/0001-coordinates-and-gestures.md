@@ -1,6 +1,6 @@
 # 0001 — Coordinates, gestures and hit-testing
 
-- **Status:** Draft
+- **Status:** Approved
 - **Issues:** story #9; tasks #10 (transforms), #11 (gesture state machine), #12 (pinch/pan math), #13 (hit-testing)
 - **Plan reference:** §3.6, §4, §7 (gesture rules), Phase 1
 - **Code:** `src/core/coords/`, `src/core/gestures/`, `src/core/geometry/hitTest.ts` — pure TypeScript, no DOM imports.
@@ -21,7 +21,7 @@ Precision is the product. If a touch is mapped to the wrong image pixel at some 
 ## What
 
 ### Transforms (#10)
-- **AC-1** Given any viewport with dpr 1, 2 or 3 and zoom from 1 to 16, when a canvasPt is converted to imagePt and back, then the result differs from the original by < 0.01 px.
+- **AC-1** Given any viewport with dpr 1, 2 or 3 and zoom from 1 to 16, when a canvasPt is converted to imagePt and back, then the result differs from the original by < 0.01 px. Fractional dpr (e.g. 2.625) and fractional canvas sizes are included.
 - **AC-2** Given zoom 1 on a portrait or landscape image in a canvas of a different aspect ratio, when mapping the four image corners to canvas space, then the image is centered, touches the canvas on its limiting axis, and has equal letterbox margins on the other.
 - **AC-3** Given a known viewport/view, when converting specific canvasPts (center, corners, off-image margin), then imagePts match hand-computed values (table test). Points outside the image give imagePts outside `[0,width]×[0,height]` rather than being clamped.
 - **AC-4** Given a clientX/Y and the canvas rect origin, then `screenToCanvas` subtracts the origin; `canvasToDevice` multiplies by dpr.
@@ -43,6 +43,7 @@ Actions: `toolStart`, `toolMove`, `toolEnd`, `toolCancel` (carry the pointer's p
 - **AC-12** Given two pointers down, when either lifts, then `viewEnd` is emitted, and the remaining pointer does **not** start a tool stroke. A new stroke can only start after all pointers are up.
 - **AC-13** Given every lift order of two and of three pointers (including simultaneous lift and `cancel` events), then the machine never emits a `tool*` action after `toolCancel` and ends in the idle state with no pointers tracked. A third pointer is ignored while two are active.
 - **AC-14** Given `move`/`up` events for an unknown pointerId, then they are ignored without error.
+- **AC-21** Given a `cancel` event for one of two active pointers, or a `down` for a pointerId that is already down, then no error is thrown and no stray `tool*` action is emitted.
 - **No delay:** `toolStart` fires immediately on the first touch. The cancel in AC-10 is what guarantees "no accidental marks", so every tool must support `toolCancel` by discarding its in-progress stroke.
 
 ### Hit-testing (#13)
@@ -52,6 +53,11 @@ Distances are measured in canvas CSS px after transforming, so the touch radius 
 - **AC-16** Given a touch equally close to two nodes (or two edges), then the lower index wins, every time.
 - **AC-17** Given edges as polylines (`Point[][]`, a straight edge is 2 points; curved edges are passed pre-flattened), when finding the nearest edge, then it returns `{edgeIndex, t, imagePt, distancePx}` where `t ∈ [0,1]` is the arc-length fraction along that edge and `imagePt` is the closest point on it; `null` if farther than the radius.
 - **AC-18** Given a touch within radius of both a node and an edge that ends at that node, then node hit-testing is separate from edge hit-testing; the caller decides priority (the dots tool prefers the node).
+
+### Degenerate input (all modules)
+- **AC-19** Given a viewport with zero or negative canvas/image size, non-positive dpr, or a view with non-finite zoom or center, then transforms throw `RangeError` (never return NaN).
+- **AC-20** Given a two-finger gesture whose start fingers coincide (distance 0), then zoom is unchanged, no NaN appears, and pan still applies.
+- **AC-22** Given empty node/edge lists or an edge with duplicate points (zero length), then hit-testing returns `null` / `t = 0` and never NaN.
 
 ## Contract
 ```ts

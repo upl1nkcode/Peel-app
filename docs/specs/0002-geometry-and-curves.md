@@ -1,6 +1,6 @@
 # 0002 — Lasso paths, smoothing, simplification, curves, polygons
 
-- **Status:** Draft
+- **Status:** Approved
 - **Issues:** story #14; tasks #15 (lasso recording), #16 (smoothing), #17 (RDP), #18 (Catmull-Rom to Bézier), #19 (polygon utilities)
 - **Plan reference:** §3.2, §3.3, §4, Phase 1
 - **Code:** `src/core/geometry/` — pure TypeScript, no DOM imports. All coordinates are imagePts (image pixels, float, y down).
@@ -50,6 +50,14 @@ Centripetal Catmull-Rom (α = 0.5) converted to cubic Bézier segments `{p0, c1,
 - **AC-21** Points exactly on an edge or vertex count as inside (documented, tested); points just outside by 1e-6 do not.
 - **AC-22** Degenerate rings (fewer than 3 points, zero area) give `area = 0`, `contains = false`, and do not throw.
 
+### Robustness (all modules)
+- **AC-23** Given 50,000 raw samples, then smoothing and simplification complete in under 100 ms without stack overflow (RDP is iterative).
+- **AC-24** Given a self-intersecting ring, then `area`, `signedArea` and `contains` return finite results.
+- **AC-25** Given all-identical or all-collinear points, then smoothing, simplification and Bézier conversion return finite numbers and do not throw.
+- **AC-26** Given a ring, then `simplifyRing` returns the same point set regardless of which point the ring starts at.
+- **AC-27** Given 3 raw points all within 0.4 px of each other, then `close()` throws `InvalidLassoError` (they dedupe to fewer than 3).
+- **AC-28** Given 2 or 3 nodes (closed or open), then `toBezierSegments` returns finite segments (2 closed nodes give 2 straight segments; fewer than 2 nodes give `[]`).
+
 ## Contract
 ```ts
 // src/core/geometry
@@ -64,6 +72,8 @@ area(ring): number
 bounds(ring): Bounds
 orientation(ring): 'cw' | 'ccw'
 contains(point, ring): boolean
+refineLasso(ring, { strength, epsilon }): Point[]   // smoothRing then simplifyRing; DEFAULT_LASSO_REFINE = { strength: 1, epsilon: 0.75 }
+pointOnSegment(segment, t): Point
 ```
 
 ## Data
