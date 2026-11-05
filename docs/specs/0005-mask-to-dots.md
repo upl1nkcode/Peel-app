@@ -9,7 +9,7 @@ Automatic cutouts (Phase 6) give a soft mask, not an outline. To fix a mistake t
 
 ## Decisions in this spec (please check these)
 1. **Nothing is dropped** (decided 2026-11-04 by the product owner). Every island and every hole becomes a ring, however small. This is the most exact option; the user can remove pieces by hand.
-2. **Dots follow the contour within 0.5 px.** The drawn curve (Béziers) of the dots stays within 0.5 image px of the traced 50% line, in both directions, as spec 0003 AC-21 checks density. The plan asks for "sub-pixel tolerance"; 0.5 px is half a pixel.
+2. **Dots follow the contour within 0.5 px on soft edges and 1 px on hard edges** (hard-edge rule decided 2026-11-05 by the product owner: "follow the true shape"). The drawn curve (Béziers) of the dots is checked against the traced 50% line in both directions, as spec 0003 AC-21 checks density. A contour point is on a *hard* edge when the two pixel values it lies between are exactly 0 and exactly 1 (255 in an 8-bit mask). There the traced line is a pixel staircase up to about 0.5 px either side of the real shape. Holding dots within 0.5 px of the steps would need about 150 dots on a hard-edged circle of radius 100 px; with 1 px they follow the real shape with about 25. Soft edges, such as the AI model's masks, keep 0.5 px.
 3. **A dot is a corner when the outline turns by 45° or more** within 2 px of it, measured between the chords to the contour points 2 px of arc before and after. Only the sharpest dot of each turn becomes the corner. Gentler turns are smooth. So rectangles keep sharp corners, and circles with a radius of 3 px or more stay smooth (they turn by 2/r radians over that span).
 4. **Diagonal touches join.** Where two selected pixels touch only at a corner, they belong to the same ring (the marching-squares saddle is settled by the average of the four samples: at least 50% joins the selected sides).
 
@@ -31,15 +31,15 @@ As spec 0004: pixel `(i, j)` covers `[i, i+1) × [j, j+1)`, and its mask value i
 - **AC-8** Nothing is dropped: a single selected pixel gives its own ring, and a single unselected pixel inside a subject gives its own `subtract` ring (Decision 1). Ring order is deterministic for the same mask.
 
 ### Dots and corners (#36)
-- **AC-9** For every ring, the drawn curve of its dots stays within 0.5 px of the traced contour, in both directions. This is checked on points sampled along both, at most every 0.1 px.
+- **AC-9** For every ring, the drawn curve of its dots stays within the tolerance of the traced contour, in both directions: 0.5 px, or 1 px along hard edges (Decision 2). This is checked on points sampled along both, at most every 0.1 px. A contour sample must be within the tolerance of its own edge; a curve sample must be within the tolerance of the nearest contour point (1 px if that point is on a hard edge).
 - **AC-10** A rectangle of at least 4 × 4 px gives exactly 4 dots, all `corner`, each within 0.5 px of the true corner.
-- **AC-11** A circle (binary or anti-aliased) with a radius from 10 to 200 px gives only `smooth` dots, at most `⌈4·√r⌉ + 4` of them (44 at r = 100; the traced contour has about 600 points there).
+- **AC-11** A circle (hard-edged or anti-aliased) with a radius from 10 to 200 px gives only `smooth` dots, at most `⌈4·√r⌉ + 4` of them (44 at r = 100; the traced contour has about 600 points there). For a hard-edged circle the drawn curve stays within 0.75 px of the true circle: it follows the shape, not the pixel steps.
 - **AC-12** A shape with both, such as a rounded rectangle or a "D" (half disc), has corner dots exactly at its sharp corners and smooth dots on its curves.
 - **AC-13** Every ring has at least 3 dots, even a single selected pixel (it becomes 4 dots), so every result is a valid `Ring` for spec 0003.
 
 ### Round trip (#37)
 - **AC-14** For each fixture, rendering the rings (spec 0004 `renderMask`) and thresholding the result at 50% gives an IoU of at least 0.99 with the original mask thresholded at 50%. Fixtures: circle, rounded rectangle, donut, two blobs, island in a hole, five-pointed star, a "D", a soft blurred blob, and a seeded random blobby shape. Each is 256 × 256 px or larger.
-- **AC-15** Stricter than IoU: a pixel may change side (selected or not) only if its centre is within 1 px of the traced contour. No pixel far from an edge ever changes.
+- **AC-15** Stricter than IoU: a pixel may change side (selected or not) only if its centre is within 1 px of the traced contour (1.5 px along hard edges). No pixel far from an edge ever changes.
 
 ### Speed
 - **AC-16** Turning a 4032 × 3024 mask of a person-like shape (one subject with two holes, about 12,000 px of outline in all) into rings takes < 500 ms on desktop CI. This is a `*.perf.test.ts`.
@@ -49,12 +49,15 @@ As spec 0004: pixel `(i, j)` covers `[i, i+1) × [j, j+1)`, and its mask value i
 // src/core/contour/ — pure, no DOM
 export interface CoverageMask { width: number; height: number; data: Float32Array } // 0..1
 export function fromAlphaMask(mask: AlphaMask): CoverageMask
-export function traceContours(mask: CoverageMask): Point[][] // closed polylines, first point not repeated
-export function contoursToRings(contours: readonly (readonly Point[])[]): Ring[] // depth order, add/subtract
-export function contourToNodes(contour: readonly Point[]): Node[] // dots + corner/smooth
+/** A closed traced line (first point not repeated); hard[k] marks points between exact 0 and 1 values. */
+export interface Contour { points: Point[]; hard: boolean[] }
+export function traceContours(mask: CoverageMask): Contour[]
+export function contoursToRings(contours: readonly Contour[]): Ring[] // depth order, add/subtract
+export function contourToNodes(contour: Contour): Node[] // dots + corner/smooth
 export function maskToRings(mask: CoverageMask): Ring[] // all of the above
 export const CONTOUR_LEVEL = 0.5
-export const DOT_TOLERANCE_PX = 0.5
+export const DOT_TOLERANCE_PX = 0.5 // soft edges
+export const HARD_EDGE_TOLERANCE_PX = 1 // where the traced line runs between exact 0 and 1 values
 export const CORNER_ANGLE_DEG = 45
 export const CORNER_SUPPORT_PX = 2
 ```
