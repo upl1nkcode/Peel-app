@@ -22,6 +22,12 @@ const MARGIN = 0.06
  */
 const CHORD_FRACTION = 2
 
+/** Trace segments this much farther than the nearest still lend their (smaller) tolerance. */
+const NEAR_TIE_PX = 0.15
+
+/** A failing gap with no trace point to insert. */
+const STUCK = 'stuck'
+
 const hypot = (ax: number, ay: number) => Math.sqrt(ax * ax + ay * ay)
 
 /** Distance from (px, py) to the segment (ax, ay)–(bx, by). */
@@ -82,14 +88,66 @@ function intersect(a: Point, b: Point, c: Point, d: Point): Point | undefined {
 export function contourToNodes(contour: Contour): Node[] {
   const { points, hard } = contour
   const n = points.length
+  /** Index into the closed contour, for any integer k (also negative). */
+  const wrap = (k: number) => ((k % n) + n) % n
   const vertexTol = (k: number) =>
-    hard[k % n] ? HARD_EDGE_TOLERANCE_PX : DOT_TOLERANCE_PX
+    hard[wrap(k)] ? HARD_EDGE_TOLERANCE_PX : DOT_TOLERANCE_PX
   const segTol = (k: number) =>
-    hard[k % n] && hard[(k + 1) % n] ? HARD_EDGE_TOLERANCE_PX : DOT_TOLERANCE_PX
-  const at = (k: number) => points[k % n] as Point
+    hard[wrap(k)] && hard[wrap(k + 1)]
+      ? HARD_EDGE_TOLERANCE_PX
+      : DOT_TOLERANCE_PX
+  const at = (k: number) => points[wrap(k)] as Point
   // Smooth dots on hard edges sit on the staircase smoothed once: closer to the true shape.
   const placed = smoothHard(points, hard)
-  const place = (k: number) => placed[k % n] as Point
+  const place = (k: number) => placed[wrap(k)] as Point
+
+  // Soft trace segments on a 2 px grid: a curve sample near both a hard and a
+  // soft segment must meet the soft tolerance (AC-9 takes the nearest trace
+  // point, which may lie in another gap's span or across a thin feature).
+  const softCells = new Map<number, number[]>()
+  const cellKey = (i: number, j: number) => i * 65_537 + j
+  for (let k = 0; k < n; k++) {
+    if (segTol(k) !== DOT_TOLERANCE_PX) continue
+    const p = at(k)
+    const q = at(k + 1)
+    for (
+      let i = Math.floor(Math.min(p.x, q.x) / 2);
+      i <= Math.floor(Math.max(p.x, q.x) / 2);
+      i++
+    ) {
+      for (
+        let j = Math.floor(Math.min(p.y, q.y) / 2);
+        j <= Math.floor(Math.max(p.y, q.y) / 2);
+        j++
+      ) {
+        const list = softCells.get(cellKey(i, j))
+        if (list) list.push(k)
+        else softCells.set(cellKey(i, j), [k])
+      }
+    }
+  }
+  const softWithin = (x: number, y: number, r: number): boolean => {
+    for (let i = Math.floor((x - r) / 2); i <= Math.floor((x + r) / 2); i++) {
+      for (let j = Math.floor((y - r) / 2); j <= Math.floor((y + r) / 2); j++) {
+        for (const k of softCells.get(cellKey(i, j)) ?? []) {
+          const p = at(k)
+          const q = at(k + 1)
+          if (segDistXY(x, y, p.x, p.y, q.x, q.y) <= r) return true
+        }
+      }
+    }
+    return false
+  }
+  /** Tolerance (less the margin) for a curve sample at distance d from trace segment k. */
+  const curveTol = (x: number, y: number, d: number, k: number): number => {
+    const tol = segTol(k)
+    if (tol === DOT_TOLERANCE_PX || d <= DOT_TOLERANCE_PX - MARGIN) {
+      return tol - MARGIN
+    }
+    return softWithin(x, y, d + NEAR_TIE_PX)
+      ? DOT_TOLERANCE_PX - MARGIN
+      : tol - MARGIN
+  }
 
   // 1. Corners, each moved to where its two edges meet when that stays within tolerance.
   const corners = findCorners(points, hard)
@@ -205,16 +263,18 @@ export function contourToNodes(contour: Contour): Node[] {
   while (dirty.size > 0) {
     const segments = toBezierSegments(toNodes(), true)
     const inserts: number[] = []
+    const settled: number[] = []
     for (const g of dirty) {
       const a = dots[g] as number
       const b0 = dots[(g + 1) % dots.length] as number
       const b = b0 > a ? b0 : b0 + n
       const worst = checkGap(segments[g] as BezierSegment, a, b)
-      if (worst !== undefined) inserts.push(worst % n)
+      if (worst === STUCK) settled.push(...settle(a, b0))
+      else if (worst !== undefined) inserts.push(wrap(worst))
     }
-    if (inserts.length === 0) break
+    if (inserts.length === 0 && settled.length === 0) break
     const next = [...new Set([...dots, ...inserts])].sort((x, y) => x - y)
-    const added = new Set(inserts)
+    const added = new Set([...inserts, ...settled])
     dirty = new Set()
     for (const [g, k] of next.entries()) {
       if (!added.has(k)) continue
@@ -226,15 +286,44 @@ export function contourToNodes(contour: Contour): Node[] {
   return toNodes()
 
   /**
+   * A failing gap between neighbouring trace points has nothing to insert.
+   * First move a moved corner at either end halfway back toward the trace
+   * (onto it once within 0.02 px), keeping it as near the edges' meeting point
+   * as the tolerance allows; failing that, make smooth ends corners on the
+   * trace, so the gap is drawn as the trace segment itself. Returns the dots
+   * changed (none: nothing left to do).
+   */
+  function settle(a: number, b: number): number[] {
+    const changed: number[] = []
+    for (const k of [a, b]) {
+      const c = cornerAt.get(k)
+      const raw = at(k)
+      if (!c || (c.x === raw.x && c.y === raw.y)) continue
+      const half = { x: (c.x + raw.x) / 2, y: (c.y + raw.y) / 2 }
+      const close = hypot(half.x - raw.x, half.y - raw.y) < 0.02
+      cornerAt.set(k, close ? raw : half)
+      changed.push(k)
+    }
+    if (changed.length > 0) return changed
+    for (const k of [a, b]) {
+      if (!cornerAt.has(k)) {
+        cornerAt.set(k, at(k))
+        changed.push(k)
+      }
+    }
+    return changed
+  }
+
+  /**
    * The contour index (strictly between a and b) to insert when the curve of
-   * this gap strays from the trace from a to b, or undefined when it does not
-   * (or there is no point to insert).
+   * this gap strays from the trace from a to b, STUCK when it strays but the
+   * gap has no interior point, or undefined when it does not stray.
    */
   function checkGap(
     seg: BezierSegment,
     a: number,
     b: number,
-  ): number | undefined {
+  ): number | typeof STUCK | undefined {
     const m = b - a // trace segments
     const tx = new Float64Array(m + 1)
     const ty = new Float64Array(m + 1)
@@ -318,11 +407,11 @@ export function contourToNodes(contour: Contour): Node[] {
       const x = cx[i] as number
       const y = cy[i] as number
       let hit = nearestTrace(x, y, tp - 3, tp + 3)
-      if (!gap.failing && hit.d > segTol(a + hit.k) - MARGIN) {
+      if (!gap.failing && hit.d > curveTol(x, y, hit.d, a + hit.k)) {
         hit = nearestTrace(x, y, 0, m - 1)
       }
       tp = hit.k
-      record(hit.d - (segTol(a + hit.k) - MARGIN), x, y)
+      record(hit.d - curveTol(x, y, hit.d, a + hit.k), x, y)
     }
     // Trace → curve: samples along each trace segment within that segment's tolerance.
     let cp = 0
@@ -333,7 +422,8 @@ export function contourToNodes(contour: Contour): Node[] {
       const qy = ty[k + 1] as number
       const tol = segTol(a + k) - MARGIN
       const steps = Math.max(1, Math.ceil(hypot(qx - px, qy - py) / STEP))
-      for (let s = k === 0 ? 0 : 1; s <= steps; s++) {
+      // Shared vertices are checked with both of their segments' tolerances.
+      for (let s = 0; s <= steps; s++) {
         const t = s / steps
         const x = px + (qx - px) * t
         const y = py + (qy - py) * t
@@ -343,7 +433,8 @@ export function contourToNodes(contour: Contour): Node[] {
         record(hit.d - tol, x, y)
       }
     }
-    if (!gap.failing || b - a < 2) return undefined
+    if (!gap.failing) return undefined
+    if (b - a < 2) return STUCK
     const worstAt = { x: worstX, y: worstY }
     // Insert the interior trace point nearest the worst sample.
     let pick = a + 1
