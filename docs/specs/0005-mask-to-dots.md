@@ -1,6 +1,6 @@
 # 0005 — Mask to dots: contours, holes, corners, round trip
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Issues:** story #33; tasks #34 (marching squares), #35 (holes by orientation), #36 (corner vs smooth), #37 (round-trip accuracy)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §4 ("Auto → dots"), Phase 4
 
