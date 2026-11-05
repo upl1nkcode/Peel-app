@@ -2,6 +2,10 @@ import type { Point } from '../geometry/types'
 import { signedArea } from '../geometry/polygon'
 import { CONTOUR_LEVEL, type Contour, type CoverageMask } from './types'
 
+const LEVEL_BITS = new Int32Array(
+  new Float32Array([CONTOUR_LEVEL]).buffer,
+)[0] as number
+
 /**
  * Marching squares over pixel centres. The sample grid is padded by one ring
  * of zeros, so grid sample (X, Y) is pixel (X − 1, Y − 1), centred at
@@ -23,63 +27,87 @@ export function traceContours(mask: CoverageMask): Contour[] {
       ? (data[(Y - 1) * W + X - 1] as number)
       : 0
 
+  // For non-negative floats, v ≥ 0.5 exactly when the IEEE bit pattern is ≥
+  // that of 0.5 (0x3F000000); negative values read as negative integers.
+  const bits = new Int32Array(data.buffer, data.byteOffset, data.length)
   const next = new Map<number, number>()
-  let top = new Uint8Array(GW)
-  let bottom = new Uint8Array(GW)
+  // Rows of the padded grid packed 32 samples per word: bit X set when selected.
+  const NW = ((GW + 31) >>> 5) + 1
+  let top = new Int32Array(NW)
+  let bottom = new Int32Array(NW)
+  const bit = (row: Int32Array, X: number): number =>
+    ((row[X >>> 5] as number) >>> (X & 31)) & 1
   // Crossings in clockwise order around a cell (top, right, bottom, left).
+  const corners = [0, 0, 0, 0]
+  const ids = [0, 0, 0, 0]
   const edges = [0, 0, 0, 0]
   const entering = [false, false, false, false]
+
+  const cell = (X: number, Y: number) => {
+    corners[0] = bit(top, X)
+    corners[1] = bit(top, X + 1)
+    corners[2] = bit(bottom, X + 1)
+    corners[3] = bit(bottom, X)
+    const s = Y * GW + X
+    ids[0] = 2 * s
+    ids[1] = 2 * (s + 1) + 1
+    ids[2] = 2 * (s + GW)
+    ids[3] = 2 * s + 1
+    let n = 0
+    for (let k = 0; k < 4; k++) {
+      const a = corners[k] as number
+      const b = corners[(k + 1) % 4] as number
+      if (a !== b) {
+        edges[n] = ids[k] as number
+        entering[n] = b === 1
+        n++
+      }
+    }
+    if (n === 2) {
+      if (entering[0]) next.set(edges[0] as number, edges[1] as number)
+      else next.set(edges[1] as number, edges[0] as number)
+      return
+    }
+    // Saddle: crossings alternate exit/entry around the cell.
+    const mean =
+      (value(X, Y) + value(X + 1, Y) + value(X + 1, Y + 1) + value(X, Y + 1)) /
+      4
+    const joined = mean >= CONTOUR_LEVEL
+    for (let k = 0; k < 4; k++) {
+      if (!entering[k]) continue
+      const exit = joined ? (k + 3) % 4 : (k + 1) % 4
+      next.set(edges[k] as number, edges[exit] as number)
+    }
+  }
 
   for (let Y = 0; Y <= H; Y++) {
     ;[top, bottom] = [bottom, top]
     if (Y === 0) top.fill(0)
     bottom.fill(0)
     if (Y + 1 <= H) {
-      const row = Y * W
-      for (let X = 1; X <= W; X++) {
-        bottom[X] = (data[row + X - 1] as number) >= CONTOUR_LEVEL ? 1 : 0
+      const row = Y * W - 1
+      for (let w = 0; w <= W >>> 5; w++) {
+        const x0 = w << 5
+        const hi = Math.min(W, x0 + 31)
+        let word = 0
+        for (let X = Math.max(1, x0); X <= hi; X++) {
+          if ((bits[row + X] as number) >= LEVEL_BITS) word |= 1 << (X - x0)
+        }
+        bottom[w] = word
       }
     }
-    for (let X = 0; X <= W; X++) {
-      const tl = top[X] as number
-      const tr = top[X + 1] as number
-      const br = bottom[X + 1] as number
-      const bl = bottom[X] as number
-      const sum = tl + tr + br + bl
-      if (sum === 0 || sum === 4) continue
-
-      const s = Y * GW + X
-      const corners = [tl, tr, br, bl]
-      const ids = [2 * s, 2 * (s + 1) + 1, 2 * (s + GW), 2 * s + 1]
-      let n = 0
-      for (let k = 0; k < 4; k++) {
-        const a = corners[k] as number
-        const b = corners[(k + 1) % 4] as number
-        if (a !== b) {
-          edges[n] = ids[k] as number
-          entering[n] = b === 1
-          n++
-        }
-      }
-      if (n === 2) {
-        const [entry, exit] = entering[0]
-          ? [edges[0], edges[1]]
-          : [edges[1], edges[0]]
-        next.set(entry as number, exit as number)
-        continue
-      }
-      // Saddle: crossings alternate exit/entry around the cell.
-      const mean =
-        (value(X, Y) +
-          value(X + 1, Y) +
-          value(X + 1, Y + 1) +
-          value(X, Y + 1)) /
-        4
-      const joined = mean >= CONTOUR_LEVEL
-      for (let k = 0; k < 4; k++) {
-        if (!entering[k]) continue
-        const exit = joined ? (k + 3) % 4 : (k + 1) % 4
-        next.set(edges[k] as number, edges[exit] as number)
+    // Cell X is active unless its four corners agree: tl ≠ tr, bl ≠ br or tl ≠ bl.
+    for (let w = 0; w + 1 < NW; w++) {
+      const t = top[w] as number
+      const b = bottom[w] as number
+      const hTop = t ^ ((t >>> 1) | ((top[w + 1] as number) << 31))
+      const hBottom = b ^ ((b >>> 1) | ((bottom[w + 1] as number) << 31))
+      let active = hTop | hBottom | (t ^ b)
+      while (active !== 0) {
+        const low = active & -active
+        active ^= low
+        const X = (w << 5) + 31 - Math.clz32(low)
+        if (X <= W) cell(X, Y)
       }
     }
   }

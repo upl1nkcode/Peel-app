@@ -2,7 +2,8 @@ import type { Bounds, Node, Point } from '../geometry/types'
 import { bounds, contains, signedArea } from '../geometry/polygon'
 import type { Ring } from '../selection/types'
 import { contourToNodes } from './dots'
-import type { Contour } from './types'
+import { traceContours } from './trace'
+import type { Contour, CoverageMask } from './types'
 
 /** Every contour point as a `corner` dot: the polygon of the trace itself. */
 export const cornerNodes = (contour: Contour): Node[] =>
@@ -52,4 +53,12 @@ export function contoursToRings(
       op: signedArea(c.points) < 0 ? 'add' : 'subtract',
       nodes: toNodes(c),
     }))
+}
+
+/**
+ * Spec 0005: a mask's 50% line as rings of dots, holes as `subtract` rings,
+ * in nesting order. Nothing is dropped.
+ */
+export function maskToRings(mask: CoverageMask): Ring[] {
+  return contoursToRings(traceContours(mask))
 }

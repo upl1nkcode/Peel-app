@@ -92,3 +92,21 @@ export function curveExcess(contour: Contour, nodes: readonly Node[]): number {
   }
   return excess
 }
+
+/**
+ * Distance from a point to the nearest traced contour (over all contours,
+ * sampled every 0.1 px), and whether that nearest trace sample is on a hard
+ * edge. Points farther than about 2 px get `Infinity`.
+ */
+export function traceDistance(
+  contours: readonly Contour[],
+): (p: Point) => { d: number; hard: boolean } {
+  const samples = contours.flatMap((c) => contourSamples(c))
+  const grid = new Grid(samples)
+  return (p) => {
+    const hit = grid.nearest(p)
+    return hit
+      ? { d: hit.d, hard: hit.item.tol === HARD }
+      : { d: Infinity, hard: false }
+  }
+}

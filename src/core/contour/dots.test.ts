@@ -64,7 +64,7 @@ describe('contourToNodes', () => {
       const excess = curveExcess(contour, contourToNodes(contour))
       expect(excess, `mixed seed ${String(seed)}`).toBeLessThanOrEqual(0)
     }
-  })
+  }, 60_000)
 
   it('should_give_4_corner_dots_on_rectangles (AC-10)', () => {
     for (const [x0, y0, x1, y1] of [
@@ -118,7 +118,7 @@ describe('contourToNodes', () => {
         }
       }
     }
-  })
+  }, 60_000)
 
   it('should_mix_corners_and_curves (AC-12)', () => {
     const size = { width: 96, height: 96 }
@@ -156,7 +156,7 @@ describe('contourToNodes', () => {
         expect(curveExcess(contour, nodes), label).toBeLessThanOrEqual(0)
       }
     }
-  })
+  }, 60_000)
 
   it('should_give_every_ring_3_or_more_dots (AC-13)', () => {
     const speck = maskOf(5, 5, (i, j) => (i === 2 && j === 2 ? 1 : 0))

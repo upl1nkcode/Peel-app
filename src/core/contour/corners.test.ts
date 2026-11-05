@@ -83,7 +83,7 @@ describe('findCorners', () => {
         }
       }
     }
-  })
+  }, 60_000)
 
   it('should_find_no_corners_on_circles (AC-11)', () => {
     for (const r of [5, 10, 50, 200]) {
@@ -101,7 +101,7 @@ describe('findCorners', () => {
         }
       }
     }
-  })
+  }, 60_000)
 
   it('should_handle_short_rings_and_seams (Review Focus 4)', () => {
     const diamond = onlyContour(

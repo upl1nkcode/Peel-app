@@ -24,15 +24,25 @@ const CHORD_FRACTION = 2
 
 const hypot = (ax: number, ay: number) => Math.sqrt(ax * ax + ay * ay)
 
-/** Distance from p to the segment ab. */
-function segDist(p: Point, a: Point, b: Point): number {
-  const dx = b.x - a.x
-  const dy = b.y - a.y
+/** Distance from (px, py) to the segment (ax, ay)–(bx, by). */
+function segDistXY(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const dx = bx - ax
+  const dy = by - ay
   const len2 = dx * dx + dy * dy
-  let t = len2 > 0 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2 : 0
+  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0
   t = t < 0 ? 0 : t > 1 ? 1 : t
-  return hypot(p.x - a.x - t * dx, p.y - a.y - t * dy)
+  return hypot(px - ax - t * dx, py - ay - t * dy)
 }
+
+const segDist = (p: Point, a: Point, b: Point): number =>
+  segDistXY(p.x, p.y, a.x, a.y, b.x, b.y)
 
 /** Nearest segment of a polyline: its index and the distance. */
 function nearestOnPolyline(
@@ -225,37 +235,116 @@ export function contourToNodes(contour: Contour): Node[] {
     a: number,
     b: number,
   ): number | undefined {
-    const trace: Point[] = []
-    for (let k = a; k <= b; k++) trace.push(at(k))
-    const curve = sampleSegment(seg, STEP)
-    let worstExcess = 0
-    let worstAt: Point | undefined
-    // Curve → trace: each curve sample within the tolerance of its nearest trace segment.
-    for (const c of curve) {
-      const { k, d } = nearestOnPolyline(c, trace)
-      const e = d - (segTol(a + k) - MARGIN)
-      if (e > worstExcess) {
-        worstExcess = e
-        worstAt = c
-      }
+    const m = b - a // trace segments
+    const tx = new Float64Array(m + 1)
+    const ty = new Float64Array(m + 1)
+    for (let k = 0; k <= m; k++) {
+      tx[k] = at(a + k).x
+      ty[k] = at(a + k).y
     }
-    // Trace → curve: samples along each trace segment within that segment's tolerance.
-    for (let k = 0; k + 1 < trace.length; k++) {
-      const p = trace[k] as Point
-      const q = trace[k + 1] as Point
-      const tol = segTol(a + k) - MARGIN
-      const steps = Math.max(1, Math.ceil(hypot(q.x - p.x, q.y - p.y) / STEP))
-      for (let s = 0; s <= steps; s++) {
-        const t = s / steps
-        const sample = { x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t }
-        const e = nearestOnPolyline(sample, curve).d - tol
-        if (e > worstExcess) {
-          worstExcess = e
-          worstAt = sample
+    const curve = sampleSegment(seg, STEP)
+    const nc = curve.length
+    const cx = new Float64Array(nc)
+    const cy = new Float64Array(nc)
+    for (const [i, c] of curve.entries()) {
+      cx[i] = c.x
+      cy[i] = c.y
+    }
+    let worstExcess = 0
+    let worstX = 0
+    let worstY = 0
+
+    // Both lines run the same way, so each sample first searches a small
+    // window around the previous nearest segment. A window distance can only
+    // overstate the true one, so a pass is exact; a window result over the
+    // tolerance is confirmed by a full scan until the gap is known to fail,
+    // after which window distances only steer where the next dot goes.
+    const nearestTrace = (x: number, y: number, from: number, to: number) => {
+      let d = Infinity
+      let k = from
+      for (let j = Math.max(0, from); j <= Math.min(m - 1, to); j++) {
+        const dj = segDistXY(
+          x,
+          y,
+          tx[j] as number,
+          ty[j] as number,
+          tx[j + 1] as number,
+          ty[j + 1] as number,
+        )
+        if (dj < d) {
+          d = dj
+          k = j
         }
       }
+      return { d, k }
     }
-    if (!worstAt || b - a < 2) return undefined
+    const nearestCurve = (x: number, y: number, from: number, to: number) => {
+      let d = Infinity
+      let k = from
+      if (nc === 1)
+        return {
+          d: Math.hypot(x - (cx[0] as number), y - (cy[0] as number)),
+          k: 0,
+        }
+      for (let j = Math.max(0, from); j <= Math.min(nc - 2, to); j++) {
+        const dj = segDistXY(
+          x,
+          y,
+          cx[j] as number,
+          cy[j] as number,
+          cx[j + 1] as number,
+          cy[j + 1] as number,
+        )
+        if (dj < d) {
+          d = dj
+          k = j
+        }
+      }
+      return { d, k }
+    }
+    const gap = { failing: false }
+    const record = (e: number, x: number, y: number) => {
+      if (e > 0) gap.failing = true
+      if (e > worstExcess) {
+        worstExcess = e
+        worstX = x
+        worstY = y
+      }
+    }
+
+    // Curve → trace: each curve sample within the tolerance of its nearest trace segment.
+    let tp = 0
+    for (let i = 0; i < nc; i++) {
+      const x = cx[i] as number
+      const y = cy[i] as number
+      let hit = nearestTrace(x, y, tp - 3, tp + 3)
+      if (!gap.failing && hit.d > segTol(a + hit.k) - MARGIN) {
+        hit = nearestTrace(x, y, 0, m - 1)
+      }
+      tp = hit.k
+      record(hit.d - (segTol(a + hit.k) - MARGIN), x, y)
+    }
+    // Trace → curve: samples along each trace segment within that segment's tolerance.
+    let cp = 0
+    for (let k = 0; k < m; k++) {
+      const px = tx[k] as number
+      const py = ty[k] as number
+      const qx = tx[k + 1] as number
+      const qy = ty[k + 1] as number
+      const tol = segTol(a + k) - MARGIN
+      const steps = Math.max(1, Math.ceil(hypot(qx - px, qy - py) / STEP))
+      for (let s = k === 0 ? 0 : 1; s <= steps; s++) {
+        const t = s / steps
+        const x = px + (qx - px) * t
+        const y = py + (qy - py) * t
+        let hit = nearestCurve(x, y, cp - 8, cp + 8)
+        if (!gap.failing && hit.d > tol) hit = nearestCurve(x, y, 0, nc - 2)
+        cp = hit.k
+        record(hit.d - tol, x, y)
+      }
+    }
+    if (!gap.failing || b - a < 2) return undefined
+    const worstAt = { x: worstX, y: worstY }
     // Insert the interior trace point nearest the worst sample.
     let pick = a + 1
     let best = Infinity
