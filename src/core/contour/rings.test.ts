@@ -3,7 +3,7 @@ import { signedArea } from '../geometry/polygon'
 import { renderMask } from '../mask/render'
 import type { Ring } from '../selection/types'
 import { mulberry32 } from '../../test/random'
-import { contoursToRings, nestingDepth } from './rings'
+import { contoursToRings, cornerNodes, nestingDepth } from './rings'
 import { traceContours } from './trace'
 import type { CoverageMask } from './types'
 
@@ -23,7 +23,7 @@ const inRect =
   (x0: number, y0: number, x1: number, y1: number) => (i: number, j: number) =>
     i >= x0 && i < x1 && j >= y0 && j < y1
 
-/** Every pixel whose rendered coverage is clearly decided agrees with the mask at 50%. */
+/** Every pixel whose rendered coverage is clearly decided agrees with the mask at 50% (rings built from the trace polygon itself). */
 function expectSameRegions(rings: readonly Ring[], mask: CoverageMask): void {
   const size = { width: mask.width, height: mask.height }
   const out = renderMask({ rings, strokes: [], feather: 0 }, size).data
@@ -59,7 +59,7 @@ describe('contoursToRings', () => {
       const r = Math.hypot(i + 0.5 - 15, j + 0.5 - 15)
       return r <= 12 && r >= 5 ? 1 : 0
     })
-    const rings = contoursToRings(traceContours(donut))
+    const rings = contoursToRings(traceContours(donut), cornerNodes)
     expect(rings.map((r) => r.op)).toEqual(['add', 'subtract'])
     expectSameRegions(rings, donut)
   })
@@ -73,7 +73,7 @@ describe('contoursToRings', () => {
     })
     const contours = traceContours(mask)
     expect(nestingDepth(contours).sort()).toEqual([0, 0, 1, 2])
-    const rings = contoursToRings(contours)
+    const rings = contoursToRings(contours, cornerNodes)
     expect(rings.map((r) => r.op)).toEqual(['add', 'add', 'subtract', 'add'])
     expect(rings.every((r) => r.nodes.every((n) => n.kind === 'corner'))).toBe(
       true,
@@ -112,7 +112,7 @@ describe('contoursToRings', () => {
           (depth[k] as number) % 2 === 0,
         )
       }
-      const rings = contoursToRings(contours)
+      const rings = contoursToRings(contours, cornerNodes)
       const depths = [...depth].sort((a, b) => a - b)
       expect(rings.map((r) => r.op)).toEqual(
         depths.map((d) => (d % 2 === 0 ? 'add' : 'subtract')),

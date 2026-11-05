@@ -1,6 +1,7 @@
 import type { Bounds, Node, Point } from '../geometry/types'
 import { bounds, contains, signedArea } from '../geometry/polygon'
 import type { Ring } from '../selection/types'
+import { contourToNodes } from './dots'
 import type { Contour } from './types'
 
 /** Every contour point as a `corner` dot: the polygon of the trace itself. */
@@ -41,7 +42,7 @@ const covers = (outer: Bounds, inner: Bounds): boolean =>
  */
 export function contoursToRings(
   contours: readonly Contour[],
-  toNodes: (contour: Contour) => Node[] = cornerNodes,
+  toNodes: (contour: Contour) => Node[] = contourToNodes,
 ): Ring[] {
   const depth = nestingDepth(contours)
   return contours
