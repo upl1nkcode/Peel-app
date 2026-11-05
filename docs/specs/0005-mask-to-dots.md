@@ -10,7 +10,10 @@ Automatic cutouts (Phase 6) give a soft mask, not an outline. To fix a mistake t
 ## Decisions in this spec (please check these)
 1. **Nothing is dropped** (decided 2026-11-04 by the product owner). Every island and every hole becomes a ring, however small. This is the most exact option; the user can remove pieces by hand.
 2. **Dots follow the contour within 0.5 px on soft edges and 1 px on hard edges** (hard-edge rule decided 2026-11-05 by the product owner: "follow the true shape"). The drawn curve (Béziers) of the dots is checked against the traced 50% line in both directions, as spec 0003 AC-21 checks density. A contour point is on a *hard* edge when the two pixel values it lies between are exactly 0 and exactly 1 (255 in an 8-bit mask). There the traced line is a pixel staircase up to about 0.5 px either side of the real shape. Holding dots within 0.5 px of the steps would need about 150 dots on a hard-edged circle of radius 100 px; with 1 px they follow the real shape with about 25. Soft edges, such as the AI model's masks, keep 0.5 px.
-3. **A dot is a corner when the outline turns by 45° or more** within 2 px of it, measured between the chords to the contour points 2 px of arc before and after. Only the sharpest dot of each turn becomes the corner. Gentler turns are smooth. So rectangles keep sharp corners, and circles with a radius of 3 px or more stay smooth (they turn by 2/r radians over that span).
+3. **A dot is a corner when the outline turns sharply.** Only the sharpest dot of each turn becomes the corner; gentler turns are smooth.
+   - **Soft edges:** a turn of 45° or more, measured between the chords to the contour points 2 px of arc before and after. Soft circles with a radius of 5 px or more stay smooth.
+   - **Hard edges** (decided 2026-11-05 by the product owner): the pixel staircase turns by 45° and 90° on its own, and clips true corners by up to 0.7 px, so the 2 px rule cannot tell steps from corners there. Instead, the hard points are first smoothed once (each becomes ½ itself + ¼ each neighbour), and the turn is measured between the edge directions from 4 px to 1 px of arc before the dot and from 1 px to 4 px after it. A corner needs 50° or more. Measured on hard shapes: circles with a radius of 10 px or more never get a corner; corners of 60° or more are kept 95–100% of the time; 45° corners (an octagon) are mostly rounded, still within the 1 px of Decision 2.
+   - On short rings the supports shrink to a quarter of the perimeter (and the hard gap to a quarter of the hard support).
 4. **Diagonal touches join.** Where two selected pixels touch only at a corner, they belong to the same ring (the marching-squares saddle is settled by the average of the four samples: at least 50% joins the selected sides).
 
 ## Pixel convention
@@ -58,8 +61,11 @@ export function maskToRings(mask: CoverageMask): Ring[] // all of the above
 export const CONTOUR_LEVEL = 0.5
 export const DOT_TOLERANCE_PX = 0.5 // soft edges
 export const HARD_EDGE_TOLERANCE_PX = 1 // where the traced line runs between exact 0 and 1 values
-export const CORNER_ANGLE_DEG = 45
+export const CORNER_ANGLE_DEG = 45 // soft edges
 export const CORNER_SUPPORT_PX = 2
+export const HARD_CORNER_ANGLE_DEG = 50 // hard edges, after one smoothing pass
+export const HARD_CORNER_SUPPORT_PX = 4 // edge directions from 4 px to 1 px either side
+export const HARD_CORNER_GAP_PX = 1
 ```
 Geometry is in image px floats.
 
