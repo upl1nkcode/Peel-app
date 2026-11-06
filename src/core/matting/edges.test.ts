@@ -79,4 +79,24 @@ describe('edgeMap', () => {
       }
     }
   })
+
+  it('should_compute_only_the_searched_pixels (AC-3, Decision 6)', () => {
+    const img = stepImage(20, 12, 10, [0.8, 0.3, 0.2], [0.2, 0.5, 0.8])
+    const rect = whole(img)
+    const full = edgeMap(img, rect)
+    // Search only columns 9..19 of rows 0..5: the step is inside.
+    const only = new Uint8Array(20 * 12)
+    for (let y = 0; y < 6; y++)
+      for (let x = 9; x < 20; x++) only[y * 20 + x] = 1
+    const part = edgeMap(img, rect, only)
+    for (let k = 0; k < 20 * 12; k++) {
+      if (only[k] === 1) {
+        expect(part.strength[k]).toBe(full.strength[k])
+        expect(part.cost[k]).toBe(full.cost[k])
+      } else {
+        expect(part.strength[k]).toBe(0)
+        expect(part.cost[k]).toBe(1)
+      }
+    }
+  })
 })

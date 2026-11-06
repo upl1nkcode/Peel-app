@@ -23,9 +23,15 @@ export interface EdgeMap {
 /**
  * Colour edge map over `rect` (spec 0006 Decisions 4 and 6). Sobel kernels
  * (1-2-1, divided by 8) per channel; neighbours outside the image repeat the
- * nearest border pixel, so a sub-rect matches the whole-image map.
+ * nearest border pixel, so a sub-rect matches the whole-image map. With
+ * `only` (over rect, 1 = searched), other pixels get strength 0 and cost 1,
+ * and costs are relative to the strongest searched pixel (Decision 6).
  */
-export function edgeMap(image: RgbaImage, rect: Rect): EdgeMap {
+export function edgeMap(
+  image: RgbaImage,
+  rect: Rect,
+  only?: Uint8Array,
+): EdgeMap {
   const { width: W, height: H, data } = image
   if (
     !Number.isInteger(rect.x) ||
@@ -45,32 +51,53 @@ export function edgeMap(image: RgbaImage, rect: Rect): EdgeMap {
   const strength = new Float32Array(n)
   const normalX = new Float32Array(n)
   const normalY = new Float32Array(n)
-  const v = (x: number, y: number, ch: number): number => {
-    const cx = x < 0 ? 0 : x >= W ? W - 1 : x
-    const cy = y < 0 ? 0 : y >= H ? H - 1 : y
-    return data[(cy * W + cx) * 4 + ch] as number
-  }
   // Sums of whole 8-bit values are exact, so a flat area gives exactly 0.
   const SCALE = 1 / (255 * 8)
+  const px = (x: number, y: number): number =>
+    ((y < 0 ? 0 : y >= H ? H - 1 : y) * W + (x < 0 ? 0 : x >= W ? W - 1 : x)) *
+    4
   let max = 0
   for (let j = 0; j < rect.height; j++) {
     const y = rect.y + j
     for (let i = 0; i < rect.width; i++) {
+      if (only && only[j * rect.width + i] !== 1) {
+        normalX[j * rect.width + i] = 1
+        continue
+      }
       const x = rect.x + i
+      // Byte offsets of the 3 × 3 neighbours, clamped to the image.
+      const a = px(x - 1, y - 1)
+      const b = px(x, y - 1)
+      const c = px(x + 1, y - 1)
+      const d = px(x - 1, y)
+      const f = px(x + 1, y)
+      const g = px(x - 1, y + 1)
+      const h = px(x, y + 1)
+      const k = px(x + 1, y + 1)
       let jxx = 0
       let jyy = 0
       let jxy = 0
       for (let ch = 0; ch < 3; ch++) {
-        const a = v(x - 1, y - 1, ch)
-        const b = v(x, y - 1, ch)
-        const c = v(x + 1, y - 1, ch)
-        const d = v(x - 1, y, ch)
-        const f = v(x + 1, y, ch)
-        const g = v(x - 1, y + 1, ch)
-        const h = v(x, y + 1, ch)
-        const k = v(x + 1, y + 1, ch)
-        const gx = (c + 2 * f + k - a - 2 * d - g) * SCALE
-        const gy = (g + 2 * h + k - a - 2 * b - c) * SCALE
+        const va = data[a + ch] as number
+        const vc = data[c + ch] as number
+        const vg = data[g + ch] as number
+        const vk = data[k + ch] as number
+        const gx =
+          (vc +
+            2 * (data[f + ch] as number) +
+            vk -
+            va -
+            2 * (data[d + ch] as number) -
+            vg) *
+          SCALE
+        const gy =
+          (vg +
+            2 * (data[h + ch] as number) +
+            vk -
+            va -
+            2 * (data[b + ch] as number) -
+            vc) *
+          SCALE
         jxx += gx * gx
         jyy += gy * gy
         jxy += gx * gy

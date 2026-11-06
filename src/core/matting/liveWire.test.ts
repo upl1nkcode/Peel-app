@@ -94,6 +94,13 @@ describe('liveWire', () => {
     expect(liveWire(map, { x: 10.2, y: 20.7 }, { x: 10.9, y: 20.1 })).toEqual([
       { x: 10.5, y: 20.5 },
     ])
+    // An allowed area in two pieces: the goal cannot be reached.
+    const split = new Uint8Array(map.rect.width * map.rect.height)
+    split[20 * map.rect.width + 20] = 1
+    split[20 * map.rect.width + 40] = 1
+    expect(() =>
+      liveWire(map, { x: 20.5, y: 20.5 }, { x: 40.5, y: 20.5 }, split),
+    ).toThrow(RangeError)
     expect(() => liveWire(map, { x: -1, y: 5 }, to)).toThrow(RangeError)
     expect(() => liveWire(map, from, { x: 5, y: 420 })).toThrow(RangeError)
     expect(() => liveWire(map, from, { x: 5.5, y: 5.5 }, allowed)).toThrow(

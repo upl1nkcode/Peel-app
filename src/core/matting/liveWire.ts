@@ -126,6 +126,9 @@ export function liveWire(
       }
     }
   }
+  if (dist[goal] === Infinity) {
+    throw new RangeError('to cannot be reached within the allowed area')
+  }
   const path: Point[] = []
   for (let k = goal; k !== -1; k = prev[k] as number) {
     const i = k % width
