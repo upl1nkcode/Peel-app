@@ -159,24 +159,29 @@ export function parseSelection(json: string): {
     throw new UnsupportedSelectionVersionError(doc.version)
   }
   const imageSize = readSize(doc.imageSize, 'imageSize')
-  const s = readObject(doc.selection, 'selection')
+  return { selection: checkSelection(doc.selection), imageSize }
+}
+
+/**
+ * Checks a selection value field by field, as the JSON parser does, and
+ * returns a fresh copy. Throws `InvalidSelectionError` naming the field path.
+ */
+export function checkSelection(value: unknown, path = 'selection'): Selection {
+  const s = readObject(value, path)
   const selection: Selection = {
-    rings: readArray(s.rings, 'selection.rings').map((r, i) =>
-      readRing(r, `selection.rings[${String(i)}]`),
+    rings: readArray(s.rings, `${path}.rings`).map((r, i) =>
+      readRing(r, `${path}.rings[${String(i)}]`),
     ),
-    strokes: readArray(s.strokes, 'selection.strokes').map((t, i) =>
-      readStroke(t, `selection.strokes[${String(i)}]`),
+    strokes: readArray(s.strokes, `${path}.strokes`).map((t, i) =>
+      readStroke(t, `${path}.strokes[${String(i)}]`),
     ),
-    feather: readRange(s.feather, FEATHER_RANGE, 'selection.feather'),
+    feather: readRange(s.feather, FEATHER_RANGE, `${path}.feather`),
   }
   if ('softEdge' in s) {
     return {
-      selection: {
-        ...selection,
-        softEdge: readSoftEdge(s.softEdge, 'selection.softEdge'),
-      },
-      imageSize,
+      ...selection,
+      softEdge: readSoftEdge(s.softEdge, `${path}.softEdge`),
     }
   }
-  return { selection, imageSize }
+  return selection
 }

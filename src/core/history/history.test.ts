@@ -206,3 +206,29 @@ describe('history', () => {
     for (let i = 1; i <= 1000; i++) expect(history.redo()).toBe(states[i])
   })
 })
+
+describe('restore', () => {
+  it('should_restore_a_selection_as_one_undoable_step (AC-14)', () => {
+    const auto: Selection = {
+      rings: [{ op: 'add', nodes: square }],
+      softEdge: { source: 'model', bandPx: 8 },
+      strokes: [],
+      feather: 0,
+    }
+    const history = createHistory(emptySelection())
+    history.execute({ type: 'addRing', nodes: circle(12) })
+    const edited = history.current
+    history.execute({ type: 'restore', selection: auto })
+    expect(history.current).toEqual(auto)
+    expect(history.undo()).toBe(edited)
+    expect(history.redo()).toEqual(auto)
+    const bad: Command = {
+      type: 'restore',
+      selection: { ...auto, rings: [{ op: 'add', nodes: square.slice(0, 2) }] },
+    }
+    const before = history.current
+    expect(() => history.execute(bad)).toThrow(InvalidCommandError)
+    expect(history.current).toBe(before)
+    expect(history.canRedo).toBe(false)
+  })
+})

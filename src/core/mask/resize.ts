@@ -21,6 +21,26 @@ function areaWeights(
   })
 }
 
+/** Area weights in flat arrays: output o uses entries start[o] .. start[o + 1] − 1. */
+function flatWeights(table: { index: number[]; weight: number[] }[]): {
+  start: Int32Array
+  index: Int32Array
+  weight: Float64Array
+} {
+  const start = new Int32Array(table.length + 1)
+  for (let o = 0; o < table.length; o++) {
+    start[o + 1] = (start[o] as number) + (table[o]?.index.length ?? 0)
+  }
+  const n = start[table.length] as number
+  const index = new Int32Array(n)
+  const weight = new Float64Array(n)
+  table.forEach((t, o) => {
+    index.set(t.index, start[o])
+    weight.set(t.weight, start[o])
+  })
+  return { start, index, weight }
+}
+
 const isSize = (n: number): boolean => Number.isInteger(n) && n >= 1
 
 /**
@@ -47,50 +67,65 @@ export function resizeRgba(
   const sw = image.width
   const sh = image.height
   const src = image.data
-  const pre = new Float64Array(sw * sh * 4)
-  for (let k = 0; k < sw * sh; k++) {
-    const a = src[k * 4 + 3] as number
-    pre[k * 4] = ((src[k * 4] as number) * a) / 255
-    pre[k * 4 + 1] = ((src[k * 4 + 1] as number) * a) / 255
-    pre[k * 4 + 2] = ((src[k * 4 + 2] as number) * a) / 255
-    pre[k * 4 + 3] = a
-  }
-
-  const wx = areaWeights(sw, width)
-  const tmp = new Float64Array(sh * width * 4)
-  for (let y = 0; y < sh; y++) {
+  const wx = flatWeights(areaWeights(sw, width))
+  const wy = areaWeights(sh, height)
+  // One source row resampled horizontally, premultiplied (r·a/255, g·a/255, b·a/255, a).
+  // Rows are computed as they are needed, so memory stays O(width) instead
+  // of a premultiplied copy of the whole photo; the arithmetic and its order
+  // are those of a full premultiplied pass, so results are identical.
+  const row = new Float64Array(width * 4)
+  const resampleRow = (sy: number) => {
+    row.fill(0)
+    const base = sy * sw
     for (let x = 0; x < width; x++) {
-      const { index, weight } = wx[x] as { index: number[]; weight: number[] }
-      for (let q = 0; q < index.length; q++) {
-        const from = (y * sw + (index[q] as number)) * 4
-        const to = (y * width + x) * 4
-        const wq = weight[q] as number
-        for (let c = 0; c < 4; c++)
-          tmp[to + c] = (tmp[to + c] as number) + wq * (pre[from + c] as number)
+      const to = x * 4
+      let r = 0
+      let g = 0
+      let b = 0
+      let al = 0
+      for (
+        let q = wx.start[x] as number;
+        q < (wx.start[x + 1] as number);
+        q++
+      ) {
+        const from = (base + (wx.index[q] as number)) * 4
+        const wq = wx.weight[q] as number
+        const a = src[from + 3] as number
+        r = r + wq * (((src[from] as number) * a) / 255)
+        g = g + wq * (((src[from + 1] as number) * a) / 255)
+        b = b + wq * (((src[from + 2] as number) * a) / 255)
+        al = al + wq * a
       }
+      row[to] = r
+      row[to + 1] = g
+      row[to + 2] = b
+      row[to + 3] = al
     }
   }
 
-  const wy = areaWeights(sh, height)
   const data = new Uint8Array(width * height * 4)
-  const px = new Float64Array(4)
+  const acc = new Float64Array(width * 4)
   for (let y = 0; y < height; y++) {
     const { index, weight } = wy[y] as { index: number[]; weight: number[] }
-    for (let x = 0; x < width; x++) {
-      px.fill(0)
-      for (let q = 0; q < index.length; q++) {
-        const from = ((index[q] as number) * width + x) * 4
-        for (let c = 0; c < 4; c++)
-          px[c] =
-            (px[c] as number) +
-            (weight[q] as number) * (tmp[from + c] as number)
+    acc.fill(0)
+    for (let q = 0; q < index.length; q++) {
+      resampleRow(index[q] as number)
+      const wq = weight[q] as number
+      for (let k = 0; k < acc.length; k++) {
+        acc[k] = (acc[k] as number) + wq * (row[k] as number)
       }
-      const a = px[3] as number
+    }
+    for (let x = 0; x < width; x++) {
+      const from = x * 4
+      const a = acc[from + 3] as number
       const alpha = Math.round(a)
       if (alpha === 0) continue
       const to = (y * width + x) * 4
       for (let c = 0; c < 3; c++) {
-        data[to + c] = Math.min(255, Math.round(((px[c] as number) * 255) / a))
+        data[to + c] = Math.min(
+          255,
+          Math.round(((acc[from + c] as number) * 255) / a),
+        )
       }
       data[to + 3] = alpha
     }

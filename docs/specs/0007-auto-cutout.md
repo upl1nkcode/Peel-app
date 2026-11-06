@@ -45,7 +45,7 @@ Four models were tried on six public-domain photos in Chromium and WebKit (compa
 - **AC-5** Given a photo with a long side over 1024 px, the inference copy has a long side of exactly 1024 px, keeps the aspect ratio (short side rounded to the nearest pixel, at least 1), and is area-averaged (spec 0004's `resizeRgba`). A photo of 1024 px or less is used as it is.
 - **AC-6** Given a mask upscaled exactly 2×, then each output pixel is the bilinear blend of the source pixel centres around it, with edges clamped; for the 2×1 mask [0, 1] the output row is [0, 0.25, 0.75, 1].
 - **AC-7** Given a source mask with a vertical step (1 left of x = s, 0 right of it) upscaled to any size, then its 50% line lands at `s × outputWidth / sourceWidth`, within 0.01 output px; the same holds for horizontal steps. A constant mask stays constant.
-- **AC-8** On a 12 MP photo in Node, downscaling, upscaling a 1024 px mask and building the auto selection (AC-13) together take under 600 ms.
+- **AC-8** On a 12 MP photo in Node, downscaling, upscaling a 1024 px mask and building the auto selection (AC-13) together take under 1000 ms. (Measured during the build: about 290 ms to downscale, 85 ms to upscale and 420 ms to trace and place the dots; the first draft's 600 ms did not allow for spec 0005's dot placement on a soft edge.)
 
 ### Precise engine (#48)
 
