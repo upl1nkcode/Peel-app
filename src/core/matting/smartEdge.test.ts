@@ -393,4 +393,81 @@ describe('smart edge', () => {
       expect(full).toEqual(fresh)
     }
   })
+
+  it('should_not_band_the_image_border (AC-14, final review)', () => {
+    // A selection running off the left of the image: the border is not a 50% line.
+    const size = { width: 60, height: 40 }
+    const box = rect(-20, 10.3, 40.4, 30.6)
+    const cov = softMask([{ op: 'add', points: box }], size).data
+    const image = paintScene(cov, size, [0.8, 0.3, 0.2], [0.2, 0.5, 0.8], {
+      noise: 0.02,
+      seed: 6,
+    })
+    const model: AlphaMask = {
+      width: 60,
+      height: 40,
+      data: Uint8Array.from(cov, (v, k) =>
+        k % 60 < 4 ? 77 : Math.round(v * 255),
+      ),
+    }
+    const selection: Selection = {
+      rings: [
+        {
+          op: 'add',
+          nodes: box.map(({ x, y }) => ({ x, y, kind: 'corner' as const })),
+        },
+      ],
+      strokes: [],
+      feather: 0,
+      softEdge: { source: 'model', bandPx: 8 },
+    }
+    const band = bandOf(selection, size)
+    for (let y = 16; y < 25; y++) {
+      for (let x = 0; x < 4; x++)
+        expect(band[y * 60 + x], `${String(x)},${String(y)}`).toBe(0)
+    }
+    const out = render(selection, size, image, model)
+    for (let x = 0; x < 4; x++) expect(out[20 * 60 + x]).toBe(255)
+  })
+
+  it('should_align_preview_colours_with_the_outline (AC-21, final review)', () => {
+    // 101 × 77, the object ends at x = 95 and the ring is drawn on it.
+    const size = { width: 101, height: 77 }
+    const box = rect(5, 5, 95, 72)
+    const cov = softMask([{ op: 'add', points: box }], size).data
+    const image = paintScene(cov, size, [0.8, 0.3, 0.2], [0.2, 0.5, 0.8], {
+      noise: 0,
+      seed: 1,
+    })
+    const selection: Selection = {
+      rings: [
+        {
+          op: 'add',
+          nodes: box.map(({ x, y }) => ({ x, y, kind: 'corner' as const })),
+        },
+      ],
+      strokes: [],
+      feather: 0,
+      softEdge: { source: 'guided', bandPx: 8 },
+    }
+    for (const scale of [0.3, 0.5]) {
+      const preview = renderMask(selection, size, {
+        scale,
+        refineEdge: smartEdgeRefiner(image),
+      })
+      const w = preview.width
+      const row = Math.floor(40 * scale) * w
+      // Where alpha crosses 0.5 near the right edge, between pixel centres.
+      let crossing = Number.NaN
+      for (let x = Math.floor(80 * scale); x < w - 1; x++) {
+        const a = (preview.data[row + x] as number) / 255
+        const b = (preview.data[row + x + 1] as number) / 255
+        if (a >= 0.5 && b < 0.5) crossing = x + 0.5 + (a - 0.5) / (a - b)
+      }
+      expect(
+        Math.abs(crossing - 95 * scale),
+        `scale ${String(scale)}`,
+      ).toBeLessThanOrEqual(0.15)
+    }
+  })
 })

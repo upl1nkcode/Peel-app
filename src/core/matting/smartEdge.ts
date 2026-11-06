@@ -1,7 +1,6 @@
 import { traceContours } from '../contour/trace'
 import type { Point, Size } from '../geometry/types'
 import type { EdgeRefiner } from '../mask/render'
-import { resizeRgba } from '../mask/resize'
 import type { AlphaMask, RgbaImage } from '../mask/types'
 import type { SoftEdge } from '../selection/types'
 
@@ -30,8 +29,23 @@ function segDist(px: number, py: number, a: Point, b: Point): number {
 }
 
 /**
+ * True for a traced segment that lies against the zero padding of one image
+ * side: such crossings are within half a pixel outside the first pixel centre
+ * (x ≤ 0.5, …), and mark where the selection runs off the image, not an edge.
+ */
+function onBorder(a: Point, b: Point, width: number, height: number): boolean {
+  return (
+    (a.x <= 0.5 && b.x <= 0.5) ||
+    (a.y <= 0.5 && b.y <= 0.5) ||
+    (a.x >= width - 0.5 && b.x >= width - 0.5) ||
+    (a.y >= height - 0.5 && b.y >= height - 0.5)
+  )
+}
+
+/**
  * The smart-edge band (spec 0006): 1 where a pixel centre is within
- * `bandPx / 2` of the 50% line of `coverage` (traced as in spec 0005).
+ * `bandPx / 2` of the 50% line of `coverage` (traced as in spec 0005). The
+ * image border is not part of that line.
  */
 export function bandMask(
   coverage: Float32Array,
@@ -46,6 +60,7 @@ export function bandMask(
     for (let k = 0; k < pts.length; k++) {
       const a = pts[k] as Point
       const b = pts[(k + 1) % pts.length] as Point
+      if (onBorder(a, b, width, height)) continue
       const i0 = Math.max(0, Math.ceil(Math.min(a.x, b.x) - half - 0.5))
       const i1 = Math.min(
         width - 1,
@@ -77,10 +92,12 @@ interface Resampled {
  * Smart edge as a `renderMask` refiner (spec 0006 Decisions 1–2, AC-14 to
  * AC-21). In the band, each pixel's alpha is where its colour lies between
  * the mean object colour and the mean background colour of the known
- * (out-of-band) pixels within ⌈band⌉ + 2 px (so every band pixel reaches past the band on both sides), trusted by how far apart
- * those colours are; the rest stays the fallback (the rings' coverage, or
- * the model alpha for `model`). Previews use the image (and model alpha)
- * area-averaged to the preview size.
+ * (out-of-band) pixels within ⌈band⌉ + 2 px (so every band pixel reaches past
+ * the band on both sides), trusted by how far apart those colours are; the
+ * rest stays the fallback (the rings' coverage, or the model alpha for
+ * `model`). A preview at `scale` area-averages the image (and model alpha)
+ * over each preview pixel's image footprint [o/s, (o+1)/s), as the rings are
+ * rasterised, so colours and outline line up.
  */
 export function smartEdgeRefiner(
   image: RgbaImage,
@@ -92,54 +109,49 @@ export function smartEdgeRefiner(
   ) {
     throw new RangeError('the model alpha must be the size of the image')
   }
+  const { width: W, height: H } = image
   const cache = new Map<string, Resampled>()
-  const resampled = (size: Size): Resampled => {
-    if (size.width === image.width && size.height === image.height) {
-      return { image, model: modelAlpha?.data }
-    }
-    const key = `${String(size.width)}x${String(size.height)}`
+  const resampled = (size: Size, scale: number): Resampled => {
+    if (scale === 1) return { image, model: modelAlpha?.data }
+    const key = `${String(size.width)}x${String(size.height)}@${String(scale)}`
     let hit = cache.get(key)
     if (!hit) {
+      const { width: w, height: h } = size
       hit = {
-        image: resizeRgba(image, size.width, size.height),
-        model: modelAlpha && resizeAlpha(modelAlpha, size),
+        image: {
+          width: w,
+          height: h,
+          data: resample(image.data, W, H, 4, w, h, scale),
+        },
+        model: modelAlpha && resample(modelAlpha.data, W, H, 1, w, h, scale),
       }
       cache.set(key, hit)
     }
     return hit
   }
 
-  return (mask: Float32Array, size: Size, softEdge: SoftEdge) => {
-    if (size.width > image.width || size.height > image.height) {
+  return (
+    mask: Float32Array,
+    size: Size,
+    softEdge: SoftEdge,
+    scale: number,
+  ) => {
+    if (!(scale > 0 && scale <= 1)) {
+      throw new RangeError(`scale must be in (0, 1], got ${String(scale)}`)
+    }
+    if (size.width > W || size.height > H) {
       throw new RangeError('the mask is larger than the image')
     }
-    // A preview is ⌈image · scale⌉, so its size bounds the scale only to
-    // [(n − 1) / N, n / N] per side; at full size it is exactly 1.
-    const full = size.width === image.width && size.height === image.height
-    const scaleHi = full
-      ? 1
-      : Math.min(size.width / image.width, size.height / image.height)
-    const scaleLo = full
-      ? 1
-      : Math.max(
-          (size.width - 1) / image.width,
-          (size.height - 1) / image.height,
-        )
-    const bandLo = softEdge.bandPx / scaleHi
-    const bandHi = scaleLo > 0 ? softEdge.bandPx / scaleLo : Infinity
-    if (
-      !Number.isFinite(softEdge.bandPx) ||
-      bandHi < BAND_MIN_PX - 1e-9 ||
-      bandLo > BAND_MAX_PX + 1e-9
-    ) {
+    const fullBand = softEdge.bandPx / scale
+    if (!(fullBand >= BAND_MIN_PX - 1e-9 && fullBand <= BAND_MAX_PX + 1e-9)) {
       throw new RangeError(
-        `softEdge.bandPx must be in [2, 20] at full resolution, got ${String(bandLo)}`,
+        `softEdge.bandPx must be in [2, 20] at full resolution, got ${String(fullBand)}`,
       )
     }
     if (softEdge.source === 'model' && !modelAlpha) {
       throw new RangeError('a model soft edge needs the model alpha')
     }
-    const { image: img, model } = resampled(size)
+    const { image: img, model } = resampled(size, scale)
     const band = bandMask(mask, size, softEdge.bandPx)
     const radius = Math.ceil(softEdge.bandPx) + 2
     estimate(
@@ -152,21 +164,80 @@ export function smartEdgeRefiner(
   }
 }
 
-/** The model alpha area-averaged to `size`, via the image resizer (alpha in the red channel). */
-function resizeAlpha(alpha: AlphaMask, size: Size): Uint8Array {
-  const rgba = new Uint8Array(alpha.width * alpha.height * 4)
-  for (let k = 0; k < alpha.data.length; k++) {
-    rgba[k * 4] = alpha.data[k] as number
-    rgba[k * 4 + 3] = 255
+/**
+ * Per output index o: the source indices overlapping [o/s, (o+1)/s) ∩ [0, N)
+ * and their weights (overlap / footprint), flattened with offsets.
+ */
+function footprints(n: number, N: number, scale: number) {
+  const start = new Int32Array(n + 1)
+  const index: number[] = []
+  const weight: number[] = []
+  for (let o = 0; o < n; o++) {
+    start[o] = index.length
+    const a = o / scale
+    const b = Math.min((o + 1) / scale, N)
+    for (let i = Math.floor(a); i < b && i < N; i++) {
+      const overlap = Math.min(b, i + 1) - Math.max(a, i)
+      if (overlap > 0) {
+        index.push(i)
+        weight.push(overlap / (b - a))
+      }
+    }
   }
-  const small = resizeRgba(
-    { width: alpha.width, height: alpha.height, data: rgba },
-    size.width,
-    size.height,
-  )
-  const out = new Uint8Array(size.width * size.height)
-  for (let k = 0; k < out.length; k++) out[k] = small.data[k * 4] as number
-  return out
+  start[n] = index.length
+  return {
+    start,
+    index: Int32Array.from(index),
+    weight: Float64Array.from(weight),
+  }
+}
+
+/** `channels` interleaved byte channels, area-averaged over each output pixel's footprint (separable). */
+function resample(
+  src: Uint8Array,
+  W: number,
+  H: number,
+  channels: number,
+  w: number,
+  h: number,
+  scale: number,
+): Uint8Array {
+  const fx = footprints(w, W, scale)
+  const fy = footprints(h, H, scale)
+  const rows = new Float64Array(H * w * channels)
+  for (let y = 0; y < H; y++) {
+    for (let o = 0; o < w; o++) {
+      const out = (y * w + o) * channels
+      for (
+        let t = fx.start[o] as number;
+        t < (fx.start[o + 1] as number);
+        t++
+      ) {
+        const at = (y * W + (fx.index[t] as number)) * channels
+        const wt = fx.weight[t] as number
+        for (let c = 0; c < channels; c++) {
+          rows[out + c] =
+            (rows[out + c] as number) + wt * (src[at + c] as number)
+        }
+      }
+    }
+  }
+  const line = w * channels
+  const dst = new Uint8Array(h * line)
+  const acc = new Float64Array(line)
+  for (let o = 0; o < h; o++) {
+    acc.fill(0)
+    for (let t = fy.start[o] as number; t < (fy.start[o + 1] as number); t++) {
+      const wt = fy.weight[t] as number
+      const from = (fy.index[t] as number) * line
+      for (let k = 0; k < line; k++) {
+        acc[k] = (acc[k] as number) + wt * (rows[from + k] as number)
+      }
+    }
+    for (let k = 0; k < line; k++)
+      dst[o * line + k] = Math.round(acc[k] as number)
+  }
+  return dst
 }
 
 /**
