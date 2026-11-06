@@ -1,6 +1,6 @@
 # 0007 — Auto cutout (tap the subject)
 
-- **Status:** Draft
+- **Status:** Approved
 - **Issues:** story #45; tasks #46 (engine interface and fake), #47 (fast tap engine, was "person segmenter"), #48 (precise tap engine), #49 (downscale and upscale), #50 (download, offline, fallback), #51 (auto result to selection)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §3.1 (Auto), §4 ("Auto → dots"), §5.1 (engines), Phase 6
 
@@ -33,7 +33,7 @@ Four models were tried on six public-domain photos in Chromium and WebKit (compa
 ### Engine contract (#46)
 
 - **AC-1** Given the fake engine, when it loads, it reports progress events that only increase and end at its stated total, then segments deterministically: each add tap gives a disc of radius 20 px around it, each remove tap clears a disc of radius 20 px, at the image's size. It can be set to fail loading with a given reason, or to take a given time per tap. Every UI and controller test uses it.
-- **AC-2** Given any engine, then: segmenting before `load` resolves rejects; a tap outside the image (x ∉ [0, width) or y ∉ [0, height), or not finite) is a `RangeError`; no taps gives an all-zero mask; the mask always has the image's width and height.
+- **AC-2** Given any engine, then: segmenting before `load` resolves rejects; a tap outside the image (x ∉ [0, width) or y ∉ [0, height), or not finite) is a `RangeError`; no taps gives an all-zero alpha and no selection; the alpha always has the image's width and height.
 
 ### Fast engine (#47)
 
@@ -107,13 +107,14 @@ export interface SegmentationEngine {
   readonly name: 'fast' | 'precise'
   load(onProgress: (loadedBytes: number, totalBytes: number) => void): Promise<void> // rejects with EngineUnavailable
   setImage(imageId: string, image: RgbaImage): Promise<void>
-  segment(imageId: string, taps: readonly Tap[]): Promise<CoverageMask> // at the image's full size
+  readonly files: readonly ModelFile[] // so the bytes still to download are known before the first byte (AC-16)
+  segment(imageId: string, taps: readonly Tap[]): Promise<{ alpha: AlphaMask; selection: Selection | null }> // at the image's full size; traced in the worker
 }
 export class EngineUnavailable extends Error { reason: 'offline' | 'download' | 'storage' | 'unsupported' }
 export interface ModelFile { path: string; bytes: number; sha256: string; parts?: { path: string; bytes: number }[] }
 ```
 
-Engines run in module workers (`segmentation.worker.ts`), one per engine, using `@mediapipe/tasks-vision` (`InteractiveSegmenterLegacy` for v1, `InteractiveSegmenter` for v2). Files are fetched by the app, checked, stored in Cache Storage under `peel-models-v1`, and handed to MediaPipe as buffers and blob URLs. Geometry is in image px floats.
+The render worker gains `{ type: 'setModelAlpha'; imageId; modelAlpha }`, so a new auto result does not re-send the photo. Engines run in module workers (`segmentation.worker.ts`), one per engine, using `@mediapipe/tasks-vision` (`InteractiveSegmenterLegacy` for v1, `InteractiveSegmenter` for v2). Files are fetched by the app, checked, stored in Cache Storage under `peel-models-v1`, and handed to MediaPipe as buffers and blob URLs. Geometry is in image px floats.
 
 ## Data
 
