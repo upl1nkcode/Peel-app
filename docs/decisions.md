@@ -69,3 +69,9 @@ Anything not listed here is out of scope for v1 (YAGNI). See plan §13.
 - **Hard corner dots stay on the traced line; soft ones move to where their edges meet.** Extending a pixel staircase across a step misplaced a corner by more than the trace itself is off.
 - **Dots are placed greedily, then checked.** Each dot reaches as far along the trace as a chord within 2 × the tolerance allows. Then every gap's drawn curve is checked against the trace both ways, and a dot is added where it strays. RDP was not used: it halves circular arcs, so its dot counts snap to powers of two.
 - **Tracing thresholds on the float bit pattern** (v ≥ 0.5 exactly when the IEEE bits are ≥ those of 0.5, for non-negative values), 32 pixels per word. Only cells whose corners differ are visited. A 12 MP mask converts in about 135 ms locally. Mask values must be in [0, 1].
+
+## Smart edge and magnetic lasso decisions (spec 0006)
+
+- **Smart edge estimates alpha from colours instead of the guided filter** (decided 2026-11-06 by the product owner). In the band, each pixel's alpha is where its colour sits between the object colour just inside the band and the background colour just outside it. A prototype of the plan's guided filter could not move a line drawn 2 px off the edge (average alpha error 0.218 against 0.221 with no refinement) and hazed 679 background pixels; the colour estimate scored 0.004 with no haze, and kept 93–97% of 0.8 px hair strands. Task #42 was retitled accordingly.
+- **Magnetic lasso reach is 12 screen points** (decided 2026-11-06 by the product owner). Options were 8 pt (tight) and 20 pt (forgiving, but jumps to neighbouring edges more often).
+
