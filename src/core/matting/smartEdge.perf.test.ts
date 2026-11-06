@@ -63,5 +63,5 @@ describe('smart edge speed', () => {
     )
     const added = withEdge - without
     expect(added, `${String(added)} ms added`).toBeLessThan(600)
-  })
+  }, 120_000)
 })

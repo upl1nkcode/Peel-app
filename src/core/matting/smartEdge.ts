@@ -16,7 +16,7 @@ export const COLOUR_TRUST_DISTANCE = 0.15
 const BAND_MIN_PX = 2
 const BAND_MAX_PX = 20
 /** Window sums are built per tile of this many pixels square. */
-const TILE = 256
+const TILE = 64
 
 function segDist(px: number, py: number, a: Point, b: Point): number {
   const dx = b.x - a.x
@@ -199,9 +199,9 @@ function estimate(
   if (maxX < 0) return
 
   const stride = TILE + 2 * radius + 1
-  const area = stride * stride
-  // Integral images: count and R, G, B sums, for object (0–3) and background (4–7).
-  const sums = Array.from({ length: 8 }, () => new Float64Array(area))
+  // Integral images, interleaved per corner: count and R, G, B byte sums for
+  // object (0–3) and background (4–7). Whole bytes, so Int32 sums are exact.
+  const S = new Int32Array(stride * stride * 8)
   const trust = COLOUR_TRUST_DISTANCE
 
   for (let ty = minY; ty <= maxY; ty += TILE) {
@@ -215,53 +215,65 @@ function estimate(
       const py1 = Math.min(H, ty1 + radius)
       const pw = px1 - px0
       const ph = py1 - py0
-      const s = pw + 1
-      for (const a of sums) a.fill(0, 0, s * (ph + 1))
+      const s = (pw + 1) * 8
+      S.fill(0, 0, s)
       for (let j = 0; j < ph; j++) {
-        const row = new Float64Array(8)
-        for (let i = 0; i < pw; i++) {
-          const k = (py0 + j) * W + px0 + i
+        let fn = 0
+        let fr = 0
+        let fg = 0
+        let fb = 0
+        let bn = 0
+        let br = 0
+        let bg = 0
+        let bb = 0
+        let o = (j + 1) * s
+        S.fill(0, o, o + 8)
+        let k = (py0 + j) * W + px0
+        for (let i = 0; i < pw; i++, k++) {
           if (band[k] !== 1) {
-            const off = (mask[k] as number) >= 0.5 ? 0 : 4
-            row[off] = (row[off] as number) + 1
-            row[off + 1] = (row[off + 1] as number) + (data[k * 4] as number)
-            row[off + 2] =
-              (row[off + 2] as number) + (data[k * 4 + 1] as number)
-            row[off + 3] =
-              (row[off + 3] as number) + (data[k * 4 + 2] as number)
+            const q = k * 4
+            if ((mask[k] as number) >= 0.5) {
+              fn++
+              fr += data[q] as number
+              fg += data[q + 1] as number
+              fb += data[q + 2] as number
+            } else {
+              bn++
+              br += data[q] as number
+              bg += data[q + 1] as number
+              bb += data[q + 2] as number
+            }
           }
-          const o = (j + 1) * s + i + 1
-          for (let c = 0; c < 8; c++) {
-            const a = sums[c] as Float64Array
-            a[o] = (a[o - s] as number) + (row[c] as number)
-          }
+          o += 8
+          const u = o - s
+          S[o] = (S[u] as number) + fn
+          S[o + 1] = (S[u + 1] as number) + fr
+          S[o + 2] = (S[u + 2] as number) + fg
+          S[o + 3] = (S[u + 3] as number) + fb
+          S[o + 4] = (S[u + 4] as number) + bn
+          S[o + 5] = (S[u + 5] as number) + br
+          S[o + 6] = (S[u + 6] as number) + bg
+          S[o + 7] = (S[u + 7] as number) + bb
         }
       }
-      const box = (
-        c: number,
-        x0: number,
-        y0: number,
-        x1: number,
-        y1: number,
-      ) => {
-        const a = sums[c] as Float64Array
-        return (
-          (a[y1 * s + x1] as number) -
-          (a[y0 * s + x1] as number) -
-          (a[y1 * s + x0] as number) +
-          (a[y0 * s + x0] as number)
-        )
-      }
+      const sum = new Float64Array(8)
       for (let y = ty; y < ty1; y++) {
         for (let x = tx; x < tx1; x++) {
           const k = y * W + x
           if (band[k] !== 1) continue
-          const x0 = Math.max(0, x - radius) - px0
-          const y0 = Math.max(0, y - radius) - py0
-          const x1 = Math.min(W, x + radius + 1) - px0
-          const y1 = Math.min(H, y + radius + 1) - py0
-          const nf = box(0, x0, y0, x1, y1)
-          const nb = box(4, x0, y0, x1, y1)
+          const x0 = (Math.max(0, x - radius) - px0) * 8
+          const y0 = (Math.max(0, y - radius) - py0) * s
+          const x1 = (Math.min(W, x + radius + 1) - px0) * 8
+          const y1 = (Math.min(H, y + radius + 1) - py0) * s
+          for (let c = 0; c < 8; c++) {
+            sum[c] =
+              (S[y1 + x1 + c] as number) -
+              (S[y0 + x1 + c] as number) -
+              (S[y1 + x0 + c] as number) +
+              (S[y0 + x0 + c] as number)
+          }
+          const nf = sum[0] as number
+          const nb = sum[4] as number
           const fallback =
             model === undefined
               ? (mask[k] as number)
@@ -273,8 +285,8 @@ function estimate(
           let dot = 0
           let len2 = 0
           for (let c = 0; c < 3; c++) {
-            const f = box(1 + c, x0, y0, x1, y1) / nf / 255
-            const b = box(5 + c, x0, y0, x1, y1) / nb / 255
+            const f = (sum[1 + c] as number) / nf / 255
+            const b = (sum[5 + c] as number) / nb / 255
             const d = f - b
             dot += ((data[k * 4 + c] as number) / 255 - b) * d
             len2 += d * d
