@@ -6,6 +6,7 @@ Every dependency and model is recorded here when it is added (rule in `CLAUDE.md
 
 | Package | Version | License | Type |
 |---|---|---|---|
+| @mediapipe/tasks-vision | 1.2.2 | Apache-2.0 | runtime (auto cutout engine; its wasm is loaded lazily, never in the initial bundle) |
 | react | 19.3.1 | MIT | runtime |
 | react-dom | 19.3.1 | MIT | runtime |
 | @eslint/js | 10.0.1 | MIT | dev |

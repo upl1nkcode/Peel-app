@@ -82,6 +82,12 @@ export function renderWorkerClient(port: Port) {
           : [image.data.buffer],
       )
     },
+    /** Swaps the model alpha (spec 0007); transfers its buffer, so pass a copy. */
+    setModelAlpha(imageId: string, modelAlpha: AlphaMask): void {
+      client.send({ type: 'setModelAlpha', imageId, modelAlpha }, [
+        modelAlpha.data.buffer,
+      ])
+    },
     render(imageId: string, selection: Selection, scale: number) {
       return client.request({ type: 'render', imageId, selection, scale }, [])
     },

@@ -51,3 +51,8 @@ export interface SegmentationEngine {
   setImage(imageId: string, image: RgbaImage): Promise<void>
   segment(imageId: string, taps: readonly Tap[]): Promise<AutoResult>
 }
+
+/** A segment request replaced by a newer one before it ran; its result is never applied. */
+export class SegmentCancelled extends Error {
+  override name = 'SegmentCancelled'
+}

@@ -1,6 +1,6 @@
 import { smartEdgeRefiner } from '../core/matting'
 import { renderMask, type EdgeRefiner } from '../core/mask/render'
-import type { Size } from '../core/geometry/types'
+import type { RgbaImage } from '../core/mask/types'
 import {
   unknownImage,
   unknownMessage,
@@ -18,22 +18,35 @@ export function createRenderHandler(): Handler<
   ToRenderWorker,
   FromRenderWorker
 > {
-  let current: { imageId: string; size: Size; refiner: EdgeRefiner } | undefined
+  let current:
+    { imageId: string; image: RgbaImage; refiner: EdgeRefiner } | undefined
   return (msg) => {
     switch (msg.type) {
       case 'setImage':
         current = {
           imageId: msg.imageId,
-          size: { width: msg.image.width, height: msg.image.height },
+          image: msg.image,
           refiner: smartEdgeRefiner(msg.image, msg.modelAlpha),
+        }
+        return undefined
+      case 'setModelAlpha':
+        if (current?.imageId !== msg.imageId) throw unknownImage(msg.imageId)
+        current = {
+          ...current,
+          refiner: smartEdgeRefiner(current.image, msg.modelAlpha),
         }
         return undefined
       case 'render': {
         if (current?.imageId !== msg.imageId) throw unknownImage(msg.imageId)
-        const mask = renderMask(msg.selection, current.size, {
-          scale: msg.scale,
-          refineEdge: current.refiner,
-        })
+        const { width, height } = current.image
+        const mask = renderMask(
+          msg.selection,
+          { width, height },
+          {
+            scale: msg.scale,
+            refineEdge: current.refiner,
+          },
+        )
         return {
           message: { type: 'rendered', jobId: msg.jobId, mask },
           transfer: [mask.data.buffer as ArrayBuffer],

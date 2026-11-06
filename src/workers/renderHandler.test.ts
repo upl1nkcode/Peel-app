@@ -85,4 +85,36 @@ describe('render worker handler', () => {
     })
     expect(reply?.transfer).toEqual([rendered(reply).mask.data.buffer])
   })
+
+  it('should_swap_the_model_alpha_without_resending_the_photo', () => {
+    const scene = discScene('contrast', 2)
+    const model = blurredModel(scene.truth, scene.size)
+    const selection: Selection = {
+      ...scene.selection,
+      softEdge: { source: 'model', bandPx: 8 },
+    }
+    const swapped = createRenderHandler()
+    swapped({ type: 'setImage', imageId: 'a', image: scene.image })
+    expect(
+      swapped({ type: 'setModelAlpha', imageId: 'a', modelAlpha: model }),
+    ).toBeUndefined()
+    const fresh = createRenderHandler()
+    fresh({
+      type: 'setImage',
+      imageId: 'a',
+      image: scene.image,
+      modelAlpha: model,
+    })
+    const job = {
+      type: 'render',
+      jobId: 1,
+      imageId: 'a',
+      selection,
+      scale: 1,
+    } as const
+    expect(rendered(swapped(job)).mask).toEqual(rendered(fresh(job)).mask)
+    expect(() =>
+      swapped({ type: 'setModelAlpha', imageId: 'b', modelAlpha: model }),
+    ).toThrow('unknown image id b')
+  })
 })
