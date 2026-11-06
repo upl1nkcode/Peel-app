@@ -1,6 +1,6 @@
 # 0006 — Smart edge and magnetic lasso
 
-- **Status:** Draft
+- **Status:** Approved
 - **Issues:** story #38; tasks #39 (edge-cost map), #40 (live-wire), #42 (colour alpha estimate, was "guided filter matting"), #43 (band-limited smart edge), #44 (workers)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §3.3 (magnetic option), §3.5 (smart edge), §4 (render pipeline step 2), §6 (`core/matting`, `workers/`), Phase 5
 
