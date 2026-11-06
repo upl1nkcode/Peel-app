@@ -72,6 +72,7 @@ export type EdgeRefiner = (
   mask: Float32Array, // 0..1 coverage, imageSize, after step 1; refined in place
   size: Size,
   softEdge: SoftEdge,
+  scale: number, // the render's scale (1 at full size); added by spec 0006
 ) => void
 export function renderMask(
   selection: Selection,

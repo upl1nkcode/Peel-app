@@ -209,6 +209,23 @@ describe('renderMask', () => {
     expect(band).toBe(4)
   })
 
+  it('should_pass_the_preview_scale_to_the_refiner (AC-19, spec 0006 final review)', () => {
+    const sel = selection({
+      rings: [box('add', 4, 4, 36, 36)],
+      softEdge: { source: 'guided', bandPx: 8 },
+    })
+    const scales: number[] = []
+    const refineEdge: EdgeRefiner = (_m, _s, _e, scale) => {
+      scales.push(scale)
+    }
+    const size = { width: 40, height: 40 }
+    renderMask(sel, size, { scale: 0.3, refineEdge })
+    renderMask(sel, size, { refineEdge })
+    // 0.999 rounds up to the full size, so it renders at scale 1.
+    renderMask(sel, size, { scale: 0.999, refineEdge })
+    expect(scales).toEqual([0.3, 1, 1])
+  })
+
   it('should_refuse_bad_scales (AC-21)', () => {
     const sel = selection({})
     for (const scale of [0, -0.5, 1.01, Number.NaN]) {

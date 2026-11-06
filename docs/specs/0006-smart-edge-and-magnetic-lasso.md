@@ -1,6 +1,6 @@
 # 0006 — Smart edge and magnetic lasso
 
-- **Status:** Approved
+- **Status:** Implemented
 - **Issues:** story #38; tasks #39 (edge-cost map), #40 (live-wire), #42 (colour alpha estimate, was "guided filter matting"), #43 (band-limited smart edge), #44 (workers)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §3.3 (magnetic option), §3.5 (smart edge), §4 (render pipeline step 2), §6 (`core/matting`, `workers/`), Phase 5
 
@@ -65,7 +65,7 @@ As spec 0005: pixel (i, j) covers [i, i+1) × [j, j+1) and its centre is (i + 0.
 
 ### Smart edge (#42, #43)
 
-The band is the set of pixels whose centre is within `bandPx / 2` of the 50% line of the rings' coverage (render pipeline step 1), so its total width is `bandPx`.
+The band is the set of pixels whose centre is within `bandPx / 2` of the 50% line of the rings' coverage (render pipeline step 1), so its total width is `bandPx`. The image border is not part of that line: where a selection runs off the image, no band is drawn along the border.
 
 - **AC-14** Given any selection with a soft edge, then every pixel outside the band has exactly the alpha it would have without the soft edge (bit-identical after rendering).
 - **AC-15** Given a band width outside [2, 20] px, the refiner throws a `RangeError` (the selection model already refuses these; spec 0003). Band widths 2 and 20 both work.
@@ -99,7 +99,8 @@ export interface EdgeMap {
   /** 1 − strength / max(strength in rect); 1 everywhere when the max is 0. */
   cost: Float32Array
 }
-export function edgeMap(image: RgbaImage, rect: Rect): EdgeMap
+/** With `only` (over rect, 1 = needed), other pixels get strength 0 and cost 1; cost is relative to the strongest needed pixel. */
+export function edgeMap(image: RgbaImage, rect: Rect, only?: Uint8Array): EdgeMap
 
 // src/core/matting/liveWire.ts
 /** Cheapest 8-connected path of pixel centres; `allowed` is a mask over map.rect (1 = may pass). */
@@ -114,7 +115,11 @@ export function snapToEdges(image: RgbaImage, finger: readonly Point[], reachPx:
 // src/core/matting/smartEdge.ts
 export const COLOUR_TRUST_DISTANCE = 0.15 // Decision 2
 export function bandMask(coverage: Float32Array, size: Size, bandPx: number): Uint8Array
-/** EdgeRefiner for renderMask (spec 0004). modelAlpha: full image size; required when source is 'model'. */
+/**
+ * EdgeRefiner for renderMask (spec 0004). modelAlpha: full image size; required when source is 'model'.
+ * renderMask passes its scale as the refiner's 4th argument, so a preview averages each preview
+ * pixel's exact image footprint [o/s, (o+1)/s) and checks the band at full resolution exactly.
+ */
 export function smartEdgeRefiner(image: RgbaImage, modelAlpha?: AlphaMask): EdgeRefiner
 ```
 

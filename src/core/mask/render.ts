@@ -8,12 +8,14 @@ import { toAlphaMask, type AlphaMask } from './types'
 /**
  * Pipeline step 2, supplied by the caller (guided filter in Phase 5, model
  * alpha in Phase 6). Receives the 0..1 coverage after the rings, before any
- * brush stroke, and refines it in place.
+ * brush stroke, and refines it in place; `scale` is the render's scale (1 at
+ * full size), with `softEdge.bandPx` already multiplied by it.
  */
 export type EdgeRefiner = (
   mask: Float32Array,
   size: Size,
   softEdge: SoftEdge,
+  scale: number,
 ) => void
 
 const isSize = (n: number): boolean => Number.isInteger(n) && n >= 1
@@ -50,10 +52,12 @@ export function renderMask(
   const scale = full ? 1 : requested
   const coverage = rasterizeRings(selection.rings, size, scale)
   if (selection.softEdge && options.refineEdge) {
-    options.refineEdge(coverage, size, {
-      ...selection.softEdge,
-      bandPx: selection.softEdge.bandPx * scale,
-    })
+    options.refineEdge(
+      coverage,
+      size,
+      { ...selection.softEdge, bandPx: selection.softEdge.bandPx * scale },
+      scale,
+    )
   }
   applyStrokes(coverage, size, selection.strokes, scale)
   feather(coverage, size, selection.feather * scale)
