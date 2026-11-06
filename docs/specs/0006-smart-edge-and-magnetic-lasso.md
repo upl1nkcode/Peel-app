@@ -99,7 +99,8 @@ export interface EdgeMap {
   /** 1 − strength / max(strength in rect); 1 everywhere when the max is 0. */
   cost: Float32Array
 }
-export function edgeMap(image: RgbaImage, rect: Rect): EdgeMap
+/** With `only` (over rect, 1 = needed), other pixels get strength 0 and cost 1; cost is relative to the strongest needed pixel. */
+export function edgeMap(image: RgbaImage, rect: Rect, only?: Uint8Array): EdgeMap
 
 // src/core/matting/liveWire.ts
 /** Cheapest 8-connected path of pixel centres; `allowed` is a mask over map.rect (1 = may pass). */

@@ -1,5 +1,6 @@
 import type { Point, Size } from '../core/geometry/types'
-import type { RgbaImage } from '../core/mask/types'
+import type { AlphaMask, RgbaImage } from '../core/mask/types'
+import type { Ring, Selection, SoftEdge } from '../core/selection/types'
 import { circle, softMask } from './maskFixtures'
 import { mulberry32 } from './random'
 
@@ -104,4 +105,205 @@ export function circleScene(seed = 3): EdgeScene {
       y: c.y + r * Math.sin(t / r),
     }),
   }
+}
+
+/** Spec 0006 AC-16 colour pairs (object / background). */
+export const SMART_EDGE_SCENES = {
+  contrast: { fg: [0.8, 0.3, 0.2], bg: [0.2, 0.5, 0.8], noise: 0.02 },
+  isoluminant: { fg: [0.7, 0.4, 0.4], bg: [0.3, 0.6, 0.4], noise: 0.02 },
+  textured: {
+    fg: [0.6, 0.4, 0.3],
+    bg: [0.2, 0.5, 0.8],
+    noise: 0.04,
+    texture: 0.15,
+  },
+} as const satisfies Record<
+  string,
+  { fg: RGB; bg: RGB; noise: number; texture?: number }
+>
+
+export type SmartEdgeSceneKind = keyof typeof SMART_EDGE_SCENES
+
+export interface SmartEdgeScene {
+  size: Size
+  image: RgbaImage
+  /** The painted (true) coverage. */
+  truth: Float32Array
+  /** One ring per drawn shape, as corner dots, with the given soft edge. */
+  selection: Selection
+}
+
+const DISC_SIZE = { width: 96, height: 96 }
+const DISC_C = { x: 48.3, y: 47.8 }
+const DISC_R = 25
+
+const ringOf = (op: Ring['op'], points: readonly Point[]): Ring => ({
+  op,
+  nodes: points.map(({ x, y }) => ({ x, y, kind: 'corner' as const })),
+})
+
+const selectionOf = (rings: Ring[], softEdge: SoftEdge): Selection => ({
+  rings,
+  strokes: [],
+  feather: 0,
+  softEdge,
+})
+
+/** A disc of radius 25 in 96 × 96, painted in `kind`'s colours; the ring is drawn `delta` px larger. */
+export function discScene(
+  kind: SmartEdgeSceneKind,
+  delta: number,
+  softEdge: SoftEdge = { source: 'guided', bandPx: 8 },
+): SmartEdgeScene {
+  const s = SMART_EDGE_SCENES[kind] as {
+    fg: RGB
+    bg: RGB
+    noise: number
+    texture?: number
+  }
+  const truth = softMask(
+    [{ op: 'add', points: circle(DISC_C, DISC_R) }],
+    DISC_SIZE,
+  ).data
+  const image = paintScene(truth, DISC_SIZE, s.fg, s.bg, {
+    noise: s.noise,
+    seed: 7,
+    ...(s.texture === undefined ? {} : { texture: s.texture }),
+  })
+  return {
+    size: DISC_SIZE,
+    image,
+    truth,
+    selection: selectionOf(
+      [ringOf('add', circle(DISC_C, DISC_R + delta))],
+      softEdge,
+    ),
+  }
+}
+
+/** The disc plus 24 hair strands 0.8 px wide reaching from radius 24 to 32; dark hair on a light background. */
+export function hairScene(
+  delta: number,
+  softEdge: SoftEdge = { source: 'guided', bandPx: 8 },
+): SmartEdgeScene & { strands: Float32Array } {
+  const disc = softMask(
+    [{ op: 'add', points: circle(DISC_C, DISC_R) }],
+    DISC_SIZE,
+  ).data
+  const strands = new Float32Array(DISC_SIZE.width * DISC_SIZE.height)
+  for (let s = 0; s < 24; s++) {
+    const a = (s / 24) * 2 * Math.PI + 0.1
+    const ux = Math.cos(a)
+    const uy = Math.sin(a)
+    const pts: Point[] = [
+      { x: DISC_C.x + ux * 24 - uy * 0.4, y: DISC_C.y + uy * 24 + ux * 0.4 },
+      { x: DISC_C.x + ux * 32 - uy * 0.4, y: DISC_C.y + uy * 32 + ux * 0.4 },
+      { x: DISC_C.x + ux * 32 + uy * 0.4, y: DISC_C.y + uy * 32 - ux * 0.4 },
+      { x: DISC_C.x + ux * 24 + uy * 0.4, y: DISC_C.y + uy * 24 - ux * 0.4 },
+    ]
+    const m = softMask([{ op: 'add', points: pts }], DISC_SIZE).data
+    for (let k = 0; k < m.length; k++)
+      strands[k] = Math.min(1, (strands[k] as number) + (m[k] as number))
+  }
+  const truth = disc.map((v, k) => Math.min(1, v + (strands[k] as number)))
+  const image = paintScene(
+    truth,
+    DISC_SIZE,
+    [0.3, 0.2, 0.1],
+    [0.85, 0.85, 0.9],
+    {
+      noise: 0.02,
+      seed: 7,
+    },
+  )
+  return {
+    size: DISC_SIZE,
+    image,
+    truth,
+    strands,
+    selection: selectionOf(
+      [ringOf('add', circle(DISC_C, DISC_R + delta))],
+      softEdge,
+    ),
+  }
+}
+
+/** A donut (outer radius 30, hole radius 12) at the centre of 96 × 96; rings drawn `delta` larger / `delta` smaller. */
+export function donutScene(
+  kind: SmartEdgeSceneKind,
+  delta: number,
+  bandPx = 8,
+): SmartEdgeScene {
+  const s = SMART_EDGE_SCENES[kind] as {
+    fg: RGB
+    bg: RGB
+    noise: number
+    texture?: number
+  }
+  const truth = softMask(
+    [
+      { op: 'add', points: circle(DISC_C, 30) },
+      { op: 'subtract', points: circle(DISC_C, 12) },
+    ],
+    DISC_SIZE,
+  ).data
+  const image = paintScene(truth, DISC_SIZE, s.fg, s.bg, {
+    noise: s.noise,
+    seed: 7,
+  })
+  return {
+    size: DISC_SIZE,
+    image,
+    truth,
+    selection: selectionOf(
+      [
+        ringOf('add', circle(DISC_C, 30 + delta)),
+        ringOf('subtract', circle(DISC_C, 12 - delta)),
+      ],
+      { source: 'guided', bandPx },
+    ),
+  }
+}
+
+/** The AI model's view: `truth` area-averaged down by `factor`, then bilinearly upscaled (blurry). */
+export function blurredModel(
+  truth: Float32Array,
+  size: Size,
+  factor = 4,
+): AlphaMask {
+  const w = Math.ceil(size.width / factor)
+  const h = Math.ceil(size.height / factor)
+  const small = new Float64Array(w * h)
+  const count = new Float64Array(w * h)
+  for (let y = 0; y < size.height; y++) {
+    for (let x = 0; x < size.width; x++) {
+      const k = Math.floor(y / factor) * w + Math.floor(x / factor)
+      small[k] = (small[k] as number) + (truth[y * size.width + x] as number)
+      count[k] = (count[k] as number) + 1
+    }
+  }
+  for (let k = 0; k < small.length; k++)
+    small[k] = (small[k] as number) / (count[k] as number)
+  const data = new Uint8Array(size.width * size.height)
+  for (let y = 0; y < size.height; y++) {
+    for (let x = 0; x < size.width; x++) {
+      const sx = Math.min(w - 1, Math.max(0, (x + 0.5) / factor - 0.5))
+      const sy = Math.min(h - 1, Math.max(0, (y + 0.5) / factor - 0.5))
+      const x0 = Math.floor(sx)
+      const y0 = Math.floor(sy)
+      const x1 = Math.min(w - 1, x0 + 1)
+      const y1 = Math.min(h - 1, y0 + 1)
+      const tx = sx - x0
+      const ty = sy - y0
+      const v =
+        (1 - ty) *
+          ((1 - tx) * (small[y0 * w + x0] as number) +
+            tx * (small[y0 * w + x1] as number)) +
+        ty *
+          ((1 - tx) * (small[y1 * w + x0] as number) +
+            tx * (small[y1 * w + x1] as number))
+      data[y * size.width + x] = Math.round(v * 255)
+    }
+  }
+  return { width: size.width, height: size.height, data }
 }

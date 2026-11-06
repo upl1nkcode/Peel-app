@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - `src/core/` has no DOM, React or browser imports or globals (`tsconfig.core.json` has no DOM lib). Coordinates are image px floats; pixel (i, j) is centred at (i + 0.5, j + 0.5). Colours are 8-bit sRGB / 255; the image's alpha channel is ignored.
-- Constants: `SNAP_REACH_PT = 12`; `COLOUR_TRUST_DISTANCE = 0.15` (Euclidean RGB distance, channels 0..1); soft-edge band width in [2, 20] px at full resolution; live-wire step cost `(cost(q) + 0.05) × (1 or √2)`; colour window radius `R = ⌈bandPx / 2⌉ + 2`.
+- Constants: `SNAP_REACH_PT = 12`; `COLOUR_TRUST_DISTANCE = 0.15` (Euclidean RGB distance, channels 0..1); soft-edge band width in [2, 20] px at full resolution; live-wire step cost `(cost(q) + 0.05) × (1 or √2)`; colour window radius `R = ⌈bandPx⌉ + 2` (was ⌈bandPx / 2⌉ + 2; see the Task 4 ruling in the ledger).
 - Edge cost = 1 − strength / (max strength in the computed rect), 1 everywhere when that max is 0.
 - Test names `should_...` with the AC id; seeded randomness (`src/test/random.ts`). Coverage of `src/core/` ≥ 90%, overall ≥ 75%. Timing tests go in `*.perf.test.ts` (run alone by `npm run test:perf`).
 - Branch `feat/39-44-smart-edge`; one commit per task (Conventional Commits, `Refs #N`).
@@ -39,7 +39,7 @@
 - Produces:
   - `Rect { x; y; width; height }` (whole px, inside the image).
   - `EdgeMap { rect; strength: Float32Array; cost: Float32Array; normalX: Float32Array; normalY: Float32Array }`. `normalX`/`normalY` hold the unit direction across the edge: the main eigenvector of the colour structure tensor Σ_c [gx², gx·gy; gx·gy, gy²]. This is an addition to the spec contract that `refineSubpixel` needs.
-  - `edgeMap(image: RgbaImage, rect: Rect): EdgeMap`.
+  - `edgeMap(image: RgbaImage, rect: Rect, only?: Uint8Array): EdgeMap` (`only` added in Task 3).
   - Fixture `paintScene(coverage: Float32Array, size: Size, fg: RGB, bg: RGB, opts: { noise: number; seed: number; texture?: number }): RgbaImage`. Each channel is `cov·fg + (1 − cov)·bg (+ texture·sin(0.9x)·cos(0.7y) on the object) + noise·(u1 + u2 + u3 − 1.5)`, rounded to 8 bits. Also `RGB = [number, number, number]` and `stepImage(width, height, column, left: RGB, right: RGB): RgbaImage`.
 
 - [ ] **Step 1: Write the failing tests**
