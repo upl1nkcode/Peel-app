@@ -44,7 +44,7 @@
 
 - [ ] **Step 1: Write the failing tests**
   - `should_put_the_lowest_cost_on_a_step_edge (AC-1)`: `stepImage(20, 12, 10, …)`, rect = whole image. In every row, the two smallest costs are at columns 9 and 10 and equal, and cost is non-decreasing moving away from them.
-  - `should_find_same_brightness_colour_edges (AC-2)`: red [0.7, 0.4, 0.4] vs green [0.3, 0.55, 0.45] (Rec. 601 luma within 0.01). Cost on the step ≤ 0.1.
+  - `should_find_same_brightness_colour_edges (AC-2)`: red [0.7, 0.4, 0.4] vs green [0.3, 0.6, 0.4] (Rec. 601 luma within 0.01). Cost on the step ≤ 0.1.
   - `should_give_cost_1_on_flat_images (AC-3)`: every cost is 1, no NaN. A sub-rect returns arrays of `rect.width × rect.height`, and its values equal the whole-image map's at the same pixels, including next to the image border (clamped samples).
 - [ ] **Step 2: Run** `npx vitest run src/core/matting/edges` — Expected: FAIL (module missing).
 - [ ] **Step 3: Implement** `edgeMap`. Per channel, Sobel `gx, gy` with the 1-2-1 kernels divided by 8, reading neighbours with coordinates clamped to the image (not the rect). Strength = √Σ(gx² + gy²). For the normal, use θ = ½·atan2(2·Jxy, Jxx − Jyy), normal = (cos θ, sin θ); on a flat pixel use (1, 0).
