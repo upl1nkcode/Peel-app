@@ -12,15 +12,26 @@ interface Sample {
   tol: number
 }
 
-/** Points along the closed contour, at most 0.1 px apart, each with its segment's tolerance (hard only if both ends are hard). */
-function contourSamples(contour: Contour): Sample[] {
+/**
+ * Points along the closed contour, at most 0.1 px apart, each with its
+ * segment's tolerance: hard only if both ends are hard, and with `widths`
+ * (spec 0005 Decision 2) at most a quarter of the narrower end's width,
+ * never below 0.1 px.
+ */
+function contourSamples(
+  contour: Contour,
+  widths?: readonly number[],
+): Sample[] {
   const { points, hard } = contour
   const n = points.length
   const out: Sample[] = []
+  const cap = (k: number) =>
+    widths ? Math.max(0.1, (widths[k % n] as number) / 4) : Infinity
   for (let k = 0; k < n; k++) {
     const a = points[k] as Point
     const b = points[(k + 1) % n] as Point
-    const tol = hard[k] && hard[(k + 1) % n] ? HARD : SOFT
+    const base = hard[k] && hard[(k + 1) % n] ? HARD : SOFT
+    const tol = Math.min(base, cap(k), cap(k + 1))
     const steps = Math.max(
       1,
       Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / STEP),
@@ -74,8 +85,12 @@ class Grid<T extends { p: Point }> {
  * of the nearest contour sample. Distances are sample to sample, so they
  * can only overstate the true distance: a pass is a real pass.
  */
-export function curveExcess(contour: Contour, nodes: readonly Node[]): number {
-  const cs = contourSamples(contour)
+export function curveExcess(
+  contour: Contour,
+  nodes: readonly Node[],
+  widths?: readonly number[],
+): number {
+  const cs = contourSamples(contour, widths)
   const curve = toBezierSegments(nodes, true).flatMap((seg) =>
     sampleSegment(seg, STEP).map((p) => ({ p })),
   )

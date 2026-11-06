@@ -4,6 +4,7 @@ import type { Ring } from '../selection/types'
 import { contourToNodes } from './dots'
 import { traceContours } from './trace'
 import type { Contour, CoverageMask } from './types'
+import { localWidths } from './width'
 
 /** Every contour point as a `corner` dot: the polygon of the trace itself. */
 export const cornerNodes = (contour: Contour): Node[] =>
@@ -43,22 +44,25 @@ const covers = (outer: Bounds, inner: Bounds): boolean =>
  */
 export function contoursToRings(
   contours: readonly Contour[],
-  toNodes: (contour: Contour) => Node[] = contourToNodes,
+  toNodes: (contour: Contour, index: number) => Node[] = (c) =>
+    contourToNodes(c),
 ): Ring[] {
   const depth = nestingDepth(contours)
   return contours
     .map((c, k) => ({ c, depth: depth[k] as number, k }))
     .sort((p, q) => p.depth - q.depth || p.k - q.k)
-    .map(({ c }) => ({
+    .map(({ c, k }) => ({
       op: signedArea(c.points) < 0 ? 'add' : 'subtract',
-      nodes: toNodes(c),
+      nodes: toNodes(c, k),
     }))
 }
 
 /**
  * Spec 0005: a mask's 50% line as rings of dots, holes as `subtract` rings,
- * in nesting order. Nothing is dropped.
+ * in nesting order. Nothing is dropped; thin parts keep their width.
  */
 export function maskToRings(mask: CoverageMask): Ring[] {
-  return contoursToRings(traceContours(mask))
+  const contours = traceContours(mask)
+  const widths = localWidths(contours)
+  return contoursToRings(contours, (c, k) => contourToNodes(c, widths[k]))
 }

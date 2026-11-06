@@ -2,6 +2,7 @@ import { sampleSegment, toBezierSegments } from '../geometry/bezier'
 import type { BezierSegment, Node, Point } from '../geometry/types'
 import { cornerFrame, findCorners, pointAtArc, smoothHard } from './corners'
 import type { Contour } from './types'
+import { MIN_TOLERANCE_PX, THIN_PART_FRACTION } from './width'
 
 /** The drawn curve stays within this of the traced line on soft edges… */
 export const DOT_TOLERANCE_PX = 0.5
@@ -83,31 +84,63 @@ function intersect(a: Point, b: Point, c: Point, d: Point): Point | undefined {
  * Dots along one contour (spec 0005 Decisions 2–3): corner dots where it
  * turns sharply, placed where the two edges meet when that point is within
  * tolerance of the trace; smooth dots elsewhere, added until the drawn curve
- * is within 0.5 px of the trace (1 px along hard edges) both ways.
+ * is within 0.5 px of the trace (1 px along hard edges) both ways. With
+ * `widths` (from `localWidths`), thin parts get at most a quarter of their
+ * width (Decision 2).
  */
-export function contourToNodes(contour: Contour): Node[] {
+export function contourToNodes(
+  contour: Contour,
+  widths?: readonly number[],
+): Node[] {
   const { points, hard } = contour
   const n = points.length
   /** Index into the closed contour, for any integer k (also negative). */
   const wrap = (k: number) => ((k % n) + n) % n
-  const vertexTol = (k: number) =>
-    hard[wrap(k)] ? HARD_EDGE_TOLERANCE_PX : DOT_TOLERANCE_PX
-  const segTol = (k: number) =>
-    hard[wrap(k)] && hard[wrap(k + 1)]
-      ? HARD_EDGE_TOLERANCE_PX
-      : DOT_TOLERANCE_PX
+  // Tolerances per point and per segment (point k to k + 1), computed once:
+  // these are read in every inner loop below.
+  const cap = new Float64Array(n).fill(Infinity)
+  if (widths) {
+    for (let k = 0; k < n; k++) {
+      cap[k] = Math.max(
+        MIN_TOLERANCE_PX,
+        THIN_PART_FRACTION * (widths[k] as number),
+      )
+    }
+  }
+  const vTol = new Float64Array(n)
+  const sTol = new Float64Array(n)
+  for (let k = 0; k < n; k++) {
+    const k1 = (k + 1) % n
+    vTol[k] = Math.min(
+      hard[k] ? HARD_EDGE_TOLERANCE_PX : DOT_TOLERANCE_PX,
+      cap[k] as number,
+    )
+    sTol[k] = Math.min(
+      hard[k] && hard[k1] ? HARD_EDGE_TOLERANCE_PX : DOT_TOLERANCE_PX,
+      cap[k] as number,
+      cap[k1] as number,
+    )
+  }
+  const vertexTol = (k: number) => vTol[wrap(k)] as number
+  const segTol = (k: number) => sTol[wrap(k)] as number
   const at = (k: number) => points[wrap(k)] as Point
-  // Smooth dots on hard edges sit on the staircase smoothed once: closer to the true shape.
-  const placed = smoothHard(points, hard)
+  // Smooth dots on hard edges sit on the staircase smoothed once: closer to
+  // the true shape. Not on thin parts, where smoothing can use up the tolerance.
+  const smoothed = smoothHard(points, hard)
+  const placed = smoothed.map((p, k) =>
+    (cap[k] as number) < HARD_EDGE_TOLERANCE_PX ? (points[k] as Point) : p,
+  )
   const place = (k: number) => placed[wrap(k)] as Point
 
-  // Soft trace segments on a 2 px grid: a curve sample near both a hard and a
-  // soft segment must meet the soft tolerance (AC-9 takes the nearest trace
+  // Stricter trace segments on a 2 px grid: a curve sample near segments of
+  // different tolerances must meet the smallest (AC-9 takes the nearest trace
   // point, which may lie in another gap's span or across a thin feature).
-  const softCells = new Map<number, number[]>()
+  const strictCells = new Map<number, number[]>()
   const cellKey = (i: number, j: number) => i * 65_537 + j
+  let minTol = HARD_EDGE_TOLERANCE_PX
   for (let k = 0; k < n; k++) {
-    if (segTol(k) !== DOT_TOLERANCE_PX) continue
+    if (segTol(k) >= HARD_EDGE_TOLERANCE_PX) continue
+    minTol = Math.min(minTol, segTol(k))
     const p = at(k)
     const q = at(k + 1)
     for (
@@ -120,33 +153,37 @@ export function contourToNodes(contour: Contour): Node[] {
         j <= Math.floor(Math.max(p.y, q.y) / 2);
         j++
       ) {
-        const list = softCells.get(cellKey(i, j))
+        const list = strictCells.get(cellKey(i, j))
         if (list) list.push(k)
-        else softCells.set(cellKey(i, j), [k])
+        else strictCells.set(cellKey(i, j), [k])
       }
     }
   }
-  const softWithin = (x: number, y: number, r: number): boolean => {
+  /** The smallest tolerance below `tol` among segments within r of (x, y). */
+  const strictestWithin = (
+    x: number,
+    y: number,
+    r: number,
+    tol: number,
+  ): number => {
+    let best = tol
     for (let i = Math.floor((x - r) / 2); i <= Math.floor((x + r) / 2); i++) {
       for (let j = Math.floor((y - r) / 2); j <= Math.floor((y + r) / 2); j++) {
-        for (const k of softCells.get(cellKey(i, j)) ?? []) {
+        for (const k of strictCells.get(cellKey(i, j)) ?? []) {
+          if (segTol(k) >= best) continue
           const p = at(k)
           const q = at(k + 1)
-          if (segDistXY(x, y, p.x, p.y, q.x, q.y) <= r) return true
+          if (segDistXY(x, y, p.x, p.y, q.x, q.y) <= r) best = segTol(k)
         }
       }
     }
-    return false
+    return best
   }
   /** Tolerance (less the margin) for a curve sample at distance d from trace segment k. */
   const curveTol = (x: number, y: number, d: number, k: number): number => {
     const tol = segTol(k)
-    if (tol === DOT_TOLERANCE_PX || d <= DOT_TOLERANCE_PX - MARGIN) {
-      return tol - MARGIN
-    }
-    return softWithin(x, y, d + NEAR_TIE_PX)
-      ? DOT_TOLERANCE_PX - MARGIN
-      : tol - MARGIN
+    if (tol <= minTol || d <= minTol - MARGIN) return tol - MARGIN
+    return strictestWithin(x, y, d + NEAR_TIE_PX, tol) - MARGIN
   }
 
   // 1. Corners, each moved to where its two edges meet when that stays within tolerance.
