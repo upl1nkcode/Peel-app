@@ -1,5 +1,4 @@
 declare module 'virtual:peel-models' {
-  import type { ModelManifest } from './services/segmentation/types'
-  const manifest: ModelManifest
+  const manifest: import('./services/segmentation/types').ModelManifest
   export default manifest
 }
