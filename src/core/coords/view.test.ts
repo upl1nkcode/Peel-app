@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Point } from '../geometry/types'
-import { canvasToImage, viewScale } from './transform'
+import { canvasToImage, initialView, viewScale } from './transform'
 import type { View, Viewport } from './types'
 import {
   applyTwoFingerGesture,
   applyWheelZoom,
   clampView,
+  resizeView,
   toggleActualSize,
 } from './view'
 
@@ -272,5 +273,45 @@ describe('wheel zoom', () => {
   it('should_refuse_a_non_finite_wheel_delta (AC-6)', () => {
     expect(() => applyWheelZoom(vp, fit, at, Number.NaN)).toThrow(RangeError)
     expect(() => applyWheelZoom(vp, fit, at, Infinity)).toThrow(RangeError)
+  })
+})
+
+describe('resizeView (spec 0009 final review I-1)', () => {
+  // A portrait phone photo; the sheet below the canvas grows by 60 px.
+  const before: Viewport = {
+    canvas: { width: 375, height: 500 },
+    image: { width: 3024, height: 4032 },
+    dpr: 3,
+  }
+  const after: Viewport = { ...before, canvas: { width: 375, height: 440 } }
+  const dpx = (v: Viewport, view: View) => viewScale(v, view) * v.dpr
+
+  it('should_keep_the_display_scale_when_the_canvas_resizes', () => {
+    const at100 = toggleActualSize(before, initialView(before), {
+      x: 187.5,
+      y: 250,
+    })
+    expect(dpx(before, at100)).toBeCloseTo(1, 12)
+    const resized = resizeView(before, after, at100)
+    expect(dpx(after, resized)).toBeCloseTo(1, 12)
+    expect(resized.center).toEqual(at100.center)
+  })
+
+  it('should_stay_at_fit_when_the_canvas_grows_or_shrinks', () => {
+    expect(resizeView(before, after, initialView(before))).toEqual(
+      initialView(after),
+    )
+    expect(resizeView(after, before, initialView(after))).toEqual(
+      initialView(before),
+    )
+  })
+
+  it('should_keep_the_display_scale_when_the_pixel_ratio_changes', () => {
+    const view: View = { zoom: 6, center: { x: 1500, y: 2000 } }
+    const moved: Viewport = { ...before, dpr: 2 }
+    expect(dpx(moved, resizeView(before, moved, view))).toBeCloseTo(
+      dpx(before, view),
+      12,
+    )
   })
 })

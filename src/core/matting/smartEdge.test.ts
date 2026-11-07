@@ -470,4 +470,78 @@ describe('smart edge', () => {
       ).toBeLessThanOrEqual(0.15)
     }
   })
+
+  describe('preview memory (spec 0009 final review I-3)', () => {
+    // 402 px wide so the 0.5 preview's lines (201 × 4 and 201 values) are
+    // sizes nothing else allocates.
+    const size = { width: 402, height: 300 }
+    const box = rect(100.3, 80.6, 300.2, 220.4)
+    const cov = softMask([{ op: 'add', points: box }], size).data
+    const image = paintScene(cov, size, [0.8, 0.3, 0.2], [0.2, 0.5, 0.8], {
+      noise: 0.02,
+      seed: 9,
+    })
+    const model: AlphaMask = {
+      ...size,
+      data: Uint8Array.from(cov, (v) => Math.round(v * 255)),
+    }
+    const selection: Selection = {
+      rings: [
+        {
+          op: 'add',
+          nodes: box.map(({ x, y }) => ({ x, y, kind: 'corner' as const })),
+        },
+      ],
+      strokes: [],
+      feather: 0,
+      softEdge: { source: 'model', bandPx: 2 },
+    }
+    /** Runs `fn`, returning the length of every Float64Array it made. */
+    const float64Lengths = (fn: () => void): number[] => {
+      const Real = globalThis.Float64Array
+      const lengths: number[] = []
+      globalThis.Float64Array = new Proxy(Real, {
+        construct(target, args: unknown[]) {
+          if (typeof args[0] === 'number') lengths.push(args[0])
+          return Reflect.construct(target, args) as object
+        },
+      })
+      try {
+        fn()
+      } finally {
+        globalThis.Float64Array = Real
+      }
+      return lengths
+    }
+
+    it('should_resample_a_preview_without_a_full_height_buffer', () => {
+      const lengths = float64Lengths(() => {
+        renderMask(selection, size, {
+          scale: 0.5,
+          refineEdge: smartEdgeRefiner(image, model),
+        })
+      })
+      // A horizontal pass over every source row held 300 × 201 × 4 values.
+      expect(Math.max(...lengths)).toBeLessThan(300 * 201)
+    })
+
+    it('should_keep_only_the_newest_preview_resample', () => {
+      const refiner = smartEdgeRefiner(image, model)
+      const at = (scale: number) => {
+        renderMask(selection, size, { scale, refineEdge: refiner })
+      }
+      at(0.5)
+      at(0.25)
+      // 0.5 was dropped when 0.25 came, so it is resampled again.
+      const again = float64Lengths(() => {
+        at(0.5)
+      })
+      expect(again).toContain(201 * 4)
+      // The same scale twice in a row is not resampled again.
+      const same = float64Lengths(() => {
+        at(0.5)
+      })
+      expect(same).not.toContain(201 * 4)
+    })
+  })
 })

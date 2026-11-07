@@ -110,24 +110,25 @@ export function smartEdgeRefiner(
     throw new RangeError('the model alpha must be the size of the image')
   }
   const { width: W, height: H } = image
-  const cache = new Map<string, Resampled>()
+  // Only the newest preview scale is kept: zooming asks for a new scale at
+  // each step, and a 12 MP photo's copies are tens of MB each.
+  let cached: { key: string; value: Resampled } | null = null
   const resampled = (size: Size, scale: number): Resampled => {
     if (scale === 1) return { image, model: modelAlpha?.data }
     const key = `${String(size.width)}x${String(size.height)}@${String(scale)}`
-    let hit = cache.get(key)
-    if (!hit) {
-      const { width: w, height: h } = size
-      hit = {
-        image: {
-          width: w,
-          height: h,
-          data: resample(image.data, W, H, 4, w, h, scale),
-        },
-        model: modelAlpha && resample(modelAlpha.data, W, H, 1, w, h, scale),
-      }
-      cache.set(key, hit)
+    if (cached?.key === key) return cached.value
+    cached = null
+    const { width: w, height: h } = size
+    const value: Resampled = {
+      image: {
+        width: w,
+        height: h,
+        data: resample(image.data, W, H, 4, w, h, scale),
+      },
+      model: modelAlpha && resample(modelAlpha.data, W, H, 1, w, h, scale),
     }
-    return hit
+    cached = { key, value }
+    return value
   }
 
   return (
@@ -204,10 +205,15 @@ function resample(
 ): Uint8Array {
   const fx = footprints(w, W, scale)
   const fy = footprints(h, H, scale)
-  const rows = new Float64Array(H * w * channels)
-  for (let y = 0; y < H; y++) {
+  const line = w * channels
+  // One source row at a time, resampled across as each output row needs it
+  // (a row under two output rows is done twice), so memory is two lines,
+  // not a full-height copy (spec 0009 final review I-3). Same sums, same order.
+  const row = new Float64Array(line)
+  const across = (y: number): void => {
+    row.fill(0)
     for (let o = 0; o < w; o++) {
-      const out = (y * w + o) * channels
+      const out = o * channels
       for (
         let t = fx.start[o] as number;
         t < (fx.start[o + 1] as number);
@@ -216,22 +222,20 @@ function resample(
         const at = (y * W + (fx.index[t] as number)) * channels
         const wt = fx.weight[t] as number
         for (let c = 0; c < channels; c++) {
-          rows[out + c] =
-            (rows[out + c] as number) + wt * (src[at + c] as number)
+          row[out + c] = (row[out + c] as number) + wt * (src[at + c] as number)
         }
       }
     }
   }
-  const line = w * channels
   const dst = new Uint8Array(h * line)
   const acc = new Float64Array(line)
   for (let o = 0; o < h; o++) {
     acc.fill(0)
     for (let t = fy.start[o] as number; t < (fy.start[o + 1] as number); t++) {
       const wt = fy.weight[t] as number
-      const from = (fy.index[t] as number) * line
+      across(fy.index[t] as number)
       for (let k = 0; k < line; k++) {
-        acc[k] = (acc[k] as number) + wt * (rows[from + k] as number)
+        acc[k] = (acc[k] as number) + wt * (row[k] as number)
       }
     }
     for (let k = 0; k < line; k++)

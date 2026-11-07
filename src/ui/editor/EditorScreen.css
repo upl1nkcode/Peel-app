@@ -123,7 +123,8 @@
   display: none;
 }
 
-.editor-status > * {
+/* Text lets taps through to the canvas; only its buttons take them (final review M-6). */
+.editor-status button {
   pointer-events: auto;
 }
 
@@ -139,8 +140,16 @@
   color: var(--error-fg);
 }
 
+/* One line on every phone, so the canvas doesn't jump when "Reset to auto"
+   appears; a long label breaks inside its button instead (final review M-5). */
 .editor-actions {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+.editor-actions button {
+  flex: 0 1 auto;
+  padding: 0 0.625rem;
+  line-height: 1.1;
 }
 
 .editor-sheet {

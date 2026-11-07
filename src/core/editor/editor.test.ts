@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { initialView } from '../coords/transform'
 import type { Viewport } from '../coords/types'
+import { toggleActualSize } from '../coords/view'
 import {
   CHECKER_DARK,
   CHECKER_LIGHT,
@@ -124,7 +126,9 @@ describe('preview scale', () => {
     expect(displayScale(vp, deep)).toBeCloseTo(3.2, 12)
     expect(previewScale(vp, deep)).toBe(1)
     expect(isCrisp(displayScale(vp, deep))).toBe(true)
-    expect(isCrisp(1)).toBe(false)
+    // At exactly 100% too (spec 0009 AC-8 as amended, final review I-2).
+    expect(isCrisp(1)).toBe(true)
+    expect(isCrisp(0.999)).toBe(false)
   })
 
   it('should_ask_for_a_finer_mask_only_when_zooming_in (AC-10)', () => {
@@ -133,5 +137,20 @@ describe('preview scale', () => {
     expect(needsFinerMask(0.2, 0.201)).toBe(false)
     expect(needsFinerMask(1, 0.5)).toBe(false)
     expect(needsFinerMask(0.2, 0.25)).toBe(true)
+  })
+})
+
+describe('100% after a double-tap (spec 0009 final review I-2)', () => {
+  it('should_render_the_scale_1_mask_after_a_double_tap (AC-9)', () => {
+    // Float rounding put this case at a display scale of 0.9999999999999999.
+    const vp: Viewport = {
+      canvas: { width: 360, height: 380 },
+      image: { width: 4000, height: 3000 },
+      dpr: 1,
+    }
+    const view = toggleActualSize(vp, initialView(vp), { x: 180, y: 190 })
+    expect(displayScale(vp, view)).toBe(1)
+    expect(previewScale(vp, view)).toBe(1)
+    expect(isCrisp(displayScale(vp, view))).toBe(true)
   })
 })

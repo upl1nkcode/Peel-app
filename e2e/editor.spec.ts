@@ -235,3 +235,66 @@ test('should_fit_the_screen_with_44_px_targets (AC-21, AC-22)', async ({
       .evaluate((el) => getComputedStyle(el).touchAction),
   ).toBe('none')
 })
+
+test('should_keep_the_action_row_on_one_line_with_reset_to_auto (final review M-5)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 780 })
+  await seedAndOpen(page)
+  // A re-opened sticker has no Auto result, so "Reset to auto" is added the
+  // way the screen renders it: a button in the row, before Compare.
+  const row = await page.evaluate(() => {
+    const actions = document.querySelector<HTMLElement>('.editor-actions')
+    if (!actions) throw new Error('no action row')
+    const before = actions.offsetHeight
+    const reset = document.createElement('button')
+    reset.type = 'button'
+    reset.textContent = 'Reset to auto'
+    actions.insertBefore(reset, actions.lastElementChild)
+    const buttons = [...actions.querySelectorAll('button')]
+    return {
+      before,
+      after: actions.offsetHeight,
+      tops: new Set(buttons.map((b) => b.offsetTop)).size,
+      sizes: buttons.map((b) => [b.offsetWidth, b.offsetHeight]),
+      overflow: actions.scrollWidth - actions.clientWidth,
+    }
+  })
+  expect(row.tops).toBe(1)
+  expect(row.after).toBe(row.before)
+  expect(row.overflow).toBeLessThanOrEqual(0)
+  for (const [w, h] of row.sizes) {
+    expect(w).toBeGreaterThanOrEqual(44)
+    expect(h).toBeGreaterThanOrEqual(44)
+  }
+})
+
+test('should_let_taps_through_the_status_text (final review M-6)', async ({
+  page,
+}) => {
+  await seedAndOpen(page)
+  // The model is blocked, so the strip shows a message and "Use Lasso".
+  const line = page.getByTestId('editor').locator('.editor-status p').first()
+  await expect(line).toBeVisible()
+  const hit = async (box: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }) =>
+    page.evaluate(
+      ({ x, y }) => {
+        const el = document.elementFromPoint(x, y)
+        return el?.getAttribute('data-testid') ?? el?.textContent ?? ''
+      },
+      { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+    )
+  const text = await line.boundingBox()
+  if (!text) throw new Error('no status line')
+  expect(await hit(text)).toBe('canvas')
+  const lasso = await page
+    .getByRole('button', { name: 'Use Lasso' })
+    .boundingBox()
+  if (!lasso) throw new Error('no Use Lasso button')
+  expect(await hit(lasso)).toBe('Use Lasso')
+})

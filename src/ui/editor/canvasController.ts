@@ -4,6 +4,7 @@ import {
   applyTwoFingerGesture,
   applyWheelZoom,
   clampView,
+  resizeView,
   toggleActualSize,
 } from '../../core/coords/view'
 import {
@@ -291,18 +292,23 @@ export function createCanvasController(
     tapTimer = null
   }
 
-  /** Reads the canvas's size; keeps the centre imagePt and clamps on a change. */
+  /** Reads the canvas's size; keeps the centre imagePt and the display scale on a change. */
   function measure() {
     if (!canvas) return
     const r = canvas.getBoundingClientRect()
     origin = { x: r.left, y: r.top }
     const d = window.devicePixelRatio || 1
     if (r.width === size.width && r.height === size.height && d === dpr) return
+    const before = viewport()
     size = { width: r.width, height: r.height }
     dpr = d
     const vp = viewport()
     if (vp) {
-      view = view ? clampView(vp, view) : initialView(vp)
+      view = !view
+        ? initialView(vp)
+        : before
+          ? resizeView(before, vp, view)
+          : clampView(vp, view)
       ensureMask(false)
       schedule()
     }

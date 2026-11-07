@@ -355,6 +355,7 @@ describe('EditorCanvas gestures', () => {
     fireEvent.wheel(canvas, { deltaY: -400, clientX: 300, clientY: 200 })
     await advance(200)
     const before = centerOf(canvas)
+    const scaleBefore = canvas.getAttribute('data-display-scale')
     rect.width = 300
     rect.height = 400
     act(() => {
@@ -363,7 +364,8 @@ describe('EditorCanvas gestures', () => {
     const after = centerOf(canvas)
     expect(after[0]).toBeCloseTo(before[0] ?? Number.NaN, 2)
     expect(after[1]).toBeCloseTo(before[1] ?? Number.NaN, 2)
-    expect(canvas.getAttribute('data-zoom')).toBe('4.0000')
+    // The display scale stays, not the zoom relative to fit (final review I-1).
+    expect(canvas.getAttribute('data-display-scale')).toBe(scaleBefore)
     const n = calls.length
     rect.width = 0
     rect.height = 0
