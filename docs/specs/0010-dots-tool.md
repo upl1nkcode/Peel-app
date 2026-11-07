@@ -1,6 +1,6 @@
 # 0010 — I can fine-tune the outline dot by dot
 
-- **Status:** Draft
+- **Status:** Approved
 - **Issues:** story #65; tasks #66 (drag dots with large touch targets), #67 (fine mode), #68 (insert by tapping an edge, delete by double-tap), #69 (corner/smooth by long-press), #70 (multi-select and move), #71 (nudge pad), #72 (dot density slider), #73 (starting shapes)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §3.2 (Dots), §3.6 (precision aids), §7 (phone-first UI), Phase 8. Builds on spec 0001 (view transforms, hit-testing, gestures), spec 0002 (curves), spec 0003 (edit commands, undo, density) and spec 0009 (editor, press sequencing, loupe).
 
