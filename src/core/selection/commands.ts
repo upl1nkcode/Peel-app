@@ -1,7 +1,8 @@
 import { isDegenerateRing } from '../geometry/polygon'
 import type { Node, Point } from '../geometry/types'
 import { resimplifyRing } from './density'
-import { InvalidCommandError } from './errors'
+import { InvalidCommandError, InvalidSelectionError } from './errors'
+import { checkSelection } from './serialize'
 import type {
   BrushStroke,
   Command,
@@ -234,5 +235,12 @@ export function applyCommand(sel: Selection, command: Command): Selection {
       }
       return { ...sel, softEdge: checkSoftEdge(command.softEdge) }
     }
+    case 'restore':
+      try {
+        return checkSelection(command.selection)
+      } catch (e) {
+        if (e instanceof InvalidSelectionError) fail(e.message)
+        throw e
+      }
   }
 }

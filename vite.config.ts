@@ -1,6 +1,7 @@
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { defineConfig } from 'vitest/config'
+import { peelModels } from './vite/peelModels'
 
 const THEME_COLOR = '#6d28d9'
 
@@ -8,6 +9,7 @@ const THEME_COLOR = '#6d28d9'
 export default defineConfig({
   plugins: [
     react(),
+    peelModels(),
     VitePWA({
       // Silent auto-update for now; switch to 'prompt' with the update prompt UI (plan Phase 9).
       registerType: 'autoUpdate',
@@ -35,7 +37,12 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
+        // Root files and assets/ only: engine/ and models/ are downloaded and
+        // cached by the app on first use (spec 0007 AC-19).
+        globPatterns: [
+          '*.{js,css,html,svg,png,webmanifest}',
+          'assets/**/*.{js,css,html,svg,png,webmanifest}',
+        ],
         navigateFallback: 'index.html',
       },
     }),

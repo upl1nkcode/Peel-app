@@ -3,3 +3,6 @@
 *.jpg binary
 *.webp binary
 *.ico binary
+*.tflite binary
+*.task binary
+*.wasm binary

@@ -57,3 +57,5 @@ export type Command =
   | { type: 'addStroke'; stroke: BrushStroke }
   | { type: 'setFeather'; px: number }
   | { type: 'setSoftEdge'; softEdge: SoftEdge | null }
+  /** Replaces the whole selection, e.g. reset to the auto result (spec 0007 AC-14). */
+  | { type: 'restore'; selection: Selection }

@@ -1,5 +1,6 @@
-import type { Point } from '../core/geometry/types'
+import type { Point, Size } from '../core/geometry/types'
 import type { AlphaMask, RgbaImage } from '../core/mask/types'
+import type { Tap } from '../core/segmentation/types'
 import type { Selection } from '../core/selection/types'
 
 /** Worker messages (spec 0006 contract). */
@@ -10,6 +11,8 @@ export type ToRenderWorker =
       image: RgbaImage
       modelAlpha?: AlphaMask
     }
+  /** Swaps the model alpha of the current image (spec 0007), without re-sending the photo. */
+  | { type: 'setModelAlpha'; imageId: string; modelAlpha: AlphaMask }
   | {
       type: 'render'
       jobId: number
@@ -19,6 +22,30 @@ export type ToRenderWorker =
     }
 export type FromRenderWorker =
   | { type: 'rendered'; jobId: number; mask: AlphaMask }
+  | { type: 'cancelled'; jobId: number }
+  | { type: 'error'; jobId: number; message: string }
+
+/** Segmentation worker messages (spec 0007). `load` runs outside the newest-wins queue. */
+export type ToSegmentationWorker =
+  | {
+      type: 'load'
+      jobId: number
+      loaderJs: ArrayBuffer
+      wasm: ArrayBuffer
+      model: ArrayBuffer
+    }
+  /** The inference copy (long side ≤ 1024 px) and the photo's full size. */
+  | { type: 'setImage'; imageId: string; image: RgbaImage; fullSize: Size }
+  | { type: 'segment'; jobId: number; imageId: string; taps: Tap[] }
+export type FromSegmentationWorker =
+  | { type: 'loaded'; jobId: number }
+  | {
+      type: 'segmented'
+      jobId: number
+      imageId: string
+      alpha: AlphaMask
+      selection: Selection | null
+    }
   | { type: 'cancelled'; jobId: number }
   | { type: 'error'; jobId: number; message: string }
 

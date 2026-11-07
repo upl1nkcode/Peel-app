@@ -7,4 +7,9 @@ describe('App smoke test', () => {
     render(<App />)
     expect(screen.getByRole('heading', { name: 'Peel' })).toBeInTheDocument()
   })
+
+  it('should_offer_to_pick_a_photo (AC-24)', () => {
+    render(<App />)
+    expect(screen.getByLabelText('Pick a photo')).toBeInTheDocument()
+  })
 })

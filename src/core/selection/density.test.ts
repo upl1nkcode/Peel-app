@@ -194,7 +194,8 @@ describe('dot density', () => {
       ).toBeLessThan(ring.length * 0.8)
       expect(hausdorffBothWays(ring, out, tol)).toBe(0)
     }
-  }, 30_000)
+    // Under coverage instrumentation with the whole suite in parallel this took 33–42 s.
+  }, 120_000)
 
   // AC-23
   it('should_keep_every_corner', () => {

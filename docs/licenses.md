@@ -6,6 +6,7 @@ Every dependency and model is recorded here when it is added (rule in `CLAUDE.md
 
 | Package | Version | License | Type |
 |---|---|---|---|
+| @mediapipe/tasks-vision | 1.2.2 | Apache-2.0 | runtime (auto cutout engine; its wasm is loaded lazily, never in the initial bundle) |
 | react | 19.3.1 | MIT | runtime |
 | react-dom | 19.3.1 | MIT | runtime |
 | @eslint/js | 10.0.1 | MIT | dev |
@@ -33,7 +34,11 @@ Every dependency and model is recorded here when it is added (rule in `CLAUDE.md
 
 ## Models
 
-None yet. MediaPipe segmenters (Apache-2.0 per the plan) are verified and recorded here when Phase 6 adds them.
+| Model | File | License | Source |
+|---|---|---|---|
+| MediaPipe MagicTouch (Tap v1, fast engine) | `models/magic_touch.tflite` | Apache-2.0 (model card) | storage.googleapis.com/mediapipe-models, see `models/README.md` |
+| MediaPipe interactive segmenter v2 (Tap v2, precise engine) | `models/interactive_segmentation.task` | Apache-2.0 | storage.googleapis.com/mediapipe-models, see `models/README.md` |
+| MediaPipe Tasks Vision WebAssembly engine | copied from `@mediapipe/tasks-vision` at build (`/engine/`) | Apache-2.0 | npm package |
 
 ## Fonts and assets
 
