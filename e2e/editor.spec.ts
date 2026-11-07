@@ -12,6 +12,7 @@ import {
   expectRgb,
   imageToClient,
   imageToDevice,
+  MODEL_URL,
   nextFrame,
   photoPixel,
   pickGenerated,
@@ -297,4 +298,25 @@ test('should_let_taps_through_the_status_text (final review M-6)', async ({
     .boundingBox()
   if (!lasso) throw new Error('no Use Lasso button')
   expect(await hit(lasso)).toBe('Use Lasso')
+})
+
+test('should_block_model_downloads_with_a_service_worker_installed (CI flake on PR #138)', async ({
+  page,
+}) => {
+  // Let the PWA's service worker install and take control first; its fetches
+  // bypass page.route, so the block in seedAndOpen leaked on CI WebKit.
+  await page.goto('/')
+  await page.evaluate(() =>
+    Promise.race([
+      navigator.serviceWorker.ready.then(() => true),
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]),
+  )
+  const loaded: string[] = []
+  page.on('response', (res) => {
+    if (MODEL_URL.test(res.url()) && res.ok()) loaded.push(res.url())
+  })
+  await seedAndOpen(page)
+  await expect(page.getByRole('button', { name: 'Use Lasso' })).toBeVisible()
+  expect(loaded).toEqual([])
 })
