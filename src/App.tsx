@@ -31,6 +31,10 @@ const engines = {
   ),
 }
 
+/** The engines need WebAssembly and OffscreenCanvas (in workers; the main thread stands in for them). */
+const canRunEngines = () =>
+  typeof WebAssembly === 'object' && typeof OffscreenCanvas === 'function'
+
 export default function App() {
   return (
     <main>
@@ -41,6 +45,7 @@ export default function App() {
         missingBytes={(files) => store.missingBytes(files)}
         createRenderer={startRenderWorker}
         loadPhoto={loadPhoto}
+        supported={canRunEngines}
       />
     </main>
   )

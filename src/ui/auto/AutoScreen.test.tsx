@@ -1,9 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RgbaImage } from '../../core/mask'
 import type { Tap } from '../../core/segmentation'
 import {
   createFakeEngine,
+  EngineUnavailable,
   type SegmentationEngine,
 } from '../../services/segmentation'
 import { AutoScreen, type Renderer } from './AutoScreen'
@@ -47,10 +48,12 @@ async function pick(
   fast: SegmentationEngine,
   precise: SegmentationEngine,
   clock: { t: number },
+  supported?: () => boolean,
 ) {
   render(
     <AutoScreen
       engines={{ fast, precise }}
+      {...(supported && { supported })}
       missingBytes={() => Promise.resolve(0)}
       createRenderer={fakeRenderer}
       loadPhoto={() => Promise.resolve(PHOTO)}
@@ -117,6 +120,24 @@ describe('AutoScreen', () => {
     ).toMatch(/sharpening|done/)
   })
 
+  it('should_tap_where_the_finger_went_down (AC-24)', async () => {
+    const clock = { t: 0 }
+    const fast = recording(createFakeEngine({ name: 'fast' }))
+    const canvas = await pick(
+      fast.engine,
+      createFakeEngine({ name: 'precise', delayMs: 50 }),
+      clock,
+    )
+    // Down on the right edge (screen 210 → image 100, clamped inside), up 6 px past it.
+    fireEvent.pointerDown(canvas, { clientX: 210, clientY: 70, pointerId: 1 })
+    clock.t += 100
+    fireEvent.pointerUp(canvas, { clientX: 216, clientY: 70, pointerId: 1 })
+    await screen.findByText('Sharpening…')
+    expect(fast.calls[0]).toEqual([
+      { imagePt: { x: 99.5, y: 25 }, mode: 'add' },
+    ])
+  })
+
   it('should_offer_lasso_when_auto_is_unavailable (AC-20)', async () => {
     const clock = { t: 0 }
     await pick(
@@ -132,5 +153,40 @@ describe('AutoScreen', () => {
     expect(
       screen.getByTestId('auto-screen').getAttribute('data-fallback'),
     ).toBe('lasso')
+  })
+
+  it('should_retry_when_the_connection_returns (AC-20)', async () => {
+    const offlineOnce = (name: 'fast' | 'precise'): SegmentationEngine => {
+      const base = createFakeEngine({ name })
+      let loads = 0
+      return {
+        ...base,
+        load: (p) =>
+          ++loads === 1
+            ? Promise.reject(new EngineUnavailable('offline'))
+            : base.load(p),
+      }
+    }
+    await pick(offlineOnce('fast'), offlineOnce('precise'), { t: 0 })
+    const offline = "You're offline. The cutout model needs one download first."
+    expect(await screen.findByText(offline)).toBeInTheDocument()
+    fireEvent(window, new Event('online'))
+    await waitFor(() => {
+      expect(screen.queryByText(offline)).toBeNull()
+    })
+    expect(screen.queryByRole('button', { name: 'Use Lasso' })).toBeNull()
+  })
+
+  it('should_not_start_downloads_in_a_browser_that_cannot_run_auto (AC-20)', async () => {
+    let loads = 0
+    const counted = (name: 'fast' | 'precise'): SegmentationEngine => {
+      const base = createFakeEngine({ name })
+      return { ...base, load: (p) => (loads++, base.load(p)) }
+    }
+    await pick(counted('fast'), counted('precise'), { t: 0 }, () => false)
+    expect(
+      await screen.findByText("Auto cutout doesn't work in this browser."),
+    ).toBeInTheDocument()
+    expect(loads).toBe(0)
   })
 })

@@ -37,9 +37,27 @@ const isQuota = (e: unknown) =>
 export function createModelStore(deps: ModelStoreDeps): ModelStore {
   const open = () => deps.caches.open(MODEL_CACHE_NAME)
 
+  /**
+   * Cache entries are keyed by path and hash, so a file whose bytes change
+   * (a model or engine update) misses the cache and is downloaded again.
+   */
+  const keyOf = (file: ModelFile) => `${file.path}?sha256=${file.sha256}`
+
   const cached = async (cache: Cache, file: ModelFile) => {
-    const hit = await cache.match(file.path)
+    const hit = await cache.match(keyOf(file))
     return hit ? hit.arrayBuffer() : undefined
+  }
+
+  /** Drops older versions of `file` (same path, other hash). */
+  const dropStale = async (cache: Cache, file: ModelFile) => {
+    const path = file.path.replace(/^\//, '')
+    for (const req of await cache.keys()) {
+      const url = new URL(req.url)
+      const stale =
+        url.pathname.replace(/^\//, '') === path &&
+        url.searchParams.get('sha256') !== file.sha256
+      if (stale) await cache.delete(req)
+    }
   }
 
   const networkError = (e: unknown): EngineUnavailable =>
@@ -87,7 +105,7 @@ export function createModelStore(deps: ModelStoreDeps): ModelStore {
       const cache = await open()
       let total = 0
       for (const file of files) {
-        if (!(await cache.match(file.path))) total += file.bytes
+        if (!(await cache.match(keyOf(file)))) total += file.bytes
       }
       return total
     },
@@ -132,11 +150,12 @@ export function createModelStore(deps: ModelStoreDeps): ModelStore {
           )
         }
         try {
-          await cache.put(file.path, new Response(data.slice().buffer))
+          await cache.put(keyOf(file), new Response(data.slice().buffer))
         } catch (e) {
           if (isQuota(e)) throw new EngineUnavailable('storage', file.path)
           throw e
         }
+        await dropStale(cache, file)
         out.set(file.path, data.buffer)
       }
       return out

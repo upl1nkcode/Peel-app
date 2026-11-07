@@ -7,7 +7,7 @@ import { emptySelection } from '../../core/selection/model'
 import { createAutoCutout, type AutoState } from './autoCutout'
 import { createFakeEngine } from './fakeEngine'
 import { statusLines, USE_LASSO_LABEL } from './status'
-import type { SegmentationEngine } from './types'
+import { EngineUnavailable, type SegmentationEngine } from './types'
 
 const photo = (): RgbaImage => ({
   width: 200,
@@ -35,7 +35,8 @@ function setup(
   opts: {
     fast?: SegmentationEngine
     precise?: SegmentationEngine
-    missingBytes?: number
+    missingBytes?: number | (() => Promise<number>)
+    supported?: () => boolean
   } = {},
 ) {
   const fast = opts.fast ?? createFakeEngine({ name: 'fast', delayMs: 10 })
@@ -47,11 +48,33 @@ function setup(
     fast,
     precise,
     history,
-    missingBytes: () => Promise.resolve(opts.missingBytes ?? 0),
+    missingBytes:
+      typeof opts.missingBytes === 'function'
+        ? opts.missingBytes
+        : () => Promise.resolve((opts.missingBytes as number | undefined) ?? 0),
+    ...(opts.supported && { supported: opts.supported }),
     onChange: (s) => states.push(s),
   })
   const last = () => states.at(-1) as AutoState
   return { auto, history, states, last, fast, precise }
+}
+
+/** An engine whose first `failures` loads fail with `reason`; counts its loads. */
+function flaky(
+  name: 'fast' | 'precise',
+  reason: 'offline' | 'download',
+  failures = 1,
+) {
+  const base = createFakeEngine({ name, delayMs: name === 'fast' ? 10 : 100 })
+  const counter = { loads: 0 }
+  const engine: SegmentationEngine = {
+    ...base,
+    load: (p) =>
+      ++counter.loads <= failures
+        ? Promise.reject(new EngineUnavailable(reason))
+        : base.load(p),
+  }
+  return { engine, counter }
 }
 
 /** Runs one segment directly, to compare the controller's result with. */
@@ -280,5 +303,123 @@ describe('auto cutout controller', () => {
     expect(history.current).toEqual(emptySelection())
     auto.resetToAuto()
     expect(history.current).toEqual(emptySelection())
+  })
+
+  // Final review fixes (spec 0007)
+
+  it('should_clear_the_cutout_for_a_new_photo', async () => {
+    const { auto, history, last } = setup()
+    await auto.start()
+    await auto.setImage('p', photo())
+    auto.tap(add(60, 50))
+    await vi.advanceTimersByTimeAsync(200)
+    expect(history.current.rings.length).toBeGreaterThan(0)
+    await auto.setImage('q', photo())
+    expect(history.current).toEqual(emptySelection())
+    expect(last().modelAlpha).toBeNull()
+  })
+
+  it('should_ignore_a_tap_outside_the_photo', async () => {
+    const f = recording(createFakeEngine({ name: 'fast', delayMs: 10 }))
+    const { auto, history } = setup({ fast: f.engine })
+    await auto.start()
+    await auto.setImage('p', photo())
+    auto.tap(add(200, 50))
+    auto.tap(add(-1, 5))
+    auto.tap(add(Number.NaN, 5))
+    await vi.advanceTimersByTimeAsync(200)
+    expect(f.calls).toEqual([])
+    auto.tap(add(60, 50))
+    await vi.advanceTimersByTimeAsync(200)
+    expect(history.current).toEqual(
+      (await direct('precise', [add(60, 50)])).selection,
+    )
+  })
+
+  it('should_retry_a_failed_download_on_the_next_tap (AC-20)', async () => {
+    const fast = flaky('fast', 'offline')
+    const precise = flaky('precise', 'offline')
+    const { auto, history, last } = setup({
+      fast: fast.engine,
+      precise: precise.engine,
+    })
+    await auto.start()
+    expect(last().unavailable).toBe('offline')
+    await auto.setImage('p', photo())
+    auto.tap(add(60, 50))
+    expect(last().unavailable).toBeNull()
+    await vi.advanceTimersByTimeAsync(200)
+    expect(fast.counter.loads).toBe(2)
+    expect(history.current).toEqual(
+      (await direct('precise', [add(60, 50)])).selection,
+    )
+  })
+
+  it('should_retry_the_precise_download_alone', async () => {
+    // Fails at start, on the photo's retry and on the tap's retry.
+    const precise = flaky('precise', 'download', 3)
+    const f = recording(createFakeEngine({ name: 'fast', delayMs: 10 }))
+    const { auto, history, last } = setup({
+      fast: f.engine,
+      precise: precise.engine,
+    })
+    await auto.start()
+    await auto.setImage('p', photo())
+    auto.tap(add(60, 50))
+    await vi.advanceTimersByTimeAsync(200)
+    expect(statusLines(last())).toEqual([
+      'Sharper cutout not available on this device',
+    ])
+    auto.retry()
+    await vi.advanceTimersByTimeAsync(200)
+    expect(precise.counter.loads).toBe(4)
+    expect(history.current).toEqual(
+      (await direct('precise', [add(60, 50)])).selection,
+    )
+    expect(statusLines(last())).toEqual([])
+  })
+
+  it('should_not_download_when_the_browser_cannot_run_auto (AC-20)', async () => {
+    const fast = flaky('fast', 'offline', 0)
+    const precise = flaky('precise', 'offline', 0)
+    let asked = 0
+    const { auto, last } = setup({
+      fast: fast.engine,
+      precise: precise.engine,
+      supported: () => false,
+      missingBytes: () => {
+        asked++
+        return Promise.resolve(51_300_000)
+      },
+    })
+    await auto.start()
+    expect(fast.counter.loads + precise.counter.loads + asked).toBe(0)
+    expect(last().unavailable).toBe('unsupported')
+  })
+
+  it('should_report_unavailable_when_storage_throws (AC-20)', async () => {
+    const { auto, last } = setup({
+      missingBytes: () =>
+        Promise.reject(new DOMException('no', 'SecurityError')),
+    })
+    await expect(auto.start()).resolves.toBeUndefined()
+    expect(last().unavailable).toBe('unsupported')
+    expect(statusLines(last())).toEqual([
+      "Auto cutout doesn't work in this browser.",
+    ])
+  })
+
+  it('should_clear_the_selection_when_the_only_subject_is_removed (AC-13)', async () => {
+    const { auto, history, last } = setup()
+    await auto.start()
+    await auto.setImage('p', photo())
+    auto.tap(add(60, 50))
+    await vi.advanceTimersByTimeAsync(200)
+    expect(history.current.rings.length).toBeGreaterThan(0)
+    auto.tap({ imagePt: { x: 60, y: 50 }, mode: 'remove' })
+    await vi.advanceTimersByTimeAsync(200)
+    expect(history.current).toEqual(emptySelection())
+    expect(last().modelAlpha).toBeNull()
+    expect(statusLines(last())).toEqual([])
   })
 })

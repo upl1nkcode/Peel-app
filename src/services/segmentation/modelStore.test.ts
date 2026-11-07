@@ -43,6 +43,16 @@ class FakeCache {
     if (this.failPut) throw this.failPut
     this.entries.set(key, await res.arrayBuffer())
   }
+  keys() {
+    return Promise.resolve(
+      [...this.entries.keys()].map((k) => ({ url: `http://peel.test/${k}` })),
+    )
+  }
+  delete(key: string | { url: string }) {
+    const k =
+      typeof key === 'string' ? key : key.url.replace('http://peel.test/', '')
+    return Promise.resolve(this.entries.delete(k))
+  }
 }
 
 function setup(
@@ -123,7 +133,11 @@ describe('model store', () => {
     expect(progress[0]).toEqual([0, 8000])
     expect(progress.at(-1)).toEqual([8000, 8000])
     expect(progress.length).toBeGreaterThan(4)
-    expect([...cache.entries.keys()]).toEqual(['models/a.bin', 'models/b.task'])
+    // Keyed by path and hash, so a changed file misses the cache.
+    expect([...cache.entries.keys()]).toEqual([
+      `models/a.bin?sha256=${fa.sha256}`,
+      `models/b.task?sha256=${fb.sha256}`,
+    ])
     expect(await store.missingBytes([fa, fb])).toBe(0)
 
     calls.length = 0
@@ -170,5 +184,31 @@ describe('model store', () => {
     expect(full.calls).toEqual(['models/a.bin'])
     expect(progress[0]).toBe(0)
     expect(progress.at(-1)).toBe(3000)
+  })
+
+  it('should_download_again_when_a_file_changes (AC-18)', async () => {
+    const v1 = bytes(3000, 1)
+    const v2 = bytes(3000, 9)
+    const env = setup({ 'models/a.bin': v1 })
+    const f1 = await fileOf('models/a.bin', v1)
+    await env.store.get([f1], () => undefined)
+    // A new build serves new bytes at the same path; its manifest has the new hash.
+    const store2 = createModelStore({
+      fetch: ((path: string) => {
+        env.calls.push(path)
+        return Promise.resolve(new Response(v2.slice()))
+      }) as unknown as typeof fetch,
+      caches: { open: () => Promise.resolve(env.cache as unknown as Cache) },
+      digest: sha256Hex,
+      online: () => true,
+    })
+    const f2 = await fileOf('models/a.bin', v2)
+    expect(await store2.missingBytes([f2])).toBe(3000)
+    const got = await store2.get([f2], () => undefined)
+    expect(new Uint8Array(got.get('models/a.bin') as ArrayBuffer)).toEqual(v2)
+    expect(env.calls.filter((c) => c === 'models/a.bin')).toHaveLength(2)
+    // Only the new version stays cached.
+    expect(env.cache.entries.size).toBe(1)
+    expect(await store2.missingBytes([f2])).toBe(0)
   })
 })

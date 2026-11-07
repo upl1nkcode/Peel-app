@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import type { Point } from '../../core/geometry/types'
 import { classifyPress, type PressSample } from '../../core/gestures/press'
 import { createHistory } from '../../core/history/history'
 import type { AlphaMask, RgbaImage } from '../../core/mask'
@@ -33,6 +34,8 @@ export interface AutoScreenProps {
   missingBytes(files: readonly ModelFile[]): Promise<number>
   createRenderer(): Renderer
   loadPhoto(file: File): Promise<RgbaImage>
+  /** Whether the browser can run the engines; checked before any download. */
+  supported?: () => boolean
   now?: () => number
 }
 
@@ -111,6 +114,7 @@ function createSession(deps: SessionDeps) {
     ...deps.engines,
     history,
     missingBytes: (files) => deps.missingBytes(files),
+    ...(deps.supported && { supported: deps.supported }),
     onChange: (s) => {
       if (s.modelAlpha && s.modelAlpha !== modelAlpha && photoId) {
         renderer?.setModelAlpha(photoId, copyMask(s.modelAlpha))
@@ -147,6 +151,9 @@ function createSession(deps: SessionDeps) {
     useLasso() {
       auto.useLasso()
     },
+    retry() {
+      auto.retry()
+    },
   }
 }
 
@@ -164,12 +171,24 @@ export function AutoScreen(props: AutoScreenProps) {
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const backdropRef = useRef<HTMLCanvasElement>(null)
-  const down = useRef<PressSample | null>(null)
+  /** Where the press started, on screen and on the photo. */
+  const down = useRef<{ press: PressSample; imagePt: Point } | null>(null)
   const [selection, setSelection] = useState<Selection>(emptySelection())
   // One controller, history and renderer for the screen's life.
   const [session] = useState(() =>
     createSession({ ...props, onState: setState, onSelection: setSelection }),
   )
+
+  // A download that failed offline is tried again when the connection returns.
+  useEffect(() => {
+    const retry = () => {
+      session.retry()
+    }
+    window.addEventListener('online', retry)
+    return () => {
+      window.removeEventListener('online', retry)
+    }
+  }, [session])
 
   useEffect(() => {
     const el = stageRef.current
@@ -219,31 +238,45 @@ export function AutoScreen(props: AutoScreenProps) {
     setPhoto(await session.pick(file))
   }
 
-  const toImagePt = (e: PointerEvent<HTMLCanvasElement>) => {
+  /** The photo point under the pointer, kept at least half a pixel inside the photo. */
+  const toImagePt = (e: PointerEvent<HTMLCanvasElement>): Point | null => {
     const rect = e.currentTarget.getBoundingClientRect()
     const image = photo?.image
     if (!image || rect.width <= 0 || rect.height <= 0) return null
+    const inside = (v: number, size: number) =>
+      Math.min(Math.max(v, 0.5), size - 0.5)
     return {
-      x: ((e.clientX - rect.left) / rect.width) * image.width,
-      y: ((e.clientY - rect.top) / rect.height) * image.height,
+      x: inside(
+        ((e.clientX - rect.left) / rect.width) * image.width,
+        image.width,
+      ),
+      y: inside(
+        ((e.clientY - rect.top) / rect.height) * image.height,
+        image.height,
+      ),
     }
   }
 
+  // The tap goes where the finger went down: touch keeps sending events to
+  // the canvas after the finger slides past its edge.
   const onPointerDown = (e: PointerEvent<HTMLCanvasElement>) => {
-    down.current = { screenPt: { x: e.clientX, y: e.clientY }, t: now() }
+    const imagePt = toImagePt(e)
+    down.current = imagePt && {
+      press: { screenPt: { x: e.clientX, y: e.clientY }, t: now() },
+      imagePt,
+    }
   }
   const onPointerUp = (e: PointerEvent<HTMLCanvasElement>) => {
     const start = down.current
     down.current = null
     if (!start) return
-    const kind = classifyPress(start, {
+    const kind = classifyPress(start.press, {
       screenPt: { x: e.clientX, y: e.clientY },
       t: now(),
     })
-    const imagePt = toImagePt(e)
-    if (!kind || !imagePt) return
+    if (!kind) return
     session.tap({
-      imagePt,
+      imagePt: start.imagePt,
       mode: kind === 'tap' ? 'add' : 'remove',
     })
   }

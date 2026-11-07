@@ -246,6 +246,11 @@ test.describe('auto cutout with the real models', () => {
 
 test('should_explain_offline_first_use (AC-20)', async ({ page, context }) => {
   await page.goto('/')
+  // Playwright's WebKit on Windows has no OffscreenCanvas: it is told Auto
+  // doesn't work there (see the next test) before it would go online.
+  const capable = await page.evaluate(
+    () => typeof OffscreenCanvas === 'function',
+  )
   await context.setOffline(true)
   await page
     .getByLabel('Pick a photo')
@@ -254,8 +259,31 @@ test('should_explain_offline_first_use (AC-20)', async ({ page, context }) => {
   await press(page, subject('object', 'A').tap)
   await expect(
     page.getByText(
-      "You're offline. The cutout model needs one download first.",
+      capable
+        ? "You're offline. The cutout model needs one download first."
+        : "Auto cutout doesn't work in this browser.",
     ),
   ).toBeVisible()
   await expect(page.getByRole('button', { name: 'Use Lasso' })).toBeVisible()
+})
+
+test('should_not_download_in_a_browser_that_cannot_run_auto (AC-20)', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(globalThis, 'OffscreenCanvas')
+  })
+  const fetched: string[] = []
+  page.on('request', (r) => {
+    if (MODEL_URL.test(r.url())) fetched.push(r.url())
+  })
+  await page.goto('/')
+  await page
+    .getByLabel('Pick a photo')
+    .setInputFiles(resolve(DIR, FIXTURES.object.image))
+  await expect(
+    page.getByText("Auto cutout doesn't work in this browser."),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Use Lasso' })).toBeVisible()
+  expect(fetched).toEqual([])
 })

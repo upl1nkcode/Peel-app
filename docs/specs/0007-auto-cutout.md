@@ -56,7 +56,7 @@ Four models were tried on six public-domain photos in Chromium and WebKit (compa
 - **AC-10** Given both engines ready, when the user taps, then the fast result becomes the selection first, and the precise result then replaces it. The status reads "Sharpening…" between the two.
 - **AC-11** Given a precise run in progress, when the user taps again, then the stale precise result is never applied; the fast result for the new taps shows, then the precise result for the new taps.
 - **AC-12** Given the user has edited the selection since the last auto result (any history step), when a precise result arrives, then it does not replace the selection; it becomes the reset-to-auto target, and the status reads "Sharper cutout ready".
-- **AC-13** Given an auto mask at full size, then the auto selection is: rings from spec 0005's `maskToRings`, `softEdge = { source: 'model', bandPx: 8 }`, no brush strokes, feather 0; and the render worker gets the same mask as its model alpha. Given an all-zero mask, the selection is not changed and the status reads "Nothing found there. Tap on the subject."
+- **AC-13** Given an auto mask at full size, then the auto selection is: rings from spec 0005's `maskToRings`, `softEdge = { source: 'model', bandPx: 8 }`, no brush strokes, feather 0; and the render worker gets the same mask as its model alpha. Given an all-zero mask from taps that include a remove, the selection becomes empty (the user removed what they had added; amended 2026-11-07 after the final review). Given an all-zero mask otherwise (nothing found under the add taps, or remove taps only), the selection is not changed and the status reads "Nothing found there. Tap on the subject."
 - **AC-14** Given an auto result followed by edits, when the user resets to auto, then the selection equals the latest auto selection exactly, as one undoable step, and the model alpha is the one that selection came from.
 - **AC-15** Given the precise engine is unavailable, then fast results stay as the final result and the status reads "Sharper cutout not available on this device". Given the fast engine is unavailable but the precise one works, then each tap waits for the precise result.
 
@@ -66,7 +66,7 @@ Four models were tried on six public-domain photos in Chromium and WebKit (compa
 - **AC-17** Given a downloaded file whose SHA-256 differs from the manifest (for v2: the joined whole), then it is not cached and that engine is unavailable.
 - **AC-18** Given Auto has been used once, when the app is reloaded offline, then Auto works with no network request for engine or model files.
 - **AC-19** Given the app is opened and Auto is not used, then no engine or model file is requested.
-- **AC-20** Given neither engine can run (offline on first use, the download fails, storage is full, or the browser lacks what the engine needs), then the status names the reason ("You're offline. The cutout model needs one download first.", "The cutout model didn't download. Check the connection and try again.", "Not enough storage for the cutout model.", "Auto cutout doesn't work in this browser."), offers "Use Lasso", and the controller reports the fallback tool `lasso`.
+- **AC-20** Given neither engine can run (offline on first use, the download fails, storage is full, or the browser lacks what the engine needs), then the status names the reason ("You're offline. The cutout model needs one download first.", "The cutout model didn't download. Check the connection and try again.", "Not enough storage for the cutout model.", "Auto cutout doesn't work in this browser."), offers "Use Lasso", and the controller reports the fallback tool `lasso`. A browser without what the engine needs downloads nothing. A failed download (offline, download or storage) is tried again on the next tap, the next photo, or when the connection returns (added 2026-11-07 after the final review).
 
 ### Real models (e2e, Chromium)
 
@@ -118,7 +118,7 @@ The render worker gains `{ type: 'setModelAlpha'; imageId; modelAlpha }`, so a n
 
 ## Data
 
-Nothing new is saved with a sticker; the model alpha is kept in memory only (storing it is Phase 7). Engine and model files live in Cache Storage `peel-models-v1`. A model update changes the cache name.
+Nothing new is saved with a sticker; the model alpha is kept in memory only (storing it is Phase 7). Engine and model files live in Cache Storage `peel-models-v1`, keyed by path and SHA-256, so a changed file (a model or engine update) is downloaded again and its old version removed.
 
 ## Out of scope
 

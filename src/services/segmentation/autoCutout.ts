@@ -1,6 +1,7 @@
 import type { History } from '../../core/history/history'
 import type { AlphaMask, RgbaImage } from '../../core/mask'
 import type { Tap } from '../../core/segmentation'
+import { emptySelection } from '../../core/selection/model'
 import type { Selection } from '../../core/selection/types'
 import {
   EngineUnavailable,
@@ -28,9 +29,25 @@ export interface AutoCutoutDeps {
   history: History
   missingBytes(files: readonly ModelFile[]): Promise<number>
   onChange(state: AutoState): void
+  /**
+   * Whether this browser can run the engines at all (checked before any
+   * download, so an unsupported browser downloads nothing). Default: yes.
+   */
+  supported?: () => boolean
 }
 
-type EngineState = 'loading' | 'ready' | UnavailableReason
+type Engine = 'fast' | 'precise'
+/** `idle`: not loaded yet, or failed for a reason worth retrying. */
+type EngineState = 'idle' | 'loading' | 'ready' | UnavailableReason
+
+/** Reasons that can go away (the connection, the storage); retried on the next tap, photo or `retry()`. */
+const RETRIABLE: ReadonlySet<EngineState> = new Set([
+  'offline',
+  'download',
+  'storage',
+])
+
+const ENGINES: readonly Engine[] = ['fast', 'precise']
 
 /**
  * Fast then precise (spec 0007 AC-10 to AC-16, AC-20). Each tap runs the
@@ -38,7 +55,8 @@ type EngineState = 'loading' | 'ready' | UnavailableReason
  * replaces the selection through a `restore` step, unless the user changed
  * the selection since this controller last set it (then the result only
  * becomes the reset-to-auto target). Results for older taps or an older
- * photo are dropped.
+ * photo are dropped. Engines that failed to download are loaded again on
+ * the next tap, photo or `retry()`.
  */
 export function createAutoCutout(deps: AutoCutoutDeps) {
   const { fast, precise, history } = deps
@@ -50,26 +68,24 @@ export function createAutoCutout(deps: AutoCutoutDeps) {
     fallbackTool: null,
     modelAlpha: null,
   }
-  const status: Record<'fast' | 'precise', EngineState> = {
-    fast: 'loading',
-    precise: 'loading',
-  }
-  let imageId: string | null = null
+  const status: Record<Engine, EngineState> = { fast: 'idle', precise: 'idle' }
+  let loading: Promise<void> | null = null
+  let image: { id: string; width: number; height: number } | null = null
   let taps: Tap[] = []
   /** Bumped on every tap and photo; results from an older generation are dropped. */
   let generation = 0
   /** The selection this controller last put in the history (or the one at the tap). */
   let expected: Selection | null = null
   let target: AutoResult | null = null
-  /** Whether the precise result for the current taps is still owed. */
-  let preciseOwed = false
-  let fastOwed = false
+  /** Whether a result for the current taps is still owed by each engine. */
+  const owed: Record<Engine, boolean> = { fast: false, precise: false }
 
   /** The notice that stays when nothing else is said: the precise engine could not load. */
   const quiet = (): AutoState['notice'] =>
     status.fast === 'ready' &&
     status.precise !== 'ready' &&
-    status.precise !== 'loading'
+    status.precise !== 'loading' &&
+    status.precise !== 'idle'
       ? 'preciseUnavailable'
       : null
 
@@ -78,77 +94,164 @@ export function createAutoCutout(deps: AutoCutoutDeps) {
     deps.onChange(state)
   }
 
-  const apply = (result: AutoResult, from: 'fast' | 'precise') => {
+  /** Puts `selection` in the history, unless the user changed it since; returns whether it did. */
+  const show = (selection: Selection): boolean => {
+    if (history.current !== expected) return false
+    if (history.current !== selection) {
+      history.execute({ type: 'restore', selection })
+    }
+    expected = history.current
+    return true
+  }
+
+  const apply = (result: AutoResult, from: Engine, used: readonly Tap[]) => {
     if (!result.selection) {
+      const removedAll =
+        used.some((t) => t.mode === 'add') &&
+        used.some((t) => t.mode === 'remove')
+      if (removedAll) {
+        // The user removed everything they had added (AC-13): an empty cutout.
+        target = null
+        if (show(emptySelection())) set({ modelAlpha: null, notice: quiet() })
+        return
+      }
       if (from === 'precise' || status.precise !== 'ready') {
         set({ notice: 'nothingFound' })
       }
       return
     }
     target = result
-    if (history.current !== expected) {
+    if (!show(result.selection)) {
       if (from === 'precise') set({ notice: 'sharperReady' })
       return
     }
-    history.execute({ type: 'restore', selection: result.selection })
-    expected = history.current
     set({ modelAlpha: result.alpha, notice: quiet() })
   }
 
-  const run = (engine: 'fast' | 'precise') => {
-    if (imageId === null || taps.length === 0) return
+  const run = (engine: Engine) => {
+    if (image === null || taps.length === 0) return
     const gen = generation
-    const id = imageId
+    const id = image.id
     const snapshot = [...taps]
-    if (engine === 'fast') fastOwed = false
-    else preciseOwed = false
+    owed[engine] = false
+    const current = () => gen === generation && id === image?.id
     deps[engine].segment(id, snapshot).then(
       (result) => {
-        if (gen !== generation || id !== imageId) return
-        apply(result, engine)
+        if (!current()) return
+        apply(result, engine, snapshot)
         settle(engine)
       },
       (e: unknown) => {
-        if (e instanceof SegmentCancelled) return
-        if (gen !== generation || id !== imageId) return
+        if (e instanceof SegmentCancelled || !current()) return
         settle(engine)
       },
     )
   }
 
   /** The phase after a result (or failure) from `engine`. */
-  const settle = (engine: 'fast' | 'precise') => {
-    if (engine === 'fast' && status.precise === 'loading') {
-      set({ phase: 'sharpening' })
-    } else if (engine === 'fast' && status.precise === 'ready') {
-      set({ phase: 'sharpening' })
-    } else {
-      set({ phase: 'done' })
-    }
+  const settle = (engine: Engine) => {
+    const preciseComing =
+      status.precise === 'loading' || status.precise === 'ready'
+    set({ phase: engine === 'fast' && preciseComing ? 'sharpening' : 'done' })
   }
 
-  const ready = (engine: 'fast' | 'precise') => {
+  const ready = (engine: Engine) => {
     status[engine] = 'ready'
-    if (engine === 'fast' && fastOwed) run('fast')
-    if (engine === 'precise' && preciseOwed) {
-      if (state.phase === 'done') set({ phase: 'sharpening' })
-      run('precise')
+    if (!owed[engine]) return
+    if (engine === 'precise' && state.phase === 'done') {
+      set({ phase: 'sharpening' })
     }
+    run(engine)
   }
 
-  const failed = (engine: 'fast' | 'precise', e: unknown) => {
-    status[engine] = e instanceof EngineUnavailable ? e.reason : 'unsupported'
-    if (engine === 'fast') {
-      fastOwed = false
-      return
-    }
-    preciseOwed = false
-    if (status.fast === 'ready') {
+  const failed = (engine: Engine, reason: UnavailableReason) => {
+    status[engine] = reason
+    owed[engine] = false
+    if (engine === 'precise' && status.fast === 'ready') {
       set({
         notice: 'preciseUnavailable',
         ...(state.phase === 'sharpening' ? { phase: 'done' as const } : {}),
       })
     }
+    if (engine === 'fast' && state.phase === 'cutting') {
+      if (status.precise !== 'ready' && status.precise !== 'loading') {
+        set({ phase: 'idle' })
+      }
+    }
+  }
+
+  /** Loads (or reloads) every engine that is not ready and not unsupported: fast first. */
+  const ensure = (): Promise<void> => {
+    if (loading) return loading
+    const todo = ENGINES.filter(
+      (e) => status[e] === 'idle' || RETRIABLE.has(status[e]),
+    )
+    if (todo.length === 0) return Promise.resolve()
+    for (const e of todo) {
+      status[e] = 'loading'
+      // An engine that loads late still sharpens the taps already made.
+      if (taps.length > 0) owed[e] = true
+    }
+    if (state.unavailable) set({ unavailable: null, notice: quiet() })
+    loading = load(todo).finally(() => {
+      loading = null
+    })
+    return loading
+  }
+
+  const load = async (todo: Engine[]) => {
+    if (deps.supported && !deps.supported()) {
+      for (const e of todo) failed(e, 'unsupported')
+      finish()
+      return
+    }
+    let total: number
+    try {
+      const files = new Map<string, ModelFile>()
+      for (const e of todo) for (const f of deps[e].files) files.set(f.path, f)
+      total = await deps.missingBytes([...files.values()])
+    } catch {
+      // Cache Storage itself is unusable (private mode, a locked-down browser).
+      for (const e of todo) failed(e, 'unsupported')
+      finish()
+      return
+    }
+    let base = 0
+    let loaded = 0
+    const progress = (l: number) => {
+      loaded = Math.min(total, Math.max(loaded, base + l))
+      if (total > 0)
+        set({ download: { loadedBytes: loaded, totalBytes: total } })
+    }
+    if (total > 0) set({ download: { loadedBytes: 0, totalBytes: total } })
+    for (const engine of todo) {
+      try {
+        await deps[engine].load(progress)
+        ready(engine)
+      } catch (e) {
+        failed(
+          engine,
+          e instanceof EngineUnavailable ? e.reason : 'unsupported',
+        )
+      }
+      base = loaded
+    }
+    finish()
+  }
+
+  const finish = () => {
+    if (status.fast === 'ready' || status.precise === 'ready') {
+      set({ download: null, notice: state.notice ?? quiet() })
+      return
+    }
+    const reason = (['fast', 'precise'] as const)
+      .map((e) => status[e])
+      .find((s): s is UnavailableReason => s !== 'idle' && s !== 'loading')
+    set({
+      download: null,
+      phase: 'idle',
+      unavailable: reason ?? 'unsupported',
+    })
   }
 
   return {
@@ -156,63 +259,45 @@ export function createAutoCutout(deps: AutoCutoutDeps) {
       return state
     },
 
-    /** Downloads and loads the fast engine, then the precise one. */
-    async start(): Promise<void> {
-      const files = new Map<string, ModelFile>()
-      for (const f of [...fast.files, ...precise.files]) files.set(f.path, f)
-      const total = await deps.missingBytes([...files.values()])
-      let base = 0
-      let loaded = 0
-      const progress = (l: number) => {
-        loaded = Math.min(total, Math.max(loaded, base + l))
-        if (total > 0)
-          set({ download: { loadedBytes: loaded, totalBytes: total } })
-      }
-      if (total > 0) set({ download: { loadedBytes: 0, totalBytes: total } })
-      for (const engine of ['fast', 'precise'] as const) {
-        try {
-          await deps[engine].load(progress)
-          ready(engine)
-        } catch (e) {
-          failed(engine, e)
-        }
-        base = loaded
-      }
-      const fastStatus = status.fast
-      const preciseStatus = status.precise
-      if (fastStatus !== 'ready' && preciseStatus !== 'ready') {
-        set({
-          download: null,
-          phase: 'idle',
-          unavailable: fastStatus === 'loading' ? 'unsupported' : fastStatus,
-        })
-        return
-      }
-      set({ download: null })
+    /** Downloads and loads the fast engine, then the precise one. Never rejects. */
+    start(): Promise<void> {
+      return ensure()
     },
 
-    async setImage(id: string, image: RgbaImage): Promise<void> {
-      imageId = id
+    /** Loads again any engine whose download failed (call when the connection comes back). */
+    retry(): void {
+      void ensure()
+    },
+
+    async setImage(id: string, img: RgbaImage): Promise<void> {
+      image = { id, width: img.width, height: img.height }
       taps = []
       generation++
       target = null
-      expected = null
-      fastOwed = false
-      preciseOwed = false
+      owed.fast = false
+      owed.precise = false
+      // The previous photo's cutout does not belong to this one.
+      expected = history.current
+      show(emptySelection())
       set({ phase: 'idle', notice: quiet(), modelAlpha: null })
-      await Promise.all([fast.setImage(id, image), precise.setImage(id, image)])
+      void ensure()
+      await Promise.all([fast.setImage(id, img), precise.setImage(id, img)])
     },
 
     tap(t: Tap): void {
-      if (imageId === null || state.unavailable) return
+      if (image === null) return
+      const { x, y } = t.imagePt
+      if (!(x >= 0 && x < image.width && y >= 0 && y < image.height)) return
       taps = [...taps, t]
       generation++
       expected = history.current
-      fastOwed = status.fast === 'loading' || status.fast === 'ready'
-      preciseOwed = status.precise === 'loading' || status.precise === 'ready'
+      void ensure()
+      if (state.unavailable) return
+      for (const e of ENGINES) {
+        owed[e] = status[e] === 'loading' || status[e] === 'ready'
+      }
       set({ phase: 'cutting', notice: quiet() })
-      if (status.fast === 'ready') run('fast')
-      if (status.precise === 'ready') run('precise')
+      for (const e of ENGINES) if (status[e] === 'ready') run(e)
     },
 
     resetToAuto(): void {
