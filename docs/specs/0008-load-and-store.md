@@ -96,10 +96,12 @@ A sticker is only worth making if it lasts. Today a cutout disappears when the a
 Coordinates are image pixels (float).
 
 - `src/core/photo/size.ts`: `MAX_PHOTO_PIXELS = 12_582_912`, `MAX_PHOTO_SIDE_PX = 16_384`, `cappedSize(width, height): { width, height }` (AC-2).
-- `src/core/zip/`: `writeZip(entries: { name: string; data: Uint8Array }[]): Uint8Array[]` (the file as chunks, method 0) and `readZip(bytes: Uint8Array, inflateRaw: Inflate): Promise<Map<string, Uint8Array>>`. Damaged entries are reported per name, not thrown. `ZipLimitError` is thrown by `writeZip` (AC-19).
-- `src/core/backup/`: `backupEntries(stickers)` and `parseBackup(files)`. The second returns `{ stickers, damaged: number }` or throws `NotABackupError`.
+- `src/core/zip/`: `writeZip(entries: { name: string; data: Uint8Array }[], modified: Date): Uint8Array[]` (the file as chunks, method 0) and `readZip(bytes: Uint8Array, inflateRaw: Inflate): Promise<{ files: Map<string, Uint8Array>; damaged: string[] }>`. Damaged entries are reported per name, not thrown. `ZipLimitError` is thrown by `writeZip` (AC-19); `NotAZipError` by `readZip`.
+- `src/core/backup/`: `backupEntries(stickers, exportedAt)` and `parseBackup(files, damagedNames, inflate)`. The second returns `{ stickers, damaged: number }` or throws `NotABackupError`.
 - `src/services/photo/loadPhoto.ts`: `loadPhoto(file: Blob): Promise<{ image: RgbaImage; bytes: Uint8Array; type: string }>`. It rejects with `PhotoUnreadableError` (AC-3). It replaces `src/ui/auto/loadPhoto.ts`.
-- `src/services/storage/`: `openStickerStore(indexedDB: IDBFactory, migrations?)` returns `{ save, list, get, delete, importStickers, meta }`. Errors: `StorageFullError` (AC-12), `StorageOutdatedError` (AC-11). `requestPersistence(storage, store)` and `persistenceStatus(storage)` (AC-13, AC-14).
+- `src/services/storage/`: `openStickerStore(indexedDB: IDBFactory, migrations?)` returns `{ save, list, get, delete, has, getMeta, setMeta, onOutdated, close }`. Errors: `StorageFullError` (AC-12), `StorageOutdatedError` (AC-11). `requestPersistence(storage, store)` and `persistenceStatus(storage)` (AC-13, AC-14).
+- `src/services/backup/`: `exportAll(store, now)` and `importBackup(store, file, codecs)`, which saves new stickers one at a time (AC-12, AC-17).
+- The render worker's `renderFull { imageId, selection, modelAlpha? }` renders at scale 1 with the model alpha being saved (AC-6).
 - `StickerRecord`:
 
   ```

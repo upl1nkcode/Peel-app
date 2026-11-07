@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { inflateRawSync } from 'node:zlib'
 import { expect, test, type Page } from '@playwright/test'
+import { readZip, utf8Decode } from '../src/core/zip'
 
 /**
  * Auto cutout with the real MediaPipe models (spec 0007 AC-18, AC-20 to
@@ -241,6 +243,58 @@ test.describe('auto cutout with the real models', () => {
       .poll(() => iou(page, [cup.alpha]), { timeout: 120_000 })
       .toBeGreaterThanOrEqual(0.75)
     expect(fetched).toEqual([])
+  })
+
+  test('should_reopen_and_save_the_same_png (spec 0008 AC-9)', async ({
+    page,
+  }) => {
+    /** Saves the cutout on screen, then exports; returns the backup's files. */
+    const saveAndExport = async () => {
+      await page.getByRole('button', { name: 'Save', exact: true }).click()
+      await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible({
+        timeout: 60_000,
+      })
+      const downloading = page.waitForEvent('download')
+      await page.getByRole('button', { name: 'Export all' }).click()
+      const zip = readFileSync(await (await downloading).path())
+      const { files } = await readZip(new Uint8Array(zip), (d) =>
+        Promise.resolve(new Uint8Array(inflateRawSync(d))),
+      )
+      return files
+    }
+    const sticker = (files: Map<string, Uint8Array>) => {
+      const manifest = JSON.parse(
+        utf8Decode(files.get('peel-backup.json') ?? new Uint8Array()),
+      ) as { stickers: { id: string; createdAt: number; updatedAt: number }[] }
+      expect(manifest.stickers).toHaveLength(1)
+      const meta = manifest.stickers[0]
+      const file = (name: string) => files.get(`stickers/${meta.id}/${name}`)
+      return { meta, file }
+    }
+
+    await open(page, 'object')
+    await pressAndSettle(page, subject('object', 'A').tap)
+    const first = sticker(await saveAndExport())
+    expect(first.file('model-alpha.bin')).toBeDefined()
+
+    await page.reload()
+    await page.getByRole('button', { name: 'Open sticker' }).click()
+    await expect(
+      page.getByRole('button', { name: 'Save', exact: true }),
+    ).toBeEnabled({ timeout: 60_000 })
+    const second = sticker(await saveAndExport())
+
+    expect(second.meta.id).toBe(first.meta.id)
+    expect(second.meta.createdAt).toBe(first.meta.createdAt)
+    expect(second.meta.updatedAt).toBeGreaterThan(first.meta.updatedAt)
+    for (const name of [
+      'sticker.png',
+      'selection.json',
+      'model-alpha.bin',
+      'photo.jpg',
+    ]) {
+      expect(second.file(name), name).toEqual(first.file(name))
+    }
   })
 })
 
