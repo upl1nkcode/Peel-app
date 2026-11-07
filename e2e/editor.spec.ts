@@ -19,6 +19,10 @@ import {
   seedAndOpen,
 } from './helpers/editor'
 
+// The PWA's service worker would fetch the models itself, past page.route,
+// so seedAndOpen's block leaked on CI WebKit (PR #138). Block it here.
+test.use({ serviceWorkers: 'block' })
+
 /**
  * The editor canvas (spec 0009), in every project. The seed sticker is a
  * 120×80 photo with a rectangle selection from (10, 10) to (110, 70); no

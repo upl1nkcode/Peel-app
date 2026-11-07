@@ -103,7 +103,10 @@ export function nextFrame(page: Page) {
   )
 }
 
-/** Model files: blocked in editor tests, so nothing large downloads. */
+/**
+ * Model files: blocked in editor tests, so nothing large downloads. The spec
+ * files also block service workers, which would fetch past page.route.
+ */
 export const MODEL_URL = /\/(engine|models)\//
 
 /**

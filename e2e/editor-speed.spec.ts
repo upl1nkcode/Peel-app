@@ -10,6 +10,10 @@ import {
   seedAndOpen,
 } from './helpers/editor'
 
+// The PWA's service worker would fetch the models itself, past page.route,
+// so seedAndOpen's block leaked on CI WebKit (PR #138). Block it here.
+test.use({ serviceWorkers: 'block' })
+
 /**
  * A 12 MP photo (spec 0009 AC-26, Review Focus 5), desktop Chromium only.
  * The sticker's selection is a rectangle well inside the photo, so the

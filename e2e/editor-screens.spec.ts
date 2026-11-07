@@ -2,6 +2,10 @@ import { expect, test } from '@playwright/test'
 import { VIEW_LABELS, VIEW_MODES } from '../src/core/editor'
 import { generatedJpeg, nextFrame, seedAndOpen } from './helpers/editor'
 
+// The PWA's service worker would fetch the models itself, past page.route,
+// so seedAndOpen's block leaked on CI WebKit (PR #138). Block it here.
+test.use({ serviceWorkers: 'block' })
+
 /**
  * Screenshot baselines (spec 0009 AC-12, AC-25). Fonts and rasterising
  * differ between systems, so baselines are made and checked on CI Linux,
