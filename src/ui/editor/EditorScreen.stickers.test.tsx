@@ -31,7 +31,7 @@ import {
   type StickerStore,
 } from '../../services/storage'
 import type { LoadedPhoto } from '../../services/photo'
-import { AutoScreen, type Renderer } from './AutoScreen'
+import { EditorScreen, type Renderer } from './EditorScreen'
 
 const image = (width: number, height: number, v = 200): RgbaImage => ({
   width,
@@ -108,7 +108,7 @@ function setup(opts: Setup = {}) {
   const log = opts.log ?? { renderFull: [] }
   const t = { now: 1000 }
   render(
-    <AutoScreen
+    <EditorScreen
       engines={{
         fast: createFakeEngine({ name: 'fast' }),
         precise: opts.precise ?? createFakeEngine({ name: 'precise' }),

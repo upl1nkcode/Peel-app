@@ -1,13 +1,10 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { Point } from '../../core/geometry/types'
 import { classifyPress, type PressSample } from '../../core/gestures/press'
-import { createHistory } from '../../core/history/history'
 import type { AlphaMask, RgbaImage } from '../../core/mask'
 import { emptySelection } from '../../core/selection/model'
-import type { Tap } from '../../core/segmentation'
 import type { Selection } from '../../core/selection/types'
 import {
-  createAutoCutout,
   statusLines,
   USE_LASSO_LABEL,
   type AutoState,
@@ -18,40 +15,18 @@ import type { StickerRecord } from '../../core/backup'
 import { parseSelection } from '../../core/selection/serialize'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { inflateModelAlpha } from '../../services/sticker'
-import type { Cancelled } from '../../services/workerClient'
-import type { FromRenderWorker } from '../../workers/protocol'
 import { StickerPanel } from './StickerPanel'
-import {
-  useStickers,
-  type SaveSnapshot,
-  type StickerDeps,
-  type StickerHost,
-  type StickerRef,
-} from './useStickers'
-import './AutoScreen.css'
+import { copyMask, createSession, type Photo, type Renderer } from './session'
+import { useStickers, type StickerDeps, type StickerHost } from './useStickers'
+import './EditorScreen.css'
+
+export type { Renderer }
 
 /** Shown when a re-opened photo decodes at another size (spec 0008 AC-9). */
 export const DIFFERENT_SIZE =
   'This photo opened at a different size here; the outline may be off.'
 
-/** The part of the render worker client this screen uses (spec 0006). */
-export interface Renderer {
-  setImage(imageId: string, image: RgbaImage, modelAlpha?: AlphaMask): void
-  setModelAlpha(imageId: string, modelAlpha: AlphaMask): void
-  render(
-    imageId: string,
-    selection: Selection,
-    scale: number,
-  ): Promise<FromRenderWorker | Cancelled>
-  /** The scale-1 render for saving, with the model alpha being saved (spec 0008 AC-6). */
-  renderFull(
-    imageId: string,
-    selection: Selection,
-    modelAlpha?: AlphaMask,
-  ): Promise<FromRenderWorker | Cancelled>
-}
-
-export interface AutoScreenProps {
+export interface EditorScreenProps {
   engines: { fast: SegmentationEngine; precise: SegmentationEngine }
   missingBytes(files: readonly ModelFile[]): Promise<number>
   createRenderer(): Renderer
@@ -62,37 +37,6 @@ export interface AutoScreenProps {
   now?: () => number
   /** Saving and keeping stickers (spec 0008); without it there is no panel. */
   stickers?: StickerDeps
-}
-
-interface Photo {
-  id: string
-  image: RgbaImage
-  /** The picked file, unchanged (spec 0008 AC-4). */
-  bytes: Uint8Array
-  type: string
-  /** The photo at full size, drawn once, for compositing the preview. */
-  source: HTMLCanvasElement
-}
-
-const copyMask = (m: AlphaMask): AlphaMask => ({ ...m, data: m.data.slice() })
-const copyImage = (i: RgbaImage): RgbaImage => ({ ...i, data: i.data.slice() })
-
-function photoCanvas(image: RgbaImage): HTMLCanvasElement {
-  const canvas = document.createElement('canvas')
-  canvas.width = image.width
-  canvas.height = image.height
-  canvas
-    .getContext('2d')
-    ?.putImageData(
-      new ImageData(
-        new Uint8ClampedArray(image.data),
-        image.width,
-        image.height,
-      ),
-      0,
-      0,
-    )
-  return canvas
 }
 
 /** Draws the photo at the mask's size with the mask as its alpha (the preview, never saved). */
@@ -120,149 +64,13 @@ function fitScale(image: RgbaImage, stage: { width: number; height: number }) {
   return Math.min(1, stage.width / image.width, stage.height / image.height)
 }
 
-interface SessionDeps extends AutoScreenProps {
-  onState(state: AutoState): void
-  onSelection(selection: Selection): void
-}
-
-/**
- * The screen's controller, history and renderer. The renderer and the
- * download start with the first photo (spec 0007 AC-19). The model alpha
- * goes to the renderer before the selection changes, so renders use it.
- */
-function createSession(deps: SessionDeps) {
-  const history = createHistory(emptySelection())
-  let renderer: Renderer | null = null
-  let started = false
-  let photos = 0
-  let photo: Photo | null = null
-  let selection = history.current
-  /** The controller's latest model alpha (null after a new photo). */
-  let autoAlpha: AlphaMask | null = null
-  /** The model alpha a re-opened sticker was saved with, for its photo. */
-  let restored: { photoId: string; alpha: AlphaMask } | null = null
-  /** The saved sticker this photo belongs to, if any (spec 0008 AC-9). */
-  let sticker: StickerRef | null = null
-  const auto = createAutoCutout({
-    ...deps.engines,
-    history,
-    missingBytes: (files) => deps.missingBytes(files),
-    ...(deps.supported && { supported: deps.supported }),
-    onChange: (s) => {
-      if (s.modelAlpha !== autoAlpha) {
-        autoAlpha = s.modelAlpha
-        if (s.modelAlpha && photo) {
-          renderer?.setModelAlpha(photo.id, copyMask(s.modelAlpha))
-        }
-      }
-      syncSelection()
-      deps.onState(s)
-    },
-  })
-  function syncSelection() {
-    if (history.current !== selection) {
-      selection = history.current
-      deps.onSelection(selection)
-    }
-  }
-  const currentAlpha = (): AlphaMask | null =>
-    autoAlpha ??
-    (restored && restored.photoId === photo?.id ? restored.alpha : null)
-
-  /** Shows `image` as a new photo: renderer, controller and empty selection. */
-  async function show(loaded: LoadedPhoto, modelAlpha: AlphaMask | null) {
-    const { image, bytes, type } = loaded
-    const id = `photo-${String(++photos)}`
-    photo = { id, image, bytes, type, source: photoCanvas(image) }
-    sticker = null
-    restored = modelAlpha ? { photoId: id, alpha: modelAlpha } : null
-    renderer ??= deps.createRenderer()
-    if (modelAlpha) {
-      renderer.setImage(id, copyImage(image), copyMask(modelAlpha))
-    } else {
-      renderer.setImage(id, copyImage(image))
-    }
-    if (!started) {
-      started = true
-      void auto.start()
-    }
-    await auto.setImage(id, image)
-    return photo
-  }
-
-  return {
-    get renderer() {
-      return renderer
-    },
-    /** What a save stores, as it is now (spec 0008 Review Focus 1). */
-    snapshot(): SaveSnapshot | null {
-      if (!photo) return null
-      const sel = history.current
-      return {
-        photo,
-        selection: sel,
-        modelAlpha: sel.softEdge?.source === 'model' ? currentAlpha() : null,
-        sticker,
-      }
-    },
-    saved(photoId: string, ref: StickerRef) {
-      if (photo?.id === photoId) sticker = ref
-    },
-    deleted(id: string) {
-      if (sticker?.id === id) sticker = null
-    },
-    /**
-     * Shows a saved sticker: its photo, then its selection as one undoable
-     * step (spec 0008 AC-9). The model alpha is used only when the photo
-     * loads at the saved size; otherwise a model soft edge is dropped.
-     */
-    async reopen(
-      record: StickerRecord,
-      loaded: LoadedPhoto,
-      modelAlpha: AlphaMask | null,
-      saved: Selection,
-    ): Promise<Photo> {
-      const shown = await show(loaded, modelAlpha)
-      history.execute({ type: 'restore', selection: saved })
-      syncSelection()
-      sticker = {
-        id: record.id,
-        createdAt: record.createdAt,
-        updatedAt: record.updatedAt,
-      }
-      return shown
-    },
-    /** Loads `file`; if it can't be decoded, rejects before anything changes (AC-3). */
-    async pick(file: File): Promise<Photo> {
-      let loaded: LoadedPhoto
-      try {
-        loaded = await deps.loadPhoto(file)
-      } catch (e) {
-        throw e instanceof PhotoUnreadableError
-          ? e
-          : new PhotoUnreadableError({ cause: e })
-      }
-      return show(loaded, null)
-    },
-    tap(t: Tap) {
-      auto.tap(t)
-    },
-    useLasso() {
-      auto.useLasso()
-    },
-    retry() {
-      auto.retry()
-    },
-  }
-}
-
 /**
  * The temporary tap-to-cut screen (spec 0007 decision 8, AC-24): pick a
  * photo, tap to add, long-press to remove. The cutout is drawn over a
  * checkerboard at screen resolution by the render worker. Phase 8's editor
  * replaces it.
  */
-export function AutoScreen(props: AutoScreenProps) {
+export function EditorScreen(props: EditorScreenProps) {
   const now = props.now ?? (() => performance.now())
   const [state, setState] = useState<AutoState | null>(null)
   const [photo, setPhoto] = useState<Photo | null>(null)

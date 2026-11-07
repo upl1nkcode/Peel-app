@@ -8,7 +8,7 @@ import {
   type SegmentationEngine,
 } from '../../services/segmentation'
 import { PhotoUnreadableError } from '../../services/photo'
-import { AutoScreen, type Renderer } from './AutoScreen'
+import { EditorScreen, type Renderer } from './EditorScreen'
 
 const PHOTO: RgbaImage = {
   width: 100,
@@ -59,7 +59,7 @@ async function pick(
   supported?: () => boolean,
 ) {
   render(
-    <AutoScreen
+    <EditorScreen
       engines={{ fast, precise }}
       {...(supported && { supported })}
       missingBytes={() => Promise.resolve(0)}
@@ -101,7 +101,7 @@ beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
 })
 
-describe('AutoScreen', () => {
+describe('EditorScreen', () => {
   it('should_cut_out_on_tap_and_remove_on_long_press (AC-24)', async () => {
     const clock = { t: 1000 }
     const fast = recording(createFakeEngine({ name: 'fast' }))
@@ -201,7 +201,7 @@ describe('AutoScreen', () => {
   it('should_keep_the_photo_when_a_file_cannot_be_opened (spec 0008 AC-3)', async () => {
     let fail = false
     render(
-      <AutoScreen
+      <EditorScreen
         engines={{
           fast: createFakeEngine({ name: 'fast' }),
           precise: createFakeEngine({ name: 'precise' }),

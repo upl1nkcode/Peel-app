@@ -13,8 +13,8 @@ import {
 import { startRenderWorker, startSegmentationWorker } from './services/workers'
 import { loadPhoto } from './services/photo'
 import { openStickerStore } from './services/storage'
-import { AutoScreen } from './ui/auto/AutoScreen'
-import type { StickerDeps } from './ui/auto/useStickers'
+import { EditorScreen } from './ui/editor/EditorScreen'
+import type { StickerDeps } from './ui/editor/useStickers'
 
 // Nothing here touches the network or starts a worker until a photo is picked (spec 0007 AC-19).
 const store = createModelStore({
@@ -69,7 +69,7 @@ export default function App() {
     <main>
       <h1>Peel</h1>
       <p>Cut anything out of a photo.</p>
-      <AutoScreen
+      <EditorScreen
         engines={engines}
         missingBytes={(files) => store.missingBytes(files)}
         createRenderer={startRenderWorker}
