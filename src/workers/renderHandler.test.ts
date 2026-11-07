@@ -117,4 +117,33 @@ describe('render worker handler', () => {
       swapped({ type: 'setModelAlpha', imageId: 'b', modelAlpha: model }),
     ).toThrow('unknown image id b')
   })
+
+  it('should_render_full_size_on_its_own_message (AC-6)', () => {
+    const scene = discScene('contrast', 2)
+    const model = blurredModel(scene.truth, scene.size)
+    const selection: Selection = {
+      ...scene.selection,
+      softEdge: { source: 'model', bandPx: 8 },
+    }
+    const handle = createRenderHandler()
+    handle({
+      type: 'setImage',
+      imageId: 'a',
+      image: scene.image,
+      modelAlpha: model,
+    })
+    const reply = rendered(
+      handle({ type: 'renderFull', jobId: 7, imageId: 'a', selection }),
+    )
+    expect(reply.jobId).toBe(7)
+    expect(reply.mask).toEqual(
+      renderMask(selection, scene.size, {
+        scale: 1,
+        refineEdge: smartEdgeRefiner(scene.image, model),
+      }),
+    )
+    expect(() =>
+      handle({ type: 'renderFull', jobId: 8, imageId: 'b', selection }),
+    ).toThrow('unknown image id b')
+  })
 })

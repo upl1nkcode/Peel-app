@@ -20,6 +20,11 @@ export type ToRenderWorker =
       selection: Selection
       scale: number
     }
+  /**
+   * A scale-1 render for saving (spec 0008 AC-6). Its own type, so a preview
+   * `render` never cancels it (newest-wins is per type).
+   */
+  | { type: 'renderFull'; jobId: number; imageId: string; selection: Selection }
 export type FromRenderWorker =
   | { type: 'rendered'; jobId: number; mask: AlphaMask }
   | { type: 'cancelled'; jobId: number }

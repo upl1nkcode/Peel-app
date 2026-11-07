@@ -36,14 +36,15 @@ export function createRenderHandler(): Handler<
           refiner: smartEdgeRefiner(current.image, msg.modelAlpha),
         }
         return undefined
-      case 'render': {
+      case 'render':
+      case 'renderFull': {
         if (current?.imageId !== msg.imageId) throw unknownImage(msg.imageId)
         const { width, height } = current.image
         const mask = renderMask(
           msg.selection,
           { width, height },
           {
-            scale: msg.scale,
+            scale: msg.type === 'render' ? msg.scale : 1,
             refineEdge: current.refiner,
           },
         )
