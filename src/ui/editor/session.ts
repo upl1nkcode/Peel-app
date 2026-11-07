@@ -69,8 +69,11 @@ export interface SessionDeps extends EditorScreenProps {
 
 /**
  * The screen's controller, history and renderer. The renderer and the
- * download start with the first photo (spec 0007 AC-19). The model alpha
- * goes to the renderer before the selection changes, so renders use it.
+ * download start with the first photo (spec 0007 AC-19). Each history
+ * snapshot keeps the model alpha it was made with, so undo and redo render
+ * and save an older Auto result with its own soft edge (spec 0009 Review
+ * Focus 1). That alpha goes to the renderer before the selection changes.
+ * Each photo starts a new history (spec 0009 AC-19).
  */
 export function createSession(deps: SessionDeps) {
   const history = createHistory(emptySelection())
@@ -79,10 +82,10 @@ export function createSession(deps: SessionDeps) {
   let photos = 0
   let photo: Photo | null = null
   let selection = history.current
-  /** The controller's latest model alpha (null after a new photo). */
-  let autoAlpha: AlphaMask | null = null
-  /** The model alpha a re-opened sticker was saved with, for its photo. */
-  let restored: { photoId: string; alpha: AlphaMask } | null = null
+  /** The model alpha each snapshot's soft edge uses. */
+  const alphas = new WeakMap<Selection, AlphaMask>()
+  /** The model alpha the renderer holds for the current photo. */
+  let sentAlpha: AlphaMask | null = null
   /** The saved sticker this photo belongs to, if any (spec 0008 AC-9). */
   let sticker: StickerRef | null = null
   const auto = createAutoCutout({
@@ -91,25 +94,32 @@ export function createSession(deps: SessionDeps) {
     missingBytes: (files) => deps.missingBytes(files),
     ...(deps.supported && { supported: deps.supported }),
     onChange: (s) => {
-      if (s.modelAlpha !== autoAlpha) {
-        autoAlpha = s.modelAlpha
-        if (s.modelAlpha && photo) {
-          renderer?.setModelAlpha(photo.id, copyMask(s.modelAlpha))
-        }
+      // The snapshot holding an applied result is the one its alpha belongs to.
+      if (s.autoResultSelection && s.modelAlpha) {
+        alphas.set(s.autoResultSelection, s.modelAlpha)
       }
       syncSelection()
       deps.onState(s)
     },
   })
+
+  /** Tells the screen about a new current snapshot, after giving the renderer its alpha. */
   function syncSelection() {
-    if (history.current !== selection) {
-      selection = history.current
-      deps.onSelection(selection)
+    const current = history.current
+    if (current === selection) return
+    // An edit of a model-edged selection keeps that selection's alpha.
+    if (!alphas.has(current) && current.softEdge?.source === 'model') {
+      const inherited = alphas.get(selection)
+      if (inherited) alphas.set(current, inherited)
     }
+    selection = current
+    const alpha = alphas.get(current)
+    if (alpha && alpha !== sentAlpha && photo) {
+      renderer?.setModelAlpha(photo.id, copyMask(alpha))
+      sentAlpha = alpha
+    }
+    deps.onSelection(current)
   }
-  const currentAlpha = (): AlphaMask | null =>
-    autoAlpha ??
-    (restored && restored.photoId === photo?.id ? restored.alpha : null)
 
   /** Shows `image` as a new photo: renderer, controller and empty selection. */
   async function show(loaded: LoadedPhoto, modelAlpha: AlphaMask | null) {
@@ -117,7 +127,7 @@ export function createSession(deps: SessionDeps) {
     const id = `photo-${String(++photos)}`
     photo = { id, image, bytes, type, source: photoCanvas(image) }
     sticker = null
-    restored = modelAlpha ? { photoId: id, alpha: modelAlpha } : null
+    sentAlpha = modelAlpha
     renderer ??= deps.createRenderer()
     if (modelAlpha) {
       renderer.setImage(id, copyImage(image), copyMask(modelAlpha))
@@ -128,7 +138,11 @@ export function createSession(deps: SessionDeps) {
       started = true
       void auto.start()
     }
-    await auto.setImage(id, image)
+    // The controller shows an empty selection at once; the history starts there.
+    const ready = auto.setImage(id, image)
+    history.reset(history.current)
+    syncSelection()
+    await ready
     return photo
   }
 
@@ -143,7 +157,8 @@ export function createSession(deps: SessionDeps) {
       return {
         photo,
         selection: sel,
-        modelAlpha: sel.softEdge?.source === 'model' ? currentAlpha() : null,
+        modelAlpha:
+          sel.softEdge?.source === 'model' ? (alphas.get(sel) ?? null) : null,
         sticker,
       }
     },
@@ -165,7 +180,8 @@ export function createSession(deps: SessionDeps) {
       saved: Selection,
     ): Promise<Photo> {
       const shown = await show(loaded, modelAlpha)
-      history.execute({ type: 'restore', selection: saved })
+      const restored = history.execute({ type: 'restore', selection: saved })
+      if (modelAlpha) alphas.set(restored, modelAlpha)
       syncSelection()
       sticker = {
         id: record.id,
@@ -188,6 +204,31 @@ export function createSession(deps: SessionDeps) {
     },
     tap(t: Tap) {
       auto.tap(t)
+    },
+    get canUndo() {
+      return history.canUndo
+    },
+    get canRedo() {
+      return history.canRedo
+    },
+    /** Steps back through every selection change (spec 0009 AC-19). */
+    undo() {
+      if (!history.canUndo) return
+      history.undo()
+      syncSelection()
+    },
+    redo() {
+      if (!history.canRedo) return
+      history.redo()
+      syncSelection()
+    },
+    /** Makes the latest Auto result the selection, as one undoable step (AC-20). */
+    resetToAuto() {
+      auto.resetToAuto()
+    },
+    /** The model alpha `selection`'s soft edge uses, if any. */
+    alphaFor(sel: Selection): AlphaMask | null {
+      return alphas.get(sel) ?? null
     },
     useLasso() {
       auto.useLasso()

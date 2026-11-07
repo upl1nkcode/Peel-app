@@ -106,6 +106,21 @@ describe('history', () => {
     expect(history.redo()).toEqual(states[5]) // at the end: unchanged
   })
 
+  // spec 0009 AC-19: a new photo starts a new history.
+  it('should_start_over_on_reset (spec 0009 AC-19)', () => {
+    const history = createHistory(start())
+    history.execute({ type: 'moveNode', ring: 0, node: 0, to: { x: 1, y: 1 } })
+    history.execute({ type: 'moveNode', ring: 0, node: 1, to: { x: 2, y: 2 } })
+    history.undo()
+    const fresh = emptySelection()
+    history.reset(fresh)
+    expect(history.current).toBe(fresh)
+    expect(history.canUndo).toBe(false)
+    expect(history.canRedo).toBe(false)
+    expect(history.undo()).toBe(fresh)
+    expect(history.redo()).toBe(fresh)
+  })
+
   // AC-17
   it('should_discard_the_redo_branch_on_a_new_command', () => {
     const history = createHistory(start())

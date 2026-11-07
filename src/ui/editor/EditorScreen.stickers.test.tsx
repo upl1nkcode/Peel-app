@@ -9,7 +9,7 @@ import {
   within,
 } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { renderMask, type RgbaImage } from '../../core/mask'
+import { renderMask, type AlphaMask, type RgbaImage } from '../../core/mask'
 import { storedDeflate } from '../../core/png'
 import {
   parseSelection,
@@ -53,6 +53,10 @@ interface RenderLog {
   gate?: Promise<void>
   /** Make the full render cover nothing. */
   empty?: boolean
+  /** Model alphas sent to the renderer, in order. */
+  alphas?: AlphaMask[]
+  /** The model alpha each full render was given. */
+  fullAlphas?: (AlphaMask | undefined)[]
 }
 
 function fakeRenderer(log: RenderLog) {
@@ -61,7 +65,9 @@ function fakeRenderer(log: RenderLog) {
     setImage: (id, img) => {
       sizes.set(id, { width: img.width, height: img.height })
     },
-    setModelAlpha: () => undefined,
+    setModelAlpha: (_id, alpha) => {
+      log.alphas?.push(alpha)
+    },
     render: (id, selection, scale) => {
       log.render?.push(selection)
       return Promise.resolve({
@@ -72,8 +78,9 @@ function fakeRenderer(log: RenderLog) {
         }),
       })
     },
-    renderFull: async (id, selection) => {
+    renderFull: async (id, selection, alpha) => {
       log.renderFull.push(selection)
+      log.fullAlphas?.push(alpha)
       await log.gate
       const size = sizes.get(id) ?? { width: 1, height: 1 }
       return {
@@ -210,11 +217,14 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
     await waitFor(() => {
       expect(saveButton()).toBeDisabled()
     })
+    expect(screen.queryByRole('button', { name: 'Reset to auto' })).toBeNull()
     fireEvent.click(thumbnails()[0] as HTMLElement)
     await waitFor(() => {
       expect(saveButton()).toBeEnabled()
     })
     expect(stageSize()).toBe('100x50')
+    // No Auto result for the re-opened photo yet (spec 0009 AC-20).
+    expect(screen.queryByRole('button', { name: 'Reset to auto' })).toBeNull()
 
     fireEvent.click(saveButton())
     await screen.findByRole('button', { name: 'Saved' })
@@ -277,6 +287,42 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
     const saved = await s.get(only?.id ?? '')
     expect(parseSelection(saved?.selection ?? '').selection).toEqual(atTap)
     expect(atTap?.feather).toBe(0)
+  })
+
+  it('should_render_an_undone_result_with_its_own_model_alpha (spec 0009 Review Focus 1)', async () => {
+    // The precise result's alpha is marked, so A and B can be told apart.
+    const base = createFakeEngine({ name: 'precise' })
+    const precise: SegmentationEngine = {
+      ...base,
+      async segment(id, taps) {
+        const result = await base.segment(id, taps)
+        const data = result.alpha.data.slice()
+        data[0] = 77
+        return { ...result, alpha: { ...result.alpha, data } }
+      },
+    }
+    const log: RenderLog = { renderFull: [], alphas: [], fullAlphas: [] }
+    setup({ precise, log })
+    const canvas = await pickPhoto()
+    tap(canvas, 50, 25)
+    await waitFor(() => {
+      expect(log.alphas?.at(-1)?.data[0]).toBe(77)
+    })
+    const marked = (a: AlphaMask | undefined) => a?.data[0] === 77
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => {
+      expect(marked(log.alphas?.at(-1))).toBe(false)
+    })
+    expect(log.alphas?.at(-1)).toBeDefined()
+    fireEvent.click(saveButton())
+    await screen.findByRole('button', { name: 'Saved' })
+    expect(log.fullAlphas).toHaveLength(1)
+    expect(log.fullAlphas?.[0]).toBeDefined()
+    expect(marked(log.fullAlphas?.[0])).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Redo' }))
+    await waitFor(() => {
+      expect(marked(log.alphas?.at(-1))).toBe(true)
+    })
   })
 
   it('should_save_as_new_after_deleting_the_open_sticker (Review Focus 2)', async () => {

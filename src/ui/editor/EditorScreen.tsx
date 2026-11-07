@@ -49,6 +49,8 @@ export function EditorScreen(props: EditorScreenProps) {
   const [photoError, setPhotoError] = useState<string | null>(null)
   /** The chosen view; it stays across tools and photos (AC-11). */
   const [viewMode] = useState<ViewMode>('overlay')
+  /** Hold-to-compare (AC-18). */
+  const [comparing, setComparing] = useState(false)
   const [selection, setSelection] = useState<Selection>(emptySelection())
   // One controller, history and renderer for the screen's life.
   const [session] = useState(() =>
@@ -152,6 +154,9 @@ export function EditorScreen(props: EditorScreenProps) {
   const panel = useStickers(props.stickers, host, photo?.id ?? null, selection)
 
   const lines = state ? statusLines(state) : []
+  const release = () => {
+    setComparing(false)
+  }
 
   return (
     <section
@@ -203,13 +208,68 @@ export function EditorScreen(props: EditorScreenProps) {
         selection={selection}
         renderMask={renderMask}
         viewMode={viewMode}
-        comparing={false}
+        comparing={comparing}
         tool="auto"
         onIntent={(intent) => {
           session.tap({ imagePt: intent.imagePt, mode: intent.type })
         }}
         {...(props.now && { now: props.now })}
       />
+      <div className="editor-actions">
+        <button
+          type="button"
+          disabled={!session.canUndo}
+          onClick={() => {
+            session.undo()
+          }}
+        >
+          Undo
+        </button>
+        <button
+          type="button"
+          disabled={!session.canRedo}
+          onClick={() => {
+            session.redo()
+          }}
+        >
+          Redo
+        </button>
+        {state?.hasAutoResult && (
+          <button
+            type="button"
+            disabled={selection === state.autoResultSelection}
+            onClick={() => {
+              session.resetToAuto()
+            }}
+          >
+            Reset to auto
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={!photo}
+          onPointerDown={() => {
+            setComparing(true)
+          }}
+          onPointerUp={release}
+          onPointerCancel={release}
+          onPointerLeave={release}
+          onBlur={release}
+          onKeyDown={(e) => {
+            if (e.key !== ' ' && e.key !== 'Enter') return
+            e.preventDefault()
+            if (!e.repeat) setComparing(true)
+          }}
+          onKeyUp={(e) => {
+            if (e.key === ' ' || e.key === 'Enter') release()
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+          }}
+        >
+          Compare
+        </button>
+      </div>
       {panel && <StickerPanel {...panel} />}
     </section>
   )

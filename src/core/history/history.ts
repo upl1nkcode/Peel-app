@@ -12,6 +12,8 @@ export interface History {
   execute(command: Command): Selection
   undo(): Selection
   redo(): Selection
+  /** Starts over at `initial` with nothing to undo or redo (a new photo). */
+  reset(initial: Selection): void
 }
 
 /**
@@ -79,6 +81,12 @@ export function createHistory(
     redo() {
       if (index < states.length - 1) index++
       return at(index)
+    },
+    reset(initial) {
+      states.length = 0
+      states.push(initial)
+      back.length = 0
+      index = 0
     },
   }
 }

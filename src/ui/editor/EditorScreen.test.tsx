@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RgbaImage } from '../../core/mask'
 import type { Tap } from '../../core/segmentation'
+import type { Selection } from '../../core/selection/types'
 import {
   createFakeEngine,
   EngineUnavailable,
@@ -36,12 +37,17 @@ function recording(engine: SegmentationEngine) {
   }
 }
 
+/** Every selection the preview was asked to render, in order. */
+let rendered: Selection[] = []
+const lastRendered = () => rendered.at(-1)
+
 const fakeRenderer = (): Renderer => ({
   setImage: () => undefined,
   setModelAlpha: () => undefined,
   renderFull: () => Promise.resolve({ type: 'cancelled' as const }),
-  render: (_id, _selection, scale) =>
-    Promise.resolve({
+  render: (_id, selection, scale) => {
+    rendered.push(selection)
+    return Promise.resolve({
       type: 'rendered' as const,
       jobId: 1,
       mask: {
@@ -49,10 +55,11 @@ const fakeRenderer = (): Renderer => ({
         height: Math.round(50 * scale),
         data: new Uint8Array(Math.round(100 * scale) * Math.round(50 * scale)),
       },
-    }),
+    })
+  },
 })
 
-async function pick(
+function mount(
   fast: SegmentationEngine,
   precise: SegmentationEngine,
   clock: { t: number },
@@ -68,11 +75,19 @@ async function pick(
       now={() => clock.t}
     />,
   )
-  const input = screen.getByLabelText('Pick a photo')
-  fireEvent.change(input, {
+}
+
+/** Picks a photo and waits for it; the canvas is 200×100 CSS px at (10, 20). */
+async function choose() {
+  const before = screen.queryByTestId('photo')
+  fireEvent.change(screen.getByLabelText('Pick a photo'), {
     target: { files: [new File(['x'], 'photo.png', { type: 'image/png' })] },
   })
-  await screen.findByTestId('photo')
+  await waitFor(() => {
+    const now = screen.queryByTestId('photo')
+    expect(now).not.toBeNull()
+    expect(now).not.toBe(before)
+  })
   const canvas = screen.getByTestId('canvas')
   canvas.getBoundingClientRect = () =>
     ({
@@ -84,6 +99,16 @@ async function pick(
       bottom: 120,
     }) as DOMRect
   return canvas
+}
+
+async function pick(
+  fast: SegmentationEngine,
+  precise: SegmentationEngine,
+  clock: { t: number },
+  supported?: () => boolean,
+) {
+  mount(fast, precise, clock, supported)
+  return choose()
 }
 
 const press = (
@@ -99,8 +124,17 @@ const press = (
 
 // jsdom has no 2D canvas; the screen skips drawing without one.
 beforeEach(() => {
+  rendered = []
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
 })
+
+const button = (name: string) => screen.getByRole('button', { name })
+/** Only the fast engine works, so each tap gives exactly one result. */
+const fastOnly = () => ({
+  fast: createFakeEngine({ name: 'fast' }),
+  precise: createFakeEngine({ name: 'precise', failLoad: 'unsupported' }),
+})
+const phase = () => screen.getByTestId('editor').getAttribute('data-phase')
 
 describe('EditorScreen', () => {
   it('should_cut_out_on_tap_and_remove_on_long_press (AC-24)', async () => {
@@ -264,5 +298,100 @@ describe('EditorScreen', () => {
     await waitFor(() => {
       expect(screen.queryByRole('alert')).toBeNull()
     })
+  })
+
+  it('should_enable_undo_and_redo_only_when_possible (spec 0009 AC-19)', async () => {
+    const clock = { t: 0 }
+    const { fast, precise } = fastOnly()
+    mount(fast, precise, clock)
+    expect(button('Undo')).toBeDisabled()
+    expect(button('Redo')).toBeDisabled()
+    const canvas = await choose()
+    expect(button('Undo')).toBeDisabled()
+    press(canvas, clock, { x: 110, y: 70 }, 100)
+    await waitFor(() => {
+      expect(button('Undo')).toBeEnabled()
+    })
+    expect(button('Redo')).toBeDisabled()
+    fireEvent.click(button('Undo'))
+    await waitFor(() => {
+      expect(lastRendered()?.rings).toHaveLength(0)
+    })
+    expect(button('Undo')).toBeDisabled()
+    expect(button('Redo')).toBeEnabled()
+    fireEvent.click(button('Redo'))
+    await waitFor(() => {
+      expect(lastRendered()?.rings.length).toBeGreaterThan(0)
+    })
+    expect(button('Redo')).toBeDisabled()
+  })
+
+  it('should_not_undo_into_the_previous_photo (spec 0009 AC-19)', async () => {
+    const clock = { t: 0 }
+    const { fast, precise } = fastOnly()
+    const canvas = await pick(fast, precise, clock)
+    press(canvas, clock, { x: 110, y: 70 }, 100)
+    await waitFor(() => {
+      expect(button('Undo')).toBeEnabled()
+    })
+    await choose()
+    await waitFor(() => {
+      expect(button('Undo')).toBeDisabled()
+    })
+    expect(button('Redo')).toBeDisabled()
+  })
+
+  it('should_offer_reset_to_auto_only_after_a_result (spec 0009 AC-20)', async () => {
+    const clock = { t: 0 }
+    const { fast, precise } = fastOnly()
+    const canvas = await pick(fast, precise, clock)
+    const reset = () => screen.queryByRole('button', { name: 'Reset to auto' })
+    expect(reset()).toBeNull()
+    press(canvas, clock, { x: 110, y: 70 }, 100)
+    await waitFor(() => {
+      expect(reset()).toBeDisabled()
+    })
+    await waitFor(() => {
+      expect(phase()).toBe('done')
+    })
+    const result = lastRendered()
+    fireEvent.click(button('Undo'))
+    await waitFor(() => {
+      expect(reset()).toBeEnabled()
+    })
+    fireEvent.click(button('Reset to auto'))
+    await waitFor(() => {
+      expect(reset()).toBeDisabled()
+    })
+    expect(lastRendered()).toEqual(result)
+    expect(button('Undo')).toBeEnabled()
+  })
+
+  it('should_show_the_original_while_compare_is_held (spec 0009 AC-18)', async () => {
+    const clock = { t: 0 }
+    const { fast, precise } = fastOnly()
+    const canvas = await pick(fast, precise, clock)
+    const compare = button('Compare')
+    expect(canvas).toHaveAttribute('data-comparing', 'false')
+    fireEvent.pointerDown(compare, { pointerId: 5 })
+    expect(canvas).toHaveAttribute('data-comparing', 'true')
+    fireEvent.pointerUp(compare, { pointerId: 5 })
+    expect(canvas).toHaveAttribute('data-comparing', 'false')
+    fireEvent.pointerDown(compare, { pointerId: 5 })
+    fireEvent.pointerLeave(compare, { pointerId: 5 })
+    expect(canvas).toHaveAttribute('data-comparing', 'false')
+    fireEvent.pointerDown(compare, { pointerId: 5 })
+    fireEvent.pointerCancel(compare, { pointerId: 5 })
+    expect(canvas).toHaveAttribute('data-comparing', 'false')
+    fireEvent.keyDown(compare, { key: ' ' })
+    expect(canvas).toHaveAttribute('data-comparing', 'true')
+    fireEvent.keyDown(compare, { key: ' ', repeat: true })
+    expect(canvas).toHaveAttribute('data-comparing', 'true')
+    fireEvent.keyUp(compare, { key: ' ' })
+    expect(canvas).toHaveAttribute('data-comparing', 'false')
+    fireEvent.keyDown(compare, { key: 'Enter' })
+    expect(canvas).toHaveAttribute('data-comparing', 'true')
+    fireEvent.keyUp(compare, { key: 'Enter' })
+    expect(canvas).toHaveAttribute('data-comparing', 'false')
   })
 })
