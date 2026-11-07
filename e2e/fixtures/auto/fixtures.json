@@ -1,0 +1,51 @@
+{
+  "object": {
+    "image": "object.jpg",
+    "subjects": {
+      "A": {
+        "alpha": "object.A.alpha.png",
+        "tap": {
+          "x": 436.5,
+          "y": 286.5
+        }
+      }
+    }
+  },
+  "two-objects": {
+    "image": "two-objects.jpg",
+    "subjects": {
+      "A": {
+        "alpha": "two-objects.A.alpha.png",
+        "tap": {
+          "x": 226.5,
+          "y": 289.5
+        }
+      },
+      "B": {
+        "alpha": "two-objects.B.alpha.png",
+        "tap": {
+          "x": 709.5,
+          "y": 303.5
+        }
+      }
+    }
+  },
+  "person": {
+    "image": "person.jpg",
+    "subjects": {
+      "A": {
+        "alpha": "person.A.alpha.png",
+        "tap": {
+          "x": 501.5,
+          "y": 336.5
+        }
+      }
+    },
+    "headBox": {
+      "x": 300,
+      "y": 0,
+      "width": 360,
+      "height": 150
+    }
+  }
+}

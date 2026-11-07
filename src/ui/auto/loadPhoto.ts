@@ -15,8 +15,11 @@ export async function loadPhoto(file: Blob): Promise<RgbaImage> {
     )
     const width = Math.max(1, Math.round(bitmap.width * fit))
     const height = Math.max(1, Math.round(bitmap.height * fit))
-    const canvas = new OffscreenCanvas(width, height)
-    const ctx = canvas.getContext('2d')
+    // A DOM canvas: this runs on the main thread, and not every WebKit build has OffscreenCanvas.
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
     if (!ctx) throw new Error('no 2D canvas')
     ctx.imageSmoothingQuality = 'high'
     ctx.drawImage(bitmap, 0, 0, width, height)

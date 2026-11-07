@@ -6,3 +6,4 @@ package-lock.json
 *.md
 .github
 peel-github-setup
+e2e/fixtures
