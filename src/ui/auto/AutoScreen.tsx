@@ -14,6 +14,7 @@ import {
   type ModelFile,
   type SegmentationEngine,
 } from '../../services/segmentation'
+import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import type { Cancelled } from '../../services/workerClient'
 import type { FromRenderWorker } from '../../workers/protocol'
 import './AutoScreen.css'
@@ -33,7 +34,8 @@ export interface AutoScreenProps {
   engines: { fast: SegmentationEngine; precise: SegmentationEngine }
   missingBytes(files: readonly ModelFile[]): Promise<number>
   createRenderer(): Renderer
-  loadPhoto(file: File): Promise<RgbaImage>
+  /** Decodes a picked file; rejects (e.g. `PhotoUnreadableError`) when it can't. */
+  loadPhoto(file: Blob): Promise<LoadedPhoto>
   /** Whether the browser can run the engines; checked before any download. */
   supported?: () => boolean
   now?: () => number
@@ -42,6 +44,9 @@ export interface AutoScreenProps {
 interface Photo {
   id: string
   image: RgbaImage
+  /** The picked file, unchanged (spec 0008 AC-4). */
+  bytes: Uint8Array
+  type: string
   /** The photo at full size, drawn once, for compositing the preview. */
   source: HTMLCanvasElement
 }
@@ -131,8 +136,17 @@ function createSession(deps: SessionDeps) {
     get renderer() {
       return renderer
     },
+    /** Loads `file`; if it can't be decoded, rejects before anything changes (AC-3). */
     async pick(file: File): Promise<Photo> {
-      const image = await deps.loadPhoto(file)
+      let loaded: LoadedPhoto
+      try {
+        loaded = await deps.loadPhoto(file)
+      } catch (e) {
+        throw e instanceof PhotoUnreadableError
+          ? e
+          : new PhotoUnreadableError({ cause: e })
+      }
+      const { image, bytes, type } = loaded
       const id = `photo-${String(++photos)}`
       photoId = id
       renderer ??= deps.createRenderer()
@@ -143,7 +157,7 @@ function createSession(deps: SessionDeps) {
         void auto.start()
       }
       await auto.setImage(id, image)
-      return { id, image, source: photoCanvas(image) }
+      return { id, image, bytes, type, source: photoCanvas(image) }
     },
     tap(t: Tap) {
       auto.tap(t)
@@ -167,6 +181,7 @@ export function AutoScreen(props: AutoScreenProps) {
   const now = props.now ?? (() => performance.now())
   const [state, setState] = useState<AutoState | null>(null)
   const [photo, setPhoto] = useState<Photo | null>(null)
+  const [photoError, setPhotoError] = useState<string | null>(null)
   const [stage, setStage] = useState({ width: 0, height: 0 })
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -235,7 +250,17 @@ export function AutoScreen(props: AutoScreenProps) {
   }, [session, photo, selection, renderScale, state?.modelAlpha])
 
   const pick = async (file: File) => {
-    setPhoto(await session.pick(file))
+    let next: Photo
+    try {
+      next = await session.pick(file)
+    } catch (e) {
+      if (!(e instanceof PhotoUnreadableError)) throw e
+      // The current photo and cutout stay as they were (spec 0008 AC-3).
+      setPhotoError(e.message)
+      return
+    }
+    setPhotoError(null)
+    setPhoto(next)
   }
 
   /** The photo point under the pointer, kept at least half a pixel inside the photo. */
@@ -302,6 +327,11 @@ export function AutoScreen(props: AutoScreenProps) {
           }}
         />
       </label>
+      {photoError && (
+        <p className="auto-error" role="alert">
+          {photoError}
+        </p>
+      )}
       <div className="auto-status" role="status" aria-live="polite">
         {lines.map((line) => (
           <p key={line}>{line}</p>
@@ -317,7 +347,15 @@ export function AutoScreen(props: AutoScreenProps) {
           </button>
         )}
       </div>
-      <div className="auto-stage" ref={stageRef}>
+      <div
+        className="auto-stage"
+        ref={stageRef}
+        data-image-size={
+          photo
+            ? `${String(photo.image.width)}x${String(photo.image.height)}`
+            : undefined
+        }
+      >
         {photo && (
           <div
             className="auto-photo"
@@ -329,6 +367,7 @@ export function AutoScreen(props: AutoScreenProps) {
             <canvas
               ref={backdropRef}
               className="auto-backdrop"
+              data-testid="photo"
               data-dim={hasCutout || undefined}
               aria-hidden="true"
             />

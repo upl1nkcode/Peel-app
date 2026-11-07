@@ -6,7 +6,7 @@ import {
 } from './services/segmentation'
 import { startRenderWorker, startSegmentationWorker } from './services/workers'
 import { AutoScreen } from './ui/auto/AutoScreen'
-import { loadPhoto } from './ui/auto/loadPhoto'
+import { loadPhoto } from './services/photo'
 
 // Nothing here touches the network or starts a worker until a photo is picked (spec 0007 AC-19).
 const store = createModelStore({
