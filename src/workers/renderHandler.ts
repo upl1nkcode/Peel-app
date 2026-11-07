@@ -43,10 +43,12 @@ export function createRenderHandler(): Handler<
         const mask = renderMask(
           msg.selection,
           { width, height },
-          {
-            scale: msg.type === 'render' ? msg.scale : 1,
-            refineEdge: current.refiner,
-          },
+          msg.type === 'render'
+            ? { scale: msg.scale, refineEdge: current.refiner }
+            : {
+                scale: 1,
+                refineEdge: smartEdgeRefiner(current.image, msg.modelAlpha),
+              },
         )
         return {
           message: { type: 'rendered', jobId: msg.jobId, mask },

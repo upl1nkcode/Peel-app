@@ -133,7 +133,13 @@ describe('render worker handler', () => {
       modelAlpha: model,
     })
     const reply = rendered(
-      handle({ type: 'renderFull', jobId: 7, imageId: 'a', selection }),
+      handle({
+        type: 'renderFull',
+        jobId: 7,
+        imageId: 'a',
+        selection,
+        modelAlpha: model,
+      }),
     )
     expect(reply.jobId).toBe(7)
     expect(reply.mask).toEqual(
@@ -145,5 +151,49 @@ describe('render worker handler', () => {
     expect(() =>
       handle({ type: 'renderFull', jobId: 8, imageId: 'b', selection }),
     ).toThrow('unknown image id b')
+  })
+
+  it('should_render_full_size_with_the_model_alpha_it_was_sent (spec 0008 AC-6)', () => {
+    const scene = discScene('contrast', 2)
+    const model = blurredModel(scene.truth, scene.size)
+    const other = { ...model, data: model.data.map((v) => 255 - v) }
+    const selection: Selection = {
+      ...scene.selection,
+      softEdge: { source: 'model', bandPx: 8 },
+    }
+    const handle = createRenderHandler()
+    handle({
+      type: 'setImage',
+      imageId: 'a',
+      image: scene.image,
+      modelAlpha: other,
+    })
+    const withModel = rendered(
+      handle({
+        type: 'renderFull',
+        jobId: 1,
+        imageId: 'a',
+        selection,
+        modelAlpha: model,
+      }),
+    )
+    expect(withModel.mask).toEqual(
+      renderMask(selection, scene.size, {
+        refineEdge: smartEdgeRefiner(scene.image, model),
+      }),
+    )
+    // Without one, the worker's current model alpha is not used either.
+    const guided: Selection = {
+      ...scene.selection,
+      softEdge: { source: 'guided', bandPx: 8 },
+    }
+    const without = rendered(
+      handle({ type: 'renderFull', jobId: 2, imageId: 'a', selection: guided }),
+    )
+    expect(without.mask).toEqual(
+      renderMask(guided, scene.size, {
+        refineEdge: smartEdgeRefiner(scene.image),
+      }),
+    )
   })
 })

@@ -39,6 +39,7 @@ function recording(engine: SegmentationEngine) {
 const fakeRenderer = (): Renderer => ({
   setImage: () => undefined,
   setModelAlpha: () => undefined,
+  renderFull: () => Promise.resolve({ type: 'cancelled' as const }),
   render: (_id, _selection, scale) =>
     Promise.resolve({
       type: 'rendered' as const,

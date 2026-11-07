@@ -91,9 +91,21 @@ export function renderWorkerClient(port: Port) {
     render(imageId: string, selection: Selection, scale: number) {
       return client.request({ type: 'render', imageId, selection, scale }, [])
     },
-    /** The full-resolution render for saving (spec 0008 AC-6); previews never cancel it. */
-    renderFull(imageId: string, selection: Selection) {
-      return client.request({ type: 'renderFull', imageId, selection }, [])
+    /**
+     * The full-resolution render for saving (spec 0008 AC-6), with the model
+     * alpha being saved (its buffer is transferred: pass a copy). Previews
+     * never cancel it.
+     */
+    renderFull(imageId: string, selection: Selection, modelAlpha?: AlphaMask) {
+      return client.request(
+        {
+          type: 'renderFull',
+          imageId,
+          selection,
+          ...(modelAlpha && { modelAlpha }),
+        },
+        modelAlpha ? [modelAlpha.data.buffer] : [],
+      )
     },
   }
 }
