@@ -187,3 +187,48 @@ export function expectRgb(
     ).toBeLessThanOrEqual(tol)
   }
 }
+
+/**
+ * Picks a `width`×`height` PNG generated in the page (a gradient, so every
+ * pixel differs), with model downloads blocked, and waits for its mask.
+ */
+export async function pickGenerated(page: Page, width: number, height: number) {
+  await page.route(MODEL_URL, (route) => route.abort())
+  await page.goto('/')
+  const base64 = await page.evaluate(
+    async ({ width, height }) => {
+      const c = document.createElement('canvas')
+      c.width = width
+      c.height = height
+      const ctx = c.getContext('2d')
+      if (!ctx) throw new Error('no 2D context')
+      const g = ctx.createLinearGradient(0, 0, width, height)
+      g.addColorStop(0, '#2a6')
+      g.addColorStop(1, '#e83')
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, width, height)
+      const blob = await new Promise<Blob>((done, fail) => {
+        c.toBlob((b) => {
+          if (b) done(b)
+          else fail(new Error('toBlob failed'))
+        }, 'image/png')
+      })
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      let s = ''
+      for (const b of bytes) s += String.fromCharCode(b)
+      return btoa(s)
+    },
+    { width, height },
+  )
+  await page.getByLabel('Pick a photo').setInputFiles({
+    name: 'generated.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(base64, 'base64'),
+  })
+  const canvas = page.getByTestId('canvas')
+  await expect(canvas).toHaveAttribute(
+    'data-image-size',
+    `${String(width)}x${String(height)}`,
+  )
+  await expect(canvas).not.toHaveAttribute('data-mask-scale', '')
+}

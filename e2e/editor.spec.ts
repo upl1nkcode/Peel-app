@@ -6,6 +6,7 @@ import {
   expectRgb,
   imageToDevice,
   photoPixel,
+  pickGenerated,
   seedAndOpen,
 } from './helpers/editor'
 
@@ -62,4 +63,51 @@ test('should_show_the_full_resolution_mask_at_100_percent (AC-9)', async ({
   await expect(canvas).toHaveAttribute('data-mask-scale', '1.0000')
   await expect(page.getByTestId('cutout')).toHaveJSProperty('width', 120)
   await expect(page.getByTestId('cutout')).toHaveJSProperty('height', 80)
+})
+
+test('should_pinch_with_two_fingers (AC-1)', async ({ page }, info) => {
+  test.skip(info.project.name !== 'pixel-8', 'CDP touch is Chromium-only')
+  await seedAndOpen(page)
+  const box = await page.getByTestId('canvas').boundingBox()
+  if (!box) throw new Error('no canvas')
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+  const cdp = await page.context().newCDPSession(page)
+  const touch = (
+    type: 'touchStart' | 'touchMove' | 'touchEnd',
+    spread: number,
+  ) =>
+    cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints:
+        type === 'touchEnd'
+          ? []
+          : [
+              { x: cx - spread, y: cy, id: 0 },
+              { x: cx + spread, y: cy, id: 1 },
+            ],
+    })
+  await touch('touchStart', 20)
+  for (let spread = 25; spread <= 60; spread += 5) {
+    await touch('touchMove', spread)
+  }
+  await touch('touchEnd', 0)
+  const zoom = Number(
+    await page.getByTestId('canvas').getAttribute('data-zoom'),
+  )
+  expect(zoom).toBeGreaterThan(1.5)
+  await page.waitForTimeout(400)
+  await expect(page.getByTestId('editor')).toHaveAttribute('data-phase', 'idle')
+})
+
+test('should_double_tap_to_100_percent (AC-3)', async ({ page }) => {
+  await pickGenerated(page, 2000, 1500)
+  const canvas = page.getByTestId('canvas')
+  expect(Number(await canvas.getAttribute('data-display-scale'))).toBeLessThan(
+    1,
+  )
+  await canvas.dblclick()
+  await expect(canvas).toHaveAttribute('data-display-scale', '1.0000')
+  await canvas.dblclick()
+  await expect(canvas).toHaveAttribute('data-zoom', '1.0000')
 })

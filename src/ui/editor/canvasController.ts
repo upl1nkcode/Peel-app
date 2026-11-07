@@ -1,6 +1,11 @@
 import { canvasToImage, initialView } from '../../core/coords/transform'
 import type { View, Viewport } from '../../core/coords/types'
-import { clampView } from '../../core/coords/view'
+import {
+  applyTwoFingerGesture,
+  applyWheelZoom,
+  clampView,
+  toggleActualSize,
+} from '../../core/coords/view'
 import {
   displayScale,
   needsFinerMask,
@@ -8,7 +13,12 @@ import {
   type ViewMode,
 } from '../../core/editor'
 import type { Point } from '../../core/geometry/types'
-import { classifyPress, type PressSample } from '../../core/gestures/press'
+import { createGestureMachine } from '../../core/gestures/machine'
+import {
+  createPressSequencer,
+  type PressIntent,
+} from '../../core/gestures/sequence'
+import type { GestureAction } from '../../core/gestures/types'
 import type { AlphaMask } from '../../core/mask'
 import type { Selection } from '../../core/selection/types'
 import { buildCutout, drawFrame } from './drawView'
@@ -60,7 +70,15 @@ export interface PointerLike {
   clientX: number
   clientY: number
   pointerId: number
+  /** 0 is the primary button; other mouse buttons are ignored. */
+  button?: number
+  pointerType?: string
 }
+
+/** Wheel zoom asks for a finer render this long after the last wheel event (AC-10). */
+const WHEEL_SETTLE_MS = 150
+/** Wheel `deltaMode` 1 (lines) counts as this many px (AC-6). */
+const WHEEL_LINE_PX = 16
 
 const sameSnapshot = (a: CanvasSnapshot, b: CanvasSnapshot) =>
   a.zoom === b.zoom &&
@@ -99,7 +117,14 @@ export function createCanvasController(
   let frame: number | null = null
   let frames = 0
   let snapshot = EMPTY_SNAPSHOT
-  let press: { sample: PressSample; canvasPt: Point; id: number } | null = null
+  const machine = createGestureMachine()
+  const sequencer = createPressSequencer()
+  /** The photo point under each press's down point, as it was when it went down. */
+  const downImagePts = new WeakMap<Point, Point | null>()
+  /** The view and finger points a pinch or one-finger pan started from. */
+  let gesture: { view: View; points: readonly [Point, Point] } | null = null
+  let tapTimer: number | null = null
+  let wheelTimer: number | null = null
 
   const now = () => (p?.now ?? (() => performance.now()))()
 
@@ -209,7 +234,7 @@ export function createCanvasController(
     photoId = photo?.id ?? null
     held = null
     pending = null
-    press = null
+    resetGestures()
     if (cutout) {
       cutout.width = 0
       cutout.height = 0
@@ -224,6 +249,14 @@ export function createCanvasController(
     }
     const vp = viewport()
     view = vp ? initialView(vp) : null
+  }
+
+  function resetGestures() {
+    machine.reset()
+    sequencer.reset()
+    gesture = null
+    if (tapTimer !== null) window.clearTimeout(tapTimer)
+    tapTimer = null
   }
 
   /** Reads the canvas's size; keeps the centre imagePt and clamps on a change. */
@@ -260,6 +293,129 @@ export function createCanvasController(
     y: e.clientY - origin.y,
   })
 
+  function setView(next: View) {
+    view = next
+    schedule()
+    emit()
+  }
+
+  /** Waits for the sequencer's deadline, then lets the waiting tap through. */
+  function armTapTimer() {
+    if (tapTimer !== null) window.clearTimeout(tapTimer)
+    tapTimer = null
+    const deadline = sequencer.deadline
+    if (deadline === null) return
+    tapTimer = window.setTimeout(
+      () => {
+        tapTimer = null
+        // The timer firing means the deadline has passed, whatever the clock says.
+        intents(sequencer.poll(Math.max(now(), deadline)))
+        armTapTimer()
+      },
+      Math.max(0, deadline - now()),
+    )
+  }
+
+  function act(type: 'add' | 'remove', imagePt: Point | null) {
+    if (imagePt && p?.tool === 'auto') p.onIntent({ type, imagePt })
+  }
+
+  function intents(list: readonly PressIntent[]) {
+    const vp = viewport()
+    for (const it of list) {
+      switch (it.type) {
+        case 'doubleTap':
+          if (vp && view) {
+            setView(toggleActualSize(vp, view, it.canvasPt))
+            ensureMask(false)
+          }
+          break
+        case 'tap':
+          act('add', downImagePts.get(it.canvasPt) ?? null)
+          break
+        case 'longPress':
+          act('remove', downImagePts.get(it.canvasPt) ?? null)
+          break
+        case 'aimEnd':
+          act('add', toImagePt(it.canvasPt))
+          break
+        case 'aimStart':
+        case 'aimMove':
+        case 'cancel':
+          break
+      }
+    }
+  }
+
+  function actions(list: readonly GestureAction[]) {
+    const vp = viewport()
+    for (const a of list) {
+      switch (a.type) {
+        case 'viewStart':
+          if (view) gesture = { view, points: a.points }
+          break
+        case 'viewUpdate':
+          if (vp && gesture) {
+            setView(
+              applyTwoFingerGesture(vp, gesture.view, gesture.points, a.points),
+            )
+          }
+          break
+        case 'viewEnd':
+          gesture = null
+          ensureMask(false)
+          break
+        case 'toolStart':
+          downImagePts.set(a.point, toImagePt(a.point))
+          if (p?.tool === 'view' && view) {
+            gesture = { view, points: [a.point, a.point] }
+          }
+          break
+        case 'toolMove':
+          if (p?.tool === 'view' && vp && gesture) {
+            setView(
+              applyTwoFingerGesture(vp, gesture.view, gesture.points, [
+                a.point,
+                a.point,
+              ]),
+            )
+          }
+          break
+        case 'toolEnd':
+        case 'toolCancel':
+          if (p?.tool === 'view') gesture = null
+          break
+      }
+      if (a.type.startsWith('tool')) intents(sequencer.input(a, now()))
+    }
+    armTapTimer()
+  }
+
+  const ignored = (e: PointerLike) =>
+    e.pointerType === 'mouse' && e.button !== undefined && e.button > 0
+
+  function onWheel(e: WheelEvent) {
+    e.preventDefault()
+    measure()
+    const vp = viewport()
+    if (!vp || !view) return
+    const px =
+      e.deltaMode === 1
+        ? e.deltaY * WHEEL_LINE_PX
+        : e.deltaMode === 2
+          ? e.deltaY * size.height
+          : e.deltaY
+    if (!Number.isFinite(px)) return
+    setView(
+      applyWheelZoom(vp, view, canvasPtOf(e as PointerLike & WheelEvent), px),
+    )
+    if (wheelTimer !== null) window.clearTimeout(wheelTimer)
+    wheelTimer = window.setTimeout(() => {
+      wheelTimer = null
+      ensureMask(false)
+    }, WHEEL_SETTLE_MS)
+  }
+
   return {
     setInputs(next: CanvasInputs) {
       const prev = p
@@ -281,8 +437,11 @@ export function createCanvasController(
     attachCanvas(el: HTMLCanvasElement | null) {
       observer?.disconnect()
       observer = null
+      canvas?.removeEventListener('wheel', onWheel)
       canvas = el
       if (!el) return
+      // Not passive, so the page itself doesn't zoom or scroll (AC-6).
+      el.addEventListener('wheel', onWheel, { passive: false })
       measure()
       if (typeof ResizeObserver === 'function') {
         observer = new ResizeObserver(() => {
@@ -305,37 +464,55 @@ export function createCanvasController(
     },
 
     pointerDown(e: PointerLike) {
+      if (ignored(e)) return
       measure()
-      const canvasPt = canvasPtOf(e)
-      press = {
-        sample: { screenPt: canvasPt, t: now() },
-        canvasPt,
-        id: e.pointerId,
-      }
+      actions(
+        machine.dispatch({
+          type: 'down',
+          pointerId: e.pointerId,
+          point: canvasPtOf(e),
+        }),
+      )
+    },
+
+    pointerMove(e: PointerLike) {
+      actions(
+        machine.dispatch({
+          type: 'move',
+          pointerId: e.pointerId,
+          point: canvasPtOf(e),
+        }),
+      )
     },
 
     pointerUp(e: PointerLike) {
-      const start = press
-      press = null
-      if (start?.id !== e.pointerId || !p) return
-      const kind = classifyPress(start.sample, {
-        screenPt: canvasPtOf(e),
-        t: now(),
-      })
-      if (!kind) return
-      const imagePt = toImagePt(start.canvasPt)
-      if (!imagePt) return
-      p.onIntent({ type: kind === 'tap' ? 'add' : 'remove', imagePt })
+      actions(
+        machine.dispatch({
+          type: 'up',
+          pointerId: e.pointerId,
+          point: canvasPtOf(e),
+        }),
+      )
     },
 
     pointerCancel(e: PointerLike) {
-      if (press?.id === e.pointerId) press = null
+      actions(
+        machine.dispatch({
+          type: 'cancel',
+          pointerId: e.pointerId,
+          point: canvasPtOf(e),
+        }),
+      )
     },
 
     destroy() {
       observer?.disconnect()
       observer = null
+      canvas?.removeEventListener('wheel', onWheel)
       canvas = null
+      resetGestures()
+      if (wheelTimer !== null) window.clearTimeout(wheelTimer)
+      wheelTimer = null
     },
   }
 }

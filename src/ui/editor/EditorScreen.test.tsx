@@ -120,10 +120,18 @@ describe('EditorScreen', () => {
       imagePt: { x: 10, y: 10 },
       mode: 'remove',
     })
-    // A press that moves is neither.
+    // A press that moves aims, and adds where it lifts (spec 0009 AC-16):
+    // screen (80, 50) is canvas (70, 30) → image (35, 15).
     fireEvent.pointerDown(canvas, { clientX: 50, clientY: 50, pointerId: 1 })
+    fireEvent.pointerMove(canvas, { clientX: 80, clientY: 50, pointerId: 1 })
     fireEvent.pointerUp(canvas, { clientX: 80, clientY: 50, pointerId: 1 })
-    expect(fast.calls).toHaveLength(2)
+    await waitFor(() => {
+      expect(fast.calls).toHaveLength(3)
+    })
+    expect(fast.calls[2]?.[2]).toEqual({
+      imagePt: { x: 35, y: 15 },
+      mode: 'add',
+    })
     expect(
       (await screen.findByTestId('editor')).getAttribute('data-phase'),
     ).toMatch(/sharpening|done/)
@@ -145,6 +153,26 @@ describe('EditorScreen', () => {
     expect(fast.calls[0]).toEqual([
       { imagePt: { x: 99.5, y: 25 }, mode: 'add' },
     ])
+  })
+
+  it('should_drop_a_waiting_tap_when_a_new_photo_is_picked (spec 0009 Review Focus 3)', async () => {
+    const clock = { t: 0 }
+    const fast = recording(createFakeEngine({ name: 'fast' }))
+    const canvas = await pick(
+      fast.engine,
+      createFakeEngine({ name: 'precise' }),
+      clock,
+    )
+    press(canvas, clock, { x: 110, y: 70 }, 50)
+    const before = screen.getByTestId('photo')
+    fireEvent.change(screen.getByLabelText('Pick a photo'), {
+      target: { files: [new File(['y'], 'next.png', { type: 'image/png' })] },
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('photo')).not.toBe(before)
+    })
+    await new Promise((done) => setTimeout(done, 400))
+    expect(fast.calls).toEqual([])
   })
 
   it('should_offer_lasso_when_auto_is_unavailable (AC-20)', async () => {

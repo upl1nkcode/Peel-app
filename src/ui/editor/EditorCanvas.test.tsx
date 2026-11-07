@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AlphaMask } from '../../core/mask'
 import { emptySelection } from '../../core/selection/model'
@@ -99,12 +99,14 @@ function setup(over: Partial<EditorCanvasProps> = {}) {
     comparing: false,
     tool: 'auto',
     onIntent: (i) => intents.push(i),
+    now: () => Date.now(),
     ...over,
   }
   const view = render(<EditorCanvas {...props} />)
   const canvas = screen.getByTestId('canvas')
   return {
     ...r,
+    view,
     intents,
     canvas,
     props,
@@ -173,5 +175,220 @@ describe('EditorCanvas', () => {
     })
     expect(canvas.getAttribute('data-zoom')).toBe('1.0000')
     expect(calls).toHaveLength(1)
+  })
+})
+
+const at = (x: number, y: number, pointerId = 1) => ({
+  clientX: x,
+  clientY: y,
+  pointerId,
+})
+
+/** Runs pending timers and lets promise callbacks settle. */
+async function advance(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms)
+  })
+}
+
+const centerOf = (canvas: HTMLElement) =>
+  (canvas.getAttribute('data-center') ?? '').split(',').map(Number)
+
+describe('EditorCanvas gestures', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const tap = (canvas: HTMLElement, x: number, y: number) => {
+    fireEvent.pointerDown(canvas, at(x, y))
+    fireEvent.pointerUp(canvas, at(x, y))
+  }
+
+  it('should_pinch_and_keep_the_midpoint_still (AC-1, AC-10)', async () => {
+    const { canvas, calls, intents } = setup()
+    fireEvent.pointerDown(canvas, at(100, 150, 1))
+    fireEvent.pointerDown(canvas, at(200, 150, 2))
+    fireEvent.pointerMove(canvas, at(50, 150, 1))
+    fireEvent.pointerMove(canvas, at(250, 150, 2))
+    expect(canvas.getAttribute('data-zoom')).toBe('2.0000')
+    // Image (1500, 1500) was under the midpoint (150, 150) and still is.
+    expect(canvas.getAttribute('data-center')).toBe('1750.0000,1500.0000')
+    expect(calls).toHaveLength(1)
+    fireEvent.pointerUp(canvas, at(50, 150, 1))
+    fireEvent.pointerUp(canvas, at(250, 150, 2))
+    expect(calls).toHaveLength(2)
+    expect(calls[1]?.scale).toBeCloseTo(0.4, 9)
+    await advance(1000)
+    expect(intents).toEqual([])
+  })
+
+  it('should_cancel_a_press_when_a_second_finger_lands (AC-2)', async () => {
+    const { canvas, intents } = setup()
+    fireEvent.pointerDown(canvas, at(100, 100, 1))
+    fireEvent.pointerMove(canvas, at(120, 100, 1))
+    fireEvent.pointerDown(canvas, at(200, 100, 2))
+    fireEvent.pointerUp(canvas, at(120, 100, 1))
+    fireEvent.pointerUp(canvas, at(200, 100, 2))
+    await advance(1000)
+    expect(intents).toEqual([])
+  })
+
+  it('should_add_250_ms_after_a_tap (AC-4, AC-16)', async () => {
+    const { canvas, intents } = setup()
+    tap(canvas, 200, 150)
+    await advance(249)
+    expect(intents).toEqual([])
+    await advance(1)
+    expect(intents).toHaveLength(1)
+    expect(intents[0]?.type).toBe('add')
+    expect(intents[0]?.imagePt.x).toBeCloseTo(2000, 2)
+    expect(intents[0]?.imagePt.y).toBeCloseTo(1500, 2)
+  })
+
+  it('should_add_where_the_tap_was_even_if_the_view_moves (AC-4)', async () => {
+    const { canvas, intents } = setup()
+    tap(canvas, 100, 150)
+    fireEvent.wheel(canvas, { deltaY: -200, clientX: 300, clientY: 150 })
+    await advance(250)
+    expect(intents[0]?.imagePt.x).toBeCloseTo(1000, 2)
+    expect(intents[0]?.imagePt.y).toBeCloseTo(1500, 2)
+  })
+
+  it('should_zoom_on_double_tap_and_add_nothing (AC-3)', async () => {
+    const { canvas, intents } = setup()
+    tap(canvas, 200, 150)
+    await advance(100)
+    tap(canvas, 200, 150)
+    expect(canvas.getAttribute('data-zoom')).toBe('5.0000')
+    expect(canvas.getAttribute('data-display-scale')).toBe('1.0000')
+    await advance(1000)
+    expect(intents).toEqual([])
+    tap(canvas, 200, 150)
+    await advance(100)
+    tap(canvas, 200, 150)
+    expect(canvas.getAttribute('data-zoom')).toBe('1.0000')
+    await advance(1000)
+    expect(intents).toEqual([])
+  })
+
+  it('should_remove_on_long_press_at_lift (AC-16)', async () => {
+    const { canvas, intents } = setup()
+    fireEvent.pointerDown(canvas, at(200, 150))
+    await advance(600)
+    expect(intents).toEqual([])
+    fireEvent.pointerUp(canvas, at(200, 150))
+    expect(intents).toEqual([{ type: 'remove', imagePt: { x: 2000, y: 1500 } }])
+  })
+
+  it('should_add_where_an_aim_lifts (AC-16)', () => {
+    const { canvas, intents } = setup()
+    fireEvent.pointerDown(canvas, at(100, 100))
+    fireEvent.pointerMove(canvas, at(150, 100))
+    fireEvent.pointerUp(canvas, at(150, 100))
+    expect(intents).toHaveLength(1)
+    expect(intents[0]?.type).toBe('add')
+    expect(intents[0]?.imagePt.x).toBeCloseTo(1500, 2)
+    expect(intents[0]?.imagePt.y).toBeCloseTo(1000, 2)
+  })
+
+  it('should_do_nothing_for_a_point_outside_the_photo (AC-16)', async () => {
+    // 400×400: the 4000×3000 photo is letterboxed from y = 50 to 350.
+    rect.height = 400
+    const { canvas, intents } = setup()
+    fireEvent.pointerDown(canvas, at(150, 100))
+    fireEvent.pointerMove(canvas, at(150, 20))
+    fireEvent.pointerUp(canvas, at(150, 20))
+    tap(canvas, 200, 30)
+    await advance(1000)
+    expect(intents).toEqual([])
+  })
+
+  it('should_pan_with_one_finger_in_the_view_tool (AC-5)', async () => {
+    const { canvas, intents } = setup({ tool: 'view' })
+    fireEvent.wheel(canvas, { deltaY: -400, clientX: 200, clientY: 150 })
+    expect(canvas.getAttribute('data-zoom')).toBe('4.0000')
+    const [x0, y0] = centerOf(canvas)
+    fireEvent.pointerDown(canvas, at(200, 150))
+    fireEvent.pointerMove(canvas, at(180, 150))
+    fireEvent.pointerMove(canvas, at(160, 150))
+    fireEvent.pointerUp(canvas, at(160, 150))
+    const [x1, y1] = centerOf(canvas)
+    // 40 CSS px at 0.4 CSS px per image px.
+    expect(x1).toBeCloseTo((x0 ?? 0) + 100, 2)
+    expect(y1).toBeCloseTo(y0 ?? 0, 2)
+    tap(canvas, 200, 150)
+    await advance(1000)
+    expect(intents).toEqual([])
+  })
+
+  it('should_zoom_with_the_wheel (AC-6, AC-10)', async () => {
+    const first = setup()
+    fireEvent.wheel(first.canvas, {
+      deltaY: -200,
+      clientX: 200,
+      clientY: 150,
+    })
+    expect(first.canvas.getAttribute('data-zoom')).toBe('2.0000')
+    expect(first.calls).toHaveLength(1)
+    await advance(149)
+    expect(first.calls).toHaveLength(1)
+    await advance(1)
+    expect(first.calls).toHaveLength(2)
+    expect(first.calls[1]?.scale).toBeCloseTo(0.4, 9)
+    first.view.unmount()
+
+    const lines = setup()
+    fireEvent.wheel(lines.canvas, {
+      deltaY: -12.5,
+      deltaMode: 1,
+      clientX: 200,
+      clientY: 150,
+    })
+    expect(lines.canvas.getAttribute('data-zoom')).toBe('2.0000')
+  })
+
+  it('should_keep_the_centre_when_the_canvas_resizes (Review Focus 2)', async () => {
+    const { canvas, calls } = setup()
+    fireEvent.wheel(canvas, { deltaY: -400, clientX: 300, clientY: 200 })
+    await advance(200)
+    const before = centerOf(canvas)
+    rect.width = 300
+    rect.height = 400
+    act(() => {
+      for (const cb of resizeObservers) cb()
+    })
+    const after = centerOf(canvas)
+    expect(after[0]).toBeCloseTo(before[0] ?? Number.NaN, 2)
+    expect(after[1]).toBeCloseTo(before[1] ?? Number.NaN, 2)
+    expect(canvas.getAttribute('data-zoom')).toBe('4.0000')
+    const n = calls.length
+    rect.width = 0
+    rect.height = 0
+    act(() => {
+      for (const cb of resizeObservers) cb()
+    })
+    expect(canvas.getAttribute('data-zoom')).not.toContain('NaN')
+    expect(calls).toHaveLength(n)
+  })
+
+  it('should_double_tap_a_small_photo_safely (Review Focus 4)', async () => {
+    const { canvas, calls } = setup({ photo: photo(120, 80, 'small') })
+    expect(calls[0]?.scale).toBe(1)
+    tap(canvas, 200, 150)
+    await advance(100)
+    tap(canvas, 200, 150)
+    expect(canvas.getAttribute('data-zoom')).toBe('1.0000')
+    expect(canvas.getAttribute('data-center')).toBe('60.0000,40.0000')
+  })
+
+  it('should_drop_a_waiting_tap_for_a_new_photo (Review Focus 3)', async () => {
+    const { canvas, intents, rerender } = setup()
+    tap(canvas, 200, 150)
+    rerender({ photo: photo(2000, 1500, 'p2') })
+    await advance(1000)
+    expect(intents).toEqual([])
   })
 })

@@ -75,6 +75,9 @@ export function EditorCanvas(props: EditorCanvasProps) {
           }
           ctl.pointerDown(e)
         }}
+        onPointerMove={(e) => {
+          ctl.pointerMove(e)
+        }}
         onPointerUp={(e) => {
           ctl.pointerUp(e)
         }}
