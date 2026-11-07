@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import { crc32 } from '../png/zlib'
+import { testInflateRaw } from '../testing/codecs'
 import {
   PYTHON_DEFLATED_ZIP_BASE64,
   PYTHON_STORED_ZIP_BASE64,
@@ -17,14 +18,7 @@ import {
   type ZipEntry,
 } from './index'
 
-const inflateRaw: Inflate = async (data) => {
-  const ds = new DecompressionStream('deflate-raw')
-  const writer = ds.writable.getWriter()
-  const written = writer.write(new Uint8Array(data)).then(() => writer.close())
-  const out = new Uint8Array(await new Response(ds.readable).arrayBuffer())
-  await written
-  return out
-}
+const inflateRaw: Inflate = testInflateRaw
 
 const concat = (chunks: Uint8Array[]): Uint8Array => {
   const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
@@ -130,9 +124,10 @@ describe('zip', () => {
     const at = (name: string) => central.get(name) as number
     // A flipped data byte: the CRC no longer matches.
     const crcLocal = u32(zip, at('crc.txt') + 42)
-    zip[crcLocal + 30 + 'crc.txt'.length] ^= 0xff
+    zip[crcLocal + 30 + 'crc.txt'.length] =
+      (zip[crcLocal + 30 + 'crc.txt'.length] as number) ^ 0xff
     // Encrypted (general purpose flag bit 0).
-    zip[at('locked.txt') + 8] |= 1
+    zip[at('locked.txt') + 8] = (zip[at('locked.txt') + 8] as number) | 1
     // Method 12 (bzip2), unsupported.
     zip[at('method.txt') + 10] = 12
     // A size running past the end of the file.
