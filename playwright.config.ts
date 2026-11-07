@@ -4,6 +4,9 @@ const PORT = 4173
 
 export default defineConfig({
   testDir: './e2e',
+  // Screenshot baselines are made on CI Linux only, so no platform suffix.
+  snapshotPathTemplate:
+    '{testDir}/__screenshots__/{testFilePath}/{arg}-{projectName}{ext}',
   fullyParallel: true,
   forbidOnly: !!process.env['CI'],
   retries: process.env['CI'] ? 1 : 0,

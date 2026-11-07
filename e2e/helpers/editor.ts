@@ -14,9 +14,21 @@ export const SEED_PHOTO = readFileSync(
 /** The seed selection: a rectangle from (10, 10) to (110, 70). */
 export const SEED_RECT = { x0: 10, y0: 10, x1: 110, y1: 70 }
 
-export async function seedRecord(): Promise<StickerRecord> {
-  const imageSize = { width: 120, height: 80 }
-  const { x0, y0, x1, y1 } = SEED_RECT
+export interface SeedOptions {
+  photo: Uint8Array
+  imageSize: { width: number; height: number }
+  rect: { x0: number; y0: number; x1: number; y1: number }
+}
+
+export async function seedRecord(
+  opts: SeedOptions = {
+    photo: new Uint8Array(SEED_PHOTO),
+    imageSize: { width: 120, height: 80 },
+    rect: SEED_RECT,
+  },
+): Promise<StickerRecord> {
+  const { imageSize } = opts
+  const { x0, y0, x1, y1 } = opts.rect
   const rect = [
     { x: x0, y: y0 },
     { x: x1, y: y0 },
@@ -33,7 +45,7 @@ export async function seedRecord(): Promise<StickerRecord> {
     createdAt: Date.UTC(2026, 10, 1),
     updatedAt: Date.UTC(2026, 10, 2),
     imageSize,
-    photo: { bytes: new Uint8Array(SEED_PHOTO), type: 'image/jpeg' },
+    photo: { bytes: opts.photo, type: 'image/jpeg' },
     selection: serializeSelection(
       { rings: [{ op: 'add', nodes: rect }], strokes: [], feather: 0 },
       imageSize,
@@ -43,8 +55,8 @@ export async function seedRecord(): Promise<StickerRecord> {
   }
 }
 
-export async function seedBackup(): Promise<Buffer> {
-  const entries = backupEntries([await seedRecord()], new Date(2026, 10, 2))
+export async function seedBackup(opts?: SeedOptions): Promise<Buffer> {
+  const entries = backupEntries([await seedRecord(opts)], new Date(2026, 10, 2))
   return Buffer.concat(writeZip(entries, new Date(2026, 10, 2)))
 }
 
@@ -99,13 +111,17 @@ export const MODEL_URL = /\/(engine|models)\//
  * downloads blocked, and waits for its mask. (Offline would also stop the
  * render worker's script from loading.)
  */
-export async function seedAndOpen(page: Page) {
+export async function seedAndOpen(page: Page, opts?: SeedOptions) {
   await page.route(MODEL_URL, (route) => route.abort())
   await page.goto('/')
-  await importFile(page, await seedBackup())
+  await importFile(page, await seedBackup(opts))
   await page.getByRole('button', { name: 'Open sticker' }).first().click()
   const canvas = page.getByTestId('canvas')
-  await expect(canvas).toHaveAttribute('data-image-size', '120x80')
+  const size = opts?.imageSize ?? { width: 120, height: 80 }
+  await expect(canvas).toHaveAttribute(
+    'data-image-size',
+    `${String(size.width)}x${String(size.height)}`,
+  )
   await closeStickers(page)
   await expect(canvas).not.toHaveAttribute('data-mask-scale', '')
   await nextFrame(page)
@@ -251,4 +267,48 @@ export async function pickGenerated(page: Page, width: number, height: number) {
     `${String(width)}x${String(height)}`,
   )
   await expect(canvas).not.toHaveAttribute('data-mask-scale', '')
+}
+
+/**
+ * A `width`×`height` JPEG made in the page: a gradient with a fine grid, so
+ * neighbouring pixels differ and drawing can't take a flat-colour shortcut.
+ */
+export async function generatedJpeg(
+  page: Page,
+  width: number,
+  height: number,
+): Promise<Uint8Array> {
+  const base64 = await page.evaluate(
+    async ({ width, height }) => {
+      const c = document.createElement('canvas')
+      c.width = width
+      c.height = height
+      const ctx = c.getContext('2d')
+      if (!ctx) throw new Error('no 2D context')
+      const g = ctx.createLinearGradient(0, 0, width, height)
+      g.addColorStop(0, '#2a6')
+      g.addColorStop(1, '#e83')
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, width, height)
+      ctx.fillStyle = 'rgb(0 0 0 / 0.25)'
+      for (let x = 0; x < width; x += 16) ctx.fillRect(x, 0, 2, height)
+      for (let y = 0; y < height; y += 16) ctx.fillRect(0, y, width, 2)
+      const blob = await new Promise<Blob>((done, fail) => {
+        c.toBlob(
+          (b) => {
+            if (b) done(b)
+            else fail(new Error('toBlob failed'))
+          },
+          'image/jpeg',
+          0.9,
+        )
+      })
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      let s = ''
+      for (const b of bytes) s += String.fromCharCode(b)
+      return btoa(s)
+    },
+    { width, height },
+  )
+  return new Uint8Array(Buffer.from(base64, 'base64'))
 }

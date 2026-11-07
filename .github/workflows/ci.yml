@@ -54,6 +54,16 @@ jobs:
           name: playwright-report
           path: playwright-report
           if-no-files-found: ignore
+      # Screenshot baselines (spec 0009 AC-12, AC-25) are made here on Linux:
+      # a missing one is written on the first run; download, check, commit.
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: screenshots
+          path: |
+            e2e/__screenshots__
+            test-results
+          if-no-files-found: ignore
 
   deploy:
     name: deploy
