@@ -1,6 +1,6 @@
 # 0007 — Auto cutout (tap the subject)
 
-- **Status:** Approved
+- **Status:** Implemented
 - **Issues:** story #45; tasks #46 (engine interface and fake), #47 (fast tap engine, was "person segmenter"), #48 (precise tap engine), #49 (downscale and upscale), #50 (download, offline, fallback), #51 (auto result to selection)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §3.1 (Auto), §4 ("Auto → dots"), §5.1 (engines), Phase 6
 
