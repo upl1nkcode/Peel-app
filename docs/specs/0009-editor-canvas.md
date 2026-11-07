@@ -1,6 +1,6 @@
 # 0009 — I can zoom in and see exactly which pixels are kept
 
-- **Status:** Draft
+- **Status:** Approved
 - **Issues:** story #58; tasks #59 (editor canvas: pinch zoom, pan, double-tap 100%/fit), #60 (loupe with crosshair), #61 (view toggles), #62 (hold-to-compare), #63 (undo, redo, reset to auto), #64 (bottom toolbar and tool options sheet)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §3.6 (precision aids), §7 (phone-first UI), Phase 8. Builds on spec 0001 (view transforms, gesture machine), spec 0003 (undo history), spec 0007 (Auto) and spec 0008 (sticker panel).
 
@@ -33,14 +33,14 @@ Sizes are CSS pixels unless they say device pixels. "Display scale" means device
 - **AC-3** Given two taps where the second goes down within 250 ms of the first lifting and within 24 px of the first, when the second lifts, then the view toggles between 100% (anchored at the second tap) and fit (spec 0001 AC-8), and neither tap does anything else. This holds in every tool. (Taps are as spec 0007 AC-25: held < 500 ms, moved ≤ 10 px.)
 - **AC-4** Given a tap that is not followed by a second tap within 250 ms, then its tool action happens 250 ms after it lifted, at the point where it went down.
 - **AC-5** Given the View tool, when one finger (or a mouse button) drags, then the view pans by the drag, clamped as in AC-1, and the selection never changes.
-- **AC-6** Given a mouse wheel or a trackpad pinch (a `wheel` event, with or without Ctrl), then the view zooms by a factor of `2^(−deltaY / 200)` (in pixels; lines count as 16 px), anchored at the pointer and clamped to 1×–16×.
+- **AC-6** Given a mouse wheel or a trackpad pinch (a `wheel` event, with or without Ctrl), then the view zooms by a factor of `2^(−deltaY / 200)` (in pixels; lines count as 16 px, pages as the canvas height), anchored at the pointer and clamped to 1×–16×.
 - **AC-7** Given a new photo is picked or a sticker re-opened, then the view starts fitted (1×).
 
 ### What the canvas shows (#59, #61)
 
 - **AC-8** Given a display scale above 1, then each photo pixel is drawn as a crisp square: any two device pixels inside the same photo pixel have the same colour. At a display scale of 1 or below, the image is downscaled smoothly.
 - **AC-9** Given a display scale of 1 or more, then the mask on screen is the scale-1 render of the current selection, identical to what a save stores (spec 0008 AC-6). Below 1, it is rendered at the display scale.
-- **AC-10** Given a pinch, pan or zoom out, then no new render is requested. A render is requested when the selection changes, or when zooming in needs a finer mask than the one on screen (AC-9). Until it arrives, the previous mask is shown stretched.
+- **AC-10** Given a pinch, pan or zoom out, then no new render is requested. A render is requested when the selection changes, or when zooming in needs a finer mask than the one on screen (AC-9). A pinch requests its render when it ends, and wheel zoom 150 ms after the last wheel event. Until the render arrives, the previous mask is shown stretched.
 - **AC-11** Given the View sheet, then it offers five views: Overlay (the default), Checkerboard, Black, White and Red. The chosen view stays when switching tools and photos. For a photo pixel of colour `p` and mask alpha `a` (0 to 1), the canvas shows:
   - **Overlay:** `p × (1 − 0.5 × (1 − a))`. The whole photo, with what is removed shaded to half brightness.
   - **Checkerboard:** `a × p + (1 − a) × c`, where `c` is a checkerboard of 8 px squares in `#ffffff` and `#cfcfd6`. The squares stay 8 px at every zoom.
@@ -60,7 +60,7 @@ Sizes are CSS pixels unless they say device pixels. "Display scale" means device
   - a tap adds the object at the point where it went down, 250 ms after lifting (AC-4)
   - a long-press (held ≥ 500 ms, moved ≤ 10 px) removes, as soon as it lifts
   - a press that moved more than 10 px aims: the loupe follows it, and lifting adds the object at the lift point
-  Every point is kept at least half a photo pixel inside the photo (as today). An aim lifted outside the photo adds nothing.
+  Every point is kept at least half a photo pixel inside the photo (as today). A tap, long-press or aim whose point is outside the photo does nothing.
 - **AC-17** Given an Auto status (downloading, working, "Sharper cutout ready", errors and "Use Lasso", spec 0007), then it shows in a status strip over the top of the canvas, whichever sheet is open.
 
 ### Compare, undo, redo, reset (#62, #63)
@@ -95,6 +95,7 @@ Coordinates are image pixels (float), except where a name says `screenPt` or `ca
 - **Press sequencing** is pure, in `src/core/gestures`. It takes pointer events and a clock, and gives tool intents: `tap`, `longPress`, `aimStart`, `aimMove`, `aimEnd`, `doubleTap` and `cancel`. The 250 ms wait is a deadline the caller polls; there are no timers in core (AC-2 to AC-4, AC-16).
 - **Loupe placement** is pure: `loupePlacement(fingerCanvasPt, canvasSize): { center: Point; below: boolean }` (AC-14).
 - **View colours** are pure: `viewPixel(view, p, a, checkerColour)` gives AC-11's formulas. Tests check the canvas drawing against it.
+- **Auto controller:** `AutoState` gains `hasAutoResult: boolean` and `autoResultSelection: Selection | null`, the history snapshot that holds the latest Auto result, or null when that result isn't applied (AC-20).
 - The render worker's `render(imageId, selection, scale)` is unchanged. AC-9's scale-1 preview uses the same render path as `renderFull`.
 
 ## Data
