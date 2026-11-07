@@ -91,4 +91,20 @@ describe('worker client', () => {
       jobId: 1,
     })
   })
+
+  it('should_not_cancel_a_full_render_with_a_preview_render (AC-6)', async () => {
+    const { port, sent, reply } = fakePort()
+    const render = renderWorkerClient(port)
+    const full = render.renderFull('a', selection)
+    const preview = render.render('a', selection, 0.5)
+    const fullJob = sent[0]?.message as { type: string; jobId: number }
+    const previewJob = sent[1]?.message as { type: string; jobId: number }
+    expect(fullJob.type).toBe('renderFull')
+    expect(previewJob.type).toBe('render')
+    const mask = { width: 1, height: 1, data: new Uint8Array(1) }
+    reply({ type: 'rendered', jobId: previewJob.jobId, mask })
+    reply({ type: 'rendered', jobId: fullJob.jobId, mask })
+    expect((await preview).type).toBe('rendered')
+    expect((await full).type).toBe('rendered')
+  })
 })

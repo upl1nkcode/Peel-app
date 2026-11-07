@@ -7,6 +7,7 @@ import {
   EngineUnavailable,
   type SegmentationEngine,
 } from '../../services/segmentation'
+import { PhotoUnreadableError } from '../../services/photo'
 import { AutoScreen, type Renderer } from './AutoScreen'
 
 const PHOTO: RgbaImage = {
@@ -14,6 +15,12 @@ const PHOTO: RgbaImage = {
   height: 50,
   data: new Uint8Array(100 * 50 * 4).fill(200),
 }
+
+const loaded = (file: Blob) => ({
+  image: PHOTO,
+  bytes: new Uint8Array([1, 2, 3]),
+  type: file.type,
+})
 
 function recording(engine: SegmentationEngine) {
   const calls: Tap[][] = []
@@ -32,6 +39,7 @@ function recording(engine: SegmentationEngine) {
 const fakeRenderer = (): Renderer => ({
   setImage: () => undefined,
   setModelAlpha: () => undefined,
+  renderFull: () => Promise.resolve({ type: 'cancelled' as const }),
   render: (_id, _selection, scale) =>
     Promise.resolve({
       type: 'rendered' as const,
@@ -56,7 +64,7 @@ async function pick(
       {...(supported && { supported })}
       missingBytes={() => Promise.resolve(0)}
       createRenderer={fakeRenderer}
-      loadPhoto={() => Promise.resolve(PHOTO)}
+      loadPhoto={(file) => Promise.resolve(loaded(file))}
       now={() => clock.t}
     />,
   )
@@ -188,5 +196,44 @@ describe('AutoScreen', () => {
       await screen.findByText("Auto cutout doesn't work in this browser."),
     ).toBeInTheDocument()
     expect(loads).toBe(0)
+  })
+
+  it('should_keep_the_photo_when_a_file_cannot_be_opened (spec 0008 AC-3)', async () => {
+    let fail = false
+    render(
+      <AutoScreen
+        engines={{
+          fast: createFakeEngine({ name: 'fast' }),
+          precise: createFakeEngine({ name: 'precise' }),
+        }}
+        missingBytes={() => Promise.resolve(0)}
+        createRenderer={fakeRenderer}
+        loadPhoto={(file) =>
+          fail
+            ? Promise.reject(new PhotoUnreadableError())
+            : Promise.resolve(loaded(file))
+        }
+      />,
+    )
+    const input = screen.getByLabelText('Pick a photo')
+    const file = new File(['x'], 'photo.png', { type: 'image/png' })
+    fireEvent.change(input, { target: { files: [file] } })
+    await screen.findByTestId('cutout')
+    const stage = document.querySelector('.auto-stage')
+    expect(stage?.getAttribute('data-image-size')).toBe('100x50')
+
+    fail = true
+    fireEvent.change(input, { target: { files: [file] } })
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "This photo can't be opened. Try a JPEG or PNG.",
+    )
+    expect(stage?.getAttribute('data-image-size')).toBe('100x50')
+    expect(screen.getByTestId('cutout')).toBeInTheDocument()
+
+    fail = false
+    fireEvent.change(input, { target: { files: [file] } })
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
   })
 })

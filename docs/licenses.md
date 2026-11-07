@@ -7,6 +7,7 @@ Every dependency and model is recorded here when it is added (rule in `CLAUDE.md
 | Package | Version | License | Type |
 |---|---|---|---|
 | @mediapipe/tasks-vision | 1.2.2 | Apache-2.0 | runtime (auto cutout engine; its wasm is loaded lazily, never in the initial bundle) |
+| idb | 8.0.4 | ISC | runtime (small promise wrapper over IndexedDB for the sticker store, spec 0008; named in plan §5) |
 | react | 19.3.1 | MIT | runtime |
 | react-dom | 19.3.1 | MIT | runtime |
 | @eslint/js | 10.0.1 | MIT | dev |
@@ -22,6 +23,7 @@ Every dependency and model is recorded here when it is added (rule in `CLAUDE.md
 | eslint | 10.14.0 | MIT | dev |
 | eslint-config-prettier | 10.1.8 | MIT | dev |
 | eslint-plugin-react-hooks | 7.1.1 | MIT | dev |
+| fake-indexeddb | 6.2.7 | Apache-2.0 | dev (in-memory IndexedDB for the sticker store's unit tests) |
 | globals | 17.14.0 | MIT | dev |
 | jsdom | 29.1.1 | MIT | dev |
 | prettier | 3.9.10 | MIT | dev |

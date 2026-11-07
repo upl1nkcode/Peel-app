@@ -1,6 +1,6 @@
 # 0008 — Photos load the right way up, and stickers are never lost
 
-- **Status:** Approved
+- **Status:** Implemented
 - **Issues:** story #52; tasks #53 (EXIF orientation and the photo size cap), #54 (IndexedDB sticker repository), #55 (schema migrations and quota errors), #56 (persistent storage request), #57 (ZIP export and import)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §1 (storage caveat), §4 (selection model), §8 (output and backup), Phase 7
 
@@ -17,7 +17,7 @@ A sticker is only worth making if it lasts. Today a cutout disappears when the a
 5. **The model alpha is saved with the sticker.** An auto selection's smart edge needs it (spec 0007), so without it a re-opened auto cutout could not be rendered. It is stored as raw 8-bit values compressed with deflate, not as a PNG, because browsers may colour-manage PNGs they decode. Raw bytes come back exactly.
 6. **The thumbnail is a PNG**, not WebP as plan §8 says: Safari cannot encode WebP from a canvas.
 7. **Backups are plain ZIP files written by our own code** (no dependency). Entries are stored uncompressed, since PNGs and JPEGs are already compressed, and CRC-32 comes from the existing PNG code. Import also reads deflate-compressed entries, so a backup re-zipped on a computer still imports.
-8. **Persistent storage is requested once, on the first save.** Browsers decide from engagement and installation, and asking before anything is saved would waste the one request.
+8. **Persistent storage is requested once, on the first save** (or the first import that adds stickers: a restored backup on a new phone needs it just as much). Browsers decide from engagement and installation, and asking before anything is saved would waste the one request.
 
 ## What
 
@@ -63,7 +63,7 @@ A sticker is only worth making if it lasts. Today a cutout disappears when the a
 
 ### Persistent storage (#56)
 
-- **AC-13** Given `navigator.storage.persist` exists, when the first sticker is saved successfully, then `persist()` is called once. It is never called again on that device, even after a reload; the request is remembered in the database. It is never called before a save.
+- **AC-13** Given `navigator.storage.persist` exists, when the first sticker is stored successfully (by Save, or by an Import that adds at least one), then `persist()` is called once. It is never called again on that device, even after a reload; the request is remembered in the database. It is never called before a save.
 - **AC-14** The panel shows the storage status, read with `navigator.storage.persisted()` (which asks nothing):
   - Persisted: "Stickers are kept on this device."
   - Not persisted, or the API is missing: "Your browser may clear stickers if Peel isn't used for a while. Add Peel to your Home Screen, or export a backup."
@@ -96,10 +96,12 @@ A sticker is only worth making if it lasts. Today a cutout disappears when the a
 Coordinates are image pixels (float).
 
 - `src/core/photo/size.ts`: `MAX_PHOTO_PIXELS = 12_582_912`, `MAX_PHOTO_SIDE_PX = 16_384`, `cappedSize(width, height): { width, height }` (AC-2).
-- `src/core/zip/`: `writeZip(entries: { name: string; data: Uint8Array }[]): Uint8Array[]` (the file as chunks, method 0) and `readZip(bytes: Uint8Array, inflateRaw: Inflate): Promise<Map<string, Uint8Array>>`. Damaged entries are reported per name, not thrown. `ZipLimitError` is thrown by `writeZip` (AC-19).
-- `src/core/backup/`: `backupEntries(stickers)` and `parseBackup(files)`. The second returns `{ stickers, damaged: number }` or throws `NotABackupError`.
+- `src/core/zip/`: `writeZip(entries: { name: string; data: Uint8Array }[], modified: Date): Uint8Array[]` (the file as chunks, method 0) and `readZip(bytes: Uint8Array, inflateRaw: Inflate): Promise<{ files: Map<string, Uint8Array>; damaged: string[] }>`. Damaged entries are reported per name, not thrown. `ZipLimitError` is thrown by `writeZip` (AC-19); `NotAZipError` by `readZip`.
+- `src/core/backup/`: `backupEntries(stickers, exportedAt)` and `parseBackup(files, damagedNames, inflate)`. The second returns `{ stickers, damaged: number }` or throws `NotABackupError`.
 - `src/services/photo/loadPhoto.ts`: `loadPhoto(file: Blob): Promise<{ image: RgbaImage; bytes: Uint8Array; type: string }>`. It rejects with `PhotoUnreadableError` (AC-3). It replaces `src/ui/auto/loadPhoto.ts`.
-- `src/services/storage/`: `openStickerStore(indexedDB: IDBFactory, migrations?)` returns `{ save, list, get, delete, importStickers, meta }`. Errors: `StorageFullError` (AC-12), `StorageOutdatedError` (AC-11). `requestPersistence(storage, store)` and `persistenceStatus(storage)` (AC-13, AC-14).
+- `src/services/storage/`: `openStickerStore(indexedDB: IDBFactory, migrations?)` returns `{ save, list, get, delete, has, getMeta, setMeta, onOutdated, close }`. Errors: `StorageFullError` (AC-12), `StorageOutdatedError` (AC-11). `requestPersistence(storage, store)` and `persistenceStatus(storage)` (AC-13, AC-14).
+- `src/services/backup/`: `exportAll(store, now)` and `importBackup(store, file, codecs)`, which saves new stickers one at a time (AC-12, AC-17).
+- The render worker's `renderFull { imageId, selection, modelAlpha? }` renders at scale 1 with the model alpha being saved (AC-6).
 - `StickerRecord`:
 
   ```

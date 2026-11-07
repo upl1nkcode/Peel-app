@@ -52,3 +52,11 @@
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
+
+.auto-error {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: #fdecea;
+  color: #8a1c13;
+}

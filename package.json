@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.2.2",
+    "idb": "8.0.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
@@ -36,6 +37,7 @@
     "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "fake-indexeddb": "6.2.7",
     "globals": "^17.14.0",
     "jsdom": "^29.1.1",
     "prettier": "^3.9.10",

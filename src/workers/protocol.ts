@@ -20,6 +20,19 @@ export type ToRenderWorker =
       selection: Selection
       scale: number
     }
+  /**
+   * A scale-1 render for saving (spec 0008 AC-6). Its own type, so a preview
+   * `render` never cancels it (newest-wins is per type). It carries the model
+   * alpha saved with the sticker (none: rendered without one), so a
+   * `setModelAlpha` that lands before it runs can't change what is saved.
+   */
+  | {
+      type: 'renderFull'
+      jobId: number
+      imageId: string
+      selection: Selection
+      modelAlpha?: AlphaMask
+    }
 export type FromRenderWorker =
   | { type: 'rendered'; jobId: number; mask: AlphaMask }
   | { type: 'cancelled'; jobId: number }

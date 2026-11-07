@@ -14,18 +14,40 @@ import {
   type ModelFile,
   type SegmentationEngine,
 } from '../../services/segmentation'
+import type { StickerRecord } from '../../core/backup'
+import { parseSelection } from '../../core/selection/serialize'
+import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
+import { inflateModelAlpha } from '../../services/sticker'
 import type { Cancelled } from '../../services/workerClient'
 import type { FromRenderWorker } from '../../workers/protocol'
+import { StickerPanel } from './StickerPanel'
+import {
+  useStickers,
+  type SaveSnapshot,
+  type StickerDeps,
+  type StickerHost,
+  type StickerRef,
+} from './useStickers'
 import './AutoScreen.css'
+
+/** Shown when a re-opened photo decodes at another size (spec 0008 AC-9). */
+export const DIFFERENT_SIZE =
+  'This photo opened at a different size here; the outline may be off.'
 
 /** The part of the render worker client this screen uses (spec 0006). */
 export interface Renderer {
-  setImage(imageId: string, image: RgbaImage): void
+  setImage(imageId: string, image: RgbaImage, modelAlpha?: AlphaMask): void
   setModelAlpha(imageId: string, modelAlpha: AlphaMask): void
   render(
     imageId: string,
     selection: Selection,
     scale: number,
+  ): Promise<FromRenderWorker | Cancelled>
+  /** The scale-1 render for saving, with the model alpha being saved (spec 0008 AC-6). */
+  renderFull(
+    imageId: string,
+    selection: Selection,
+    modelAlpha?: AlphaMask,
   ): Promise<FromRenderWorker | Cancelled>
 }
 
@@ -33,15 +55,21 @@ export interface AutoScreenProps {
   engines: { fast: SegmentationEngine; precise: SegmentationEngine }
   missingBytes(files: readonly ModelFile[]): Promise<number>
   createRenderer(): Renderer
-  loadPhoto(file: File): Promise<RgbaImage>
+  /** Decodes a picked file; rejects (e.g. `PhotoUnreadableError`) when it can't. */
+  loadPhoto(file: Blob): Promise<LoadedPhoto>
   /** Whether the browser can run the engines; checked before any download. */
   supported?: () => boolean
   now?: () => number
+  /** Saving and keeping stickers (spec 0008); without it there is no panel. */
+  stickers?: StickerDeps
 }
 
 interface Photo {
   id: string
   image: RgbaImage
+  /** The picked file, unchanged (spec 0008 AC-4). */
+  bytes: Uint8Array
+  type: string
   /** The photo at full size, drawn once, for compositing the preview. */
   source: HTMLCanvasElement
 }
@@ -107,43 +135,114 @@ function createSession(deps: SessionDeps) {
   let renderer: Renderer | null = null
   let started = false
   let photos = 0
-  let photoId: string | null = null
+  let photo: Photo | null = null
   let selection = history.current
-  let modelAlpha: AlphaMask | null = null
+  /** The controller's latest model alpha (null after a new photo). */
+  let autoAlpha: AlphaMask | null = null
+  /** The model alpha a re-opened sticker was saved with, for its photo. */
+  let restored: { photoId: string; alpha: AlphaMask } | null = null
+  /** The saved sticker this photo belongs to, if any (spec 0008 AC-9). */
+  let sticker: StickerRef | null = null
   const auto = createAutoCutout({
     ...deps.engines,
     history,
     missingBytes: (files) => deps.missingBytes(files),
     ...(deps.supported && { supported: deps.supported }),
     onChange: (s) => {
-      if (s.modelAlpha && s.modelAlpha !== modelAlpha && photoId) {
-        renderer?.setModelAlpha(photoId, copyMask(s.modelAlpha))
+      if (s.modelAlpha !== autoAlpha) {
+        autoAlpha = s.modelAlpha
+        if (s.modelAlpha && photo) {
+          renderer?.setModelAlpha(photo.id, copyMask(s.modelAlpha))
+        }
       }
-      modelAlpha = s.modelAlpha
-      if (history.current !== selection) {
-        selection = history.current
-        deps.onSelection(selection)
-      }
+      syncSelection()
       deps.onState(s)
     },
   })
+  function syncSelection() {
+    if (history.current !== selection) {
+      selection = history.current
+      deps.onSelection(selection)
+    }
+  }
+  const currentAlpha = (): AlphaMask | null =>
+    autoAlpha ??
+    (restored && restored.photoId === photo?.id ? restored.alpha : null)
+
+  /** Shows `image` as a new photo: renderer, controller and empty selection. */
+  async function show(loaded: LoadedPhoto, modelAlpha: AlphaMask | null) {
+    const { image, bytes, type } = loaded
+    const id = `photo-${String(++photos)}`
+    photo = { id, image, bytes, type, source: photoCanvas(image) }
+    sticker = null
+    restored = modelAlpha ? { photoId: id, alpha: modelAlpha } : null
+    renderer ??= deps.createRenderer()
+    if (modelAlpha) {
+      renderer.setImage(id, copyImage(image), copyMask(modelAlpha))
+    } else {
+      renderer.setImage(id, copyImage(image))
+    }
+    if (!started) {
+      started = true
+      void auto.start()
+    }
+    await auto.setImage(id, image)
+    return photo
+  }
+
   return {
     get renderer() {
       return renderer
     },
-    async pick(file: File): Promise<Photo> {
-      const image = await deps.loadPhoto(file)
-      const id = `photo-${String(++photos)}`
-      photoId = id
-      renderer ??= deps.createRenderer()
-      renderer.setImage(id, copyImage(image))
-      modelAlpha = null
-      if (!started) {
-        started = true
-        void auto.start()
+    /** What a save stores, as it is now (spec 0008 Review Focus 1). */
+    snapshot(): SaveSnapshot | null {
+      if (!photo) return null
+      const sel = history.current
+      return {
+        photo,
+        selection: sel,
+        modelAlpha: sel.softEdge?.source === 'model' ? currentAlpha() : null,
+        sticker,
       }
-      await auto.setImage(id, image)
-      return { id, image, source: photoCanvas(image) }
+    },
+    saved(photoId: string, ref: StickerRef) {
+      if (photo?.id === photoId) sticker = ref
+    },
+    deleted(id: string) {
+      if (sticker?.id === id) sticker = null
+    },
+    /**
+     * Shows a saved sticker: its photo, then its selection as one undoable
+     * step (spec 0008 AC-9). The model alpha is used only when the photo
+     * loads at the saved size; otherwise a model soft edge is dropped.
+     */
+    async reopen(
+      record: StickerRecord,
+      loaded: LoadedPhoto,
+      modelAlpha: AlphaMask | null,
+      saved: Selection,
+    ): Promise<Photo> {
+      const shown = await show(loaded, modelAlpha)
+      history.execute({ type: 'restore', selection: saved })
+      syncSelection()
+      sticker = {
+        id: record.id,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      }
+      return shown
+    },
+    /** Loads `file`; if it can't be decoded, rejects before anything changes (AC-3). */
+    async pick(file: File): Promise<Photo> {
+      let loaded: LoadedPhoto
+      try {
+        loaded = await deps.loadPhoto(file)
+      } catch (e) {
+        throw e instanceof PhotoUnreadableError
+          ? e
+          : new PhotoUnreadableError({ cause: e })
+      }
+      return show(loaded, null)
     },
     tap(t: Tap) {
       auto.tap(t)
@@ -167,6 +266,7 @@ export function AutoScreen(props: AutoScreenProps) {
   const now = props.now ?? (() => performance.now())
   const [state, setState] = useState<AutoState | null>(null)
   const [photo, setPhoto] = useState<Photo | null>(null)
+  const [photoError, setPhotoError] = useState<string | null>(null)
   const [stage, setStage] = useState({ width: 0, height: 0 })
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -235,7 +335,17 @@ export function AutoScreen(props: AutoScreenProps) {
   }, [session, photo, selection, renderScale, state?.modelAlpha])
 
   const pick = async (file: File) => {
-    setPhoto(await session.pick(file))
+    let next: Photo
+    try {
+      next = await session.pick(file)
+    } catch (e) {
+      if (!(e instanceof PhotoUnreadableError)) throw e
+      // The current photo and cutout stay as they were (spec 0008 AC-3).
+      setPhotoError(e.message)
+      return
+    }
+    setPhotoError(null)
+    setPhoto(next)
   }
 
   /** The photo point under the pointer, kept at least half a pixel inside the photo. */
@@ -281,6 +391,67 @@ export function AutoScreen(props: AutoScreenProps) {
     })
   }
 
+  const loadSaved = async (record: StickerRecord): Promise<LoadedPhoto> => {
+    try {
+      return await props.loadPhoto(
+        new Blob([record.photo.bytes as BlobPart], { type: record.photo.type }),
+      )
+    } catch (e) {
+      throw e instanceof PhotoUnreadableError
+        ? e
+        : new PhotoUnreadableError({ cause: e })
+    }
+  }
+
+  const host: StickerHost = {
+    snapshot: () => session.snapshot(),
+    renderFull: async (photoId, sel, alpha) => {
+      const renderer = session.renderer
+      if (!renderer) throw new Error('no renderer yet')
+      const res = await renderer.renderFull(
+        photoId,
+        sel,
+        alpha ? copyMask(alpha) : undefined,
+      )
+      if (res.type !== 'rendered') throw new Error(`full render: ${res.type}`)
+      return res.mask
+    },
+    saved: (photoId, ref) => {
+      session.saved(photoId, ref)
+    },
+    deleted: (id) => {
+      session.deleted(id)
+    },
+    open: async (record) => {
+      const loaded = await loadSaved(record)
+      const saved = parseSelection(record.selection).selection
+      const sameSize =
+        loaded.image.width === record.imageSize.width &&
+        loaded.image.height === record.imageSize.height
+      const alpha =
+        sameSize && record.modelAlpha && props.stickers
+          ? await inflateModelAlpha(
+              record.modelAlpha,
+              props.stickers.codecs.inflate,
+            )
+          : null
+      // A model soft edge can't be drawn without a model alpha of this size.
+      const restore: Selection =
+        saved.softEdge?.source === 'model' && !alpha
+          ? {
+              rings: saved.rings,
+              strokes: saved.strokes,
+              feather: saved.feather,
+            }
+          : saved
+      const shown = await session.reopen(record, loaded, alpha, restore)
+      setPhotoError(null)
+      setPhoto(shown)
+      return sameSize ? null : DIFFERENT_SIZE
+    },
+  }
+  const panel = useStickers(props.stickers, host, photo?.id ?? null, selection)
+
   const lines = state ? statusLines(state) : []
   const hasCutout = selection.rings.length > 0
 
@@ -302,6 +473,11 @@ export function AutoScreen(props: AutoScreenProps) {
           }}
         />
       </label>
+      {photoError && (
+        <p className="auto-error" role="alert">
+          {photoError}
+        </p>
+      )}
       <div className="auto-status" role="status" aria-live="polite">
         {lines.map((line) => (
           <p key={line}>{line}</p>
@@ -317,7 +493,15 @@ export function AutoScreen(props: AutoScreenProps) {
           </button>
         )}
       </div>
-      <div className="auto-stage" ref={stageRef}>
+      <div
+        className="auto-stage"
+        ref={stageRef}
+        data-image-size={
+          photo
+            ? `${String(photo.image.width)}x${String(photo.image.height)}`
+            : undefined
+        }
+      >
         {photo && (
           <div
             className="auto-photo"
@@ -329,6 +513,7 @@ export function AutoScreen(props: AutoScreenProps) {
             <canvas
               ref={backdropRef}
               className="auto-backdrop"
+              data-testid="photo"
               data-dim={hasCutout || undefined}
               aria-hidden="true"
             />
@@ -348,6 +533,7 @@ export function AutoScreen(props: AutoScreenProps) {
           </div>
         )}
       </div>
+      {panel && <StickerPanel {...panel} />}
     </section>
   )
 }
