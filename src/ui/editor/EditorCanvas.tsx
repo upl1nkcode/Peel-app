@@ -5,6 +5,7 @@ import {
   type CanvasInputs,
   type CanvasSnapshot,
 } from './canvasController'
+import { Loupe } from './Loupe'
 
 export type { CanvasPhoto, EditorTool, ToolIntent } from './canvasController'
 export type EditorCanvasProps = CanvasInputs
@@ -29,6 +30,12 @@ export function EditorCanvas(props: EditorCanvasProps) {
   const cutoutRef = useCallback(
     (el: HTMLCanvasElement | null) => {
       ctl.attachCutout(el)
+    },
+    [ctl],
+  )
+  const loupeRef = useCallback(
+    (el: HTMLCanvasElement | null) => {
+      ctl.attachLoupe(el)
     },
     [ctl],
   )
@@ -88,6 +95,7 @@ export function EditorCanvas(props: EditorCanvasProps) {
           e.preventDefault()
         }}
       />
+      {snap.loupe && <Loupe {...snap.loupe} canvasRef={loupeRef} />}
       <canvas ref={cutoutRef} data-testid="cutout" hidden />
       <div ref={photoHostRef} hidden />
     </div>

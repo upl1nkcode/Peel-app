@@ -1,10 +1,12 @@
 import { expect, test } from '@playwright/test'
-import { viewPixel } from '../src/core/editor'
+import { loupeScale, viewPixel } from '../src/core/editor'
 import {
   canvasInfo,
   devicePixel,
   expectRgb,
+  imageToClient,
   imageToDevice,
+  nextFrame,
   photoPixel,
   pickGenerated,
   seedAndOpen,
@@ -110,4 +112,54 @@ test('should_double_tap_to_100_percent (AC-3)', async ({ page }) => {
   await expect(canvas).toHaveAttribute('data-display-scale', '1.0000')
   await canvas.dblclick()
   await expect(canvas).toHaveAttribute('data-zoom', '1.0000')
+})
+
+test('should_magnify_under_the_finger_with_a_crosshair (AC-13)', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'desktop-chrome', 'mouse-drag aim')
+  await seedAndOpen(page)
+  const start = await imageToClient(page, { x: 40, y: 40 })
+  await page.mouse.move(start.x, start.y)
+  await page.mouse.down()
+  await page.mouse.move(start.x + 30, start.y + 5, { steps: 3 })
+  const loupe = page.getByTestId('loupe')
+  await expect(loupe).toBeVisible()
+  await nextFrame(page)
+
+  const { dpr, displayScale } = await canvasInfo(page)
+  const [ax, ay] = ((await loupe.getAttribute('data-aim')) ?? '')
+    .split(',')
+    .map(Number)
+  const aim = { x: ax, y: ay }
+  const scale = loupeScale(displayScale / dpr)
+  const loupePixel = (cssX: number, cssY: number) =>
+    loupe.evaluate(
+      (el, pt) => {
+        const ctx = (el as HTMLCanvasElement).getContext('2d')
+        if (!ctx) throw new Error('no 2D context')
+        return [
+          ...ctx.getImageData(Math.floor(pt.x), Math.floor(pt.y), 1, 1).data,
+        ]
+      },
+      { x: cssX * dpr, y: cssY * dpr },
+    )
+
+  // The crosshair's centre is white (or its dark outline).
+  const mid = await loupePixel(60, 60)
+  const isWhite = mid.slice(0, 3).every((v) => v >= 253)
+  const isBlack = mid.slice(0, 3).every((v) => v <= 2)
+  expect(isWhite || isBlack, `centre ${mid.join(',')}`).toBe(true)
+
+  // The centre of the next image pixel down-right shows what the canvas shows there.
+  const probe = { x: Math.floor(aim.x) + 1.5, y: Math.floor(aim.y) + 1.5 }
+  const off = { x: (probe.x - aim.x) * scale, y: (probe.y - aim.y) * scale }
+  expect(off.x).toBeGreaterThan(3)
+  expect(off.y).toBeGreaterThan(3)
+  const inLoupe = await loupePixel(60 + off.x, 60 + off.y)
+  const onCanvas = await devicePixel(page, await imageToDevice(page, probe))
+  expectRgb(inLoupe, [onCanvas[0] ?? 0, onCanvas[1] ?? 0, onCanvas[2] ?? 0])
+
+  await page.mouse.up()
+  await expect(loupe).toBeHidden()
 })

@@ -392,3 +392,57 @@ describe('EditorCanvas gestures', () => {
     expect(intents).toEqual([])
   })
 })
+
+describe('loupe', () => {
+  const loupe = () => screen.queryByTestId('loupe')
+  const centre = () => {
+    const el = loupe()
+    if (!el) return null
+    return {
+      x: parseFloat(el.style.left) + 60,
+      y: parseFloat(el.style.top) + 60,
+    }
+  }
+
+  it('should_show_the_loupe_while_aiming_and_hide_it_on_lift (AC-13, AC-15)', () => {
+    const { canvas } = setup()
+    fireEvent.pointerDown(canvas, at(200, 200))
+    fireEvent.pointerMove(canvas, at(206, 200))
+    expect(loupe()).toBeNull()
+    fireEvent.pointerMove(canvas, at(211, 200))
+    expect(centre()).toEqual({ x: 211, y: 110 })
+    expect(loupe()?.getAttribute('data-below')).toBe('false')
+    fireEvent.pointerMove(canvas, at(230, 210))
+    expect(centre()).toEqual({ x: 230, y: 120 })
+    fireEvent.pointerUp(canvas, at(230, 210))
+    expect(loupe()).toBeNull()
+
+    fireEvent.pointerDown(canvas, at(200, 200))
+    fireEvent.pointerMove(canvas, at(230, 200))
+    expect(loupe()).not.toBeNull()
+    fireEvent.pointerCancel(canvas, at(230, 200))
+    expect(loupe()).toBeNull()
+
+    fireEvent.pointerDown(canvas, at(200, 200, 3))
+    fireEvent.pointerMove(canvas, at(230, 200, 3))
+    expect(loupe()).not.toBeNull()
+    fireEvent.pointerDown(canvas, at(100, 100, 4))
+    expect(loupe()).toBeNull()
+  })
+
+  it('should_not_show_the_loupe_while_panning (AC-13)', () => {
+    const { canvas } = setup({ tool: 'view' })
+    fireEvent.pointerDown(canvas, at(200, 200))
+    fireEvent.pointerMove(canvas, at(160, 200))
+    expect(loupe()).toBeNull()
+    fireEvent.pointerUp(canvas, at(160, 200))
+  })
+
+  it('should_flip_the_loupe_below_near_the_top (AC-14)', () => {
+    const { canvas } = setup()
+    fireEvent.pointerDown(canvas, at(200, 100))
+    fireEvent.pointerMove(canvas, at(215, 100))
+    expect(centre()).toEqual({ x: 215, y: 190 })
+    expect(loupe()?.getAttribute('data-below')).toBe('true')
+  })
+})

@@ -1,3 +1,4 @@
+import { fitScale, viewScale } from '../../core/coords/transform'
 import type { View, Viewport } from '../../core/coords/types'
 import {
   CHECKER_DARK,
@@ -5,10 +6,13 @@ import {
   CHECKER_PX,
   displayScale,
   isCrisp,
+  LOUPE_DIAMETER_PX,
+  loupeScale,
   VIEW_BACKGROUNDS,
   type Rgb,
   type ViewMode,
 } from '../../core/editor'
+import type { Point } from '../../core/geometry/types'
 import type { AlphaMask } from '../../core/mask'
 
 /** What one frame shows (spec 0009 AC-8, AC-11, AC-18). */
@@ -135,4 +139,39 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame): void {
     return
   }
   if (f.cutout) ctx.drawImage(f.cutout, 0, 0, iw, ih)
+}
+
+/**
+ * The loupe (spec 0009 AC-13): the current view around `aim` (an image
+ * point), magnified 4× up to 32 CSS px per image px, with a crosshair at the
+ * centre: a 1 px white line between 1 px dark lines, visible on any colour.
+ */
+export function drawLoupe(
+  ctx: CanvasRenderingContext2D,
+  f: Frame & { aim: Point },
+): void {
+  const d = LOUPE_DIAMETER_PX
+  const vp: Viewport = {
+    canvas: { width: d, height: d },
+    image: f.vp.image,
+    dpr: f.vp.dpr,
+  }
+  const scale = loupeScale(viewScale(f.vp, f.view))
+  drawFrame(ctx, {
+    ...f,
+    vp,
+    view: { zoom: scale / fitScale(vp), center: f.aim },
+  })
+  const size = ctx.canvas.width
+  const line = Math.max(1, Math.round(f.vp.dpr))
+  const c = Math.floor(size / 2) - Math.floor(line / 2)
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.globalAlpha = 1
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.fillStyle = '#000000'
+  ctx.fillRect(c - line, 0, line * 3, size)
+  ctx.fillRect(0, c - line, size, line * 3)
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(c, 0, line, size)
+  ctx.fillRect(0, c, size, line)
 }

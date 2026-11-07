@@ -39,6 +39,15 @@
   -webkit-touch-callout: none;
 }
 
+.editor-loupe {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 2px #ffffff,
+    0 2px 8px rgb(0 0 0 / 0.5);
+}
+
 .auto-error {
   margin: 0;
   padding: 0.5rem 0.75rem;

@@ -8,6 +8,7 @@ import {
 } from '../../core/coords/view'
 import {
   displayScale,
+  loupePlacement,
   needsFinerMask,
   previewScale,
   type ViewMode,
@@ -21,7 +22,7 @@ import {
 import type { GestureAction } from '../../core/gestures/types'
 import type { AlphaMask } from '../../core/mask'
 import type { Selection } from '../../core/selection/types'
-import { buildCutout, drawFrame } from './drawView'
+import { buildCutout, drawFrame, drawLoupe } from './drawView'
 
 export interface CanvasPhoto {
   id: string
@@ -56,6 +57,8 @@ export interface CanvasSnapshot {
   displayScale: number | null
   maskScale: number | null
   center: Point | null
+  /** The loupe while aiming (AC-13, AC-14): where it sits and what it aims at. */
+  loupe: { center: Point; below: boolean; aim: Point } | null
 }
 
 export const EMPTY_SNAPSHOT: CanvasSnapshot = {
@@ -63,6 +66,7 @@ export const EMPTY_SNAPSHOT: CanvasSnapshot = {
   displayScale: null,
   maskScale: null,
   center: null,
+  loupe: null,
 }
 
 /** The pointer fields the controller reads (React's and the DOM's events both have them). */
@@ -85,7 +89,12 @@ const sameSnapshot = (a: CanvasSnapshot, b: CanvasSnapshot) =>
   a.displayScale === b.displayScale &&
   a.maskScale === b.maskScale &&
   a.center?.x === b.center?.x &&
-  a.center?.y === b.center?.y
+  a.center?.y === b.center?.y &&
+  a.loupe?.center.x === b.loupe?.center.x &&
+  a.loupe?.center.y === b.loupe?.center.y &&
+  a.loupe?.below === b.loupe?.below &&
+  a.loupe?.aim.x === b.loupe?.aim.x &&
+  a.loupe?.aim.y === b.loupe?.aim.y
 
 const FRAME_MARK = 'peel-frame-start'
 /** User-timing entries are cleared this often, so a long session doesn't pile them up. */
@@ -102,6 +111,9 @@ export function createCanvasController(
   let canvas: HTMLCanvasElement | null = null
   let cutout: HTMLCanvasElement | null = null
   let photoHost: HTMLElement | null = null
+  let loupeCanvas: HTMLCanvasElement | null = null
+  /** The finger, in canvas px, while aiming. */
+  let loupeAt: Point | null = null
   let observer: ResizeObserver | null = null
   let p: CanvasInputs | null = null
   let size = { width: 0, height: 0 }
@@ -145,6 +157,13 @@ export function createCanvasController(
       displayScale: vp && view ? displayScale(vp, view) : null,
       maskScale: held?.scale ?? null,
       center: view ? { ...view.center } : null,
+      loupe:
+        loupeAt && vp && view
+          ? {
+              ...loupePlacement(loupeAt, size),
+              aim: canvasToImage(vp, view, loupeAt),
+            }
+          : null,
     }
     if (sameSnapshot(next, snapshot)) return
     snapshot = next
@@ -178,6 +197,18 @@ export function createCanvasController(
       mode: p.viewMode,
       comparing: p.comparing,
     })
+    const lctx = loupeAt && loupeCanvas?.getContext('2d')
+    if (lctx && loupeAt) {
+      drawLoupe(lctx, {
+        vp,
+        view,
+        photo: photo.source,
+        cutout: held && cutout && cutout.width > 0 ? cutout : null,
+        mode: p.viewMode,
+        comparing: p.comparing,
+        aim: canvasToImage(vp, view, loupeAt),
+      })
+    }
     performance.measure('peel-frame', FRAME_MARK)
     performance.clearMarks(FRAME_MARK)
     if (++frames % MEASURES_KEPT === 0) performance.clearMeasures('peel-frame')
@@ -255,6 +286,7 @@ export function createCanvasController(
     machine.reset()
     sequencer.reset()
     gesture = null
+    loupeAt = null
     if (tapTimer !== null) window.clearTimeout(tapTimer)
     tapTimer = null
   }
@@ -299,6 +331,12 @@ export function createCanvasController(
     emit()
   }
 
+  function setLoupe(at: Point | null) {
+    loupeAt = at
+    schedule()
+    emit()
+  }
+
   /** Waits for the sequencer's deadline, then lets the waiting tap through. */
   function armTapTimer() {
     if (tapTimer !== null) window.clearTimeout(tapTimer)
@@ -337,11 +375,16 @@ export function createCanvasController(
           act('remove', downImagePts.get(it.canvasPt) ?? null)
           break
         case 'aimEnd':
+          setLoupe(null)
           act('add', toImagePt(it.canvasPt))
           break
         case 'aimStart':
         case 'aimMove':
+          // Only tools that use drags aim; in View one finger pans (AC-13).
+          if (p?.tool === 'auto') setLoupe(it.canvasPt)
+          break
         case 'cancel':
+          setLoupe(null)
           break
       }
     }
@@ -449,6 +492,11 @@ export function createCanvasController(
         })
         observer.observe(el)
       }
+    },
+
+    attachLoupe(el: HTMLCanvasElement | null) {
+      loupeCanvas = el
+      if (el) schedule()
     },
 
     attachCutout(el: HTMLCanvasElement | null) {
