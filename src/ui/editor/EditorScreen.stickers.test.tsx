@@ -128,11 +128,22 @@ function setup(opts: Setup = {}) {
   return { store, log, t }
 }
 
+/** Waits for a newly picked photo to show (its full-size canvas is replaced). */
+async function shown(before: HTMLElement | null) {
+  await waitFor(() => {
+    const now = screen.queryByTestId('photo')
+    expect(now).not.toBeNull()
+    expect(now).not.toBe(before)
+  })
+  return screen.getByTestId('canvas')
+}
+
 async function pickPhoto() {
+  const before = screen.queryByTestId('photo')
   fireEvent.change(screen.getByLabelText('Pick a photo'), {
     target: { files: [new File(['x'], 'photo.jpg', { type: 'image/jpeg' })] },
   })
-  const canvas = await screen.findByTestId('cutout')
+  const canvas = await shown(before)
   canvas.getBoundingClientRect = () =>
     ({
       left: 0,
@@ -165,7 +176,7 @@ async function cutAndSave(canvas: HTMLElement) {
 }
 
 const stageSize = () =>
-  document.querySelector('.auto-stage')?.getAttribute('data-image-size')
+  screen.getByTestId('canvas').getAttribute('data-image-size')
 
 // jsdom has no 2D canvas; the screen skips drawing without one.
 beforeEach(() => {

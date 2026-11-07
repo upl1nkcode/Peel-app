@@ -1,7 +1,5 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react'
-import type { Point } from '../../core/geometry/types'
-import { classifyPress, type PressSample } from '../../core/gestures/press'
-import type { AlphaMask, RgbaImage } from '../../core/mask'
+import { useCallback, useEffect, useState } from 'react'
+import type { ViewMode } from '../../core/editor'
 import { emptySelection } from '../../core/selection/model'
 import type { Selection } from '../../core/selection/types'
 import {
@@ -15,6 +13,7 @@ import type { StickerRecord } from '../../core/backup'
 import { parseSelection } from '../../core/selection/serialize'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { inflateModelAlpha } from '../../services/sticker'
+import { EditorCanvas } from './EditorCanvas'
 import { StickerPanel } from './StickerPanel'
 import { copyMask, createSession, type Photo, type Renderer } from './session'
 import { useStickers, type StickerDeps, type StickerHost } from './useStickers'
@@ -39,48 +38,17 @@ export interface EditorScreenProps {
   stickers?: StickerDeps
 }
 
-/** Draws the photo at the mask's size with the mask as its alpha (the preview, never saved). */
-function drawCutout(
-  canvas: HTMLCanvasElement,
-  source: HTMLCanvasElement,
-  mask: AlphaMask,
-) {
-  canvas.width = mask.width
-  canvas.height = mask.height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  ctx.imageSmoothingQuality = 'high'
-  ctx.drawImage(source, 0, 0, mask.width, mask.height)
-  const pixels = ctx.getImageData(0, 0, mask.width, mask.height)
-  for (let i = 0; i < mask.data.length; i++) {
-    pixels.data[i * 4 + 3] = mask.data[i] ?? 0
-  }
-  ctx.putImageData(pixels, 0, 0)
-}
-
-/** Fits the photo inside the stage, never enlarging it (spec 0007 AC-24). */
-function fitScale(image: RgbaImage, stage: { width: number; height: number }) {
-  if (stage.width <= 0 || stage.height <= 0) return 1
-  return Math.min(1, stage.width / image.width, stage.height / image.height)
-}
-
 /**
- * The temporary tap-to-cut screen (spec 0007 decision 8, AC-24): pick a
- * photo, tap to add, long-press to remove. The cutout is drawn over a
- * checkerboard at screen resolution by the render worker. Phase 8's editor
- * replaces it.
+ * The editor (spec 0009): pick a photo, then tap to add, long-press to
+ * remove. The canvas shows the cutout against the chosen view, at screen
+ * resolution below 100% and at full resolution above.
  */
 export function EditorScreen(props: EditorScreenProps) {
-  const now = props.now ?? (() => performance.now())
   const [state, setState] = useState<AutoState | null>(null)
   const [photo, setPhoto] = useState<Photo | null>(null)
   const [photoError, setPhotoError] = useState<string | null>(null)
-  const [stage, setStage] = useState({ width: 0, height: 0 })
-  const stageRef = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const backdropRef = useRef<HTMLCanvasElement>(null)
-  /** Where the press started, on screen and on the photo. */
-  const down = useRef<{ press: PressSample; imagePt: Point } | null>(null)
+  /** The chosen view; it stays across tools and photos (AC-11). */
+  const [viewMode] = useState<ViewMode>('overlay')
   const [selection, setSelection] = useState<Selection>(emptySelection())
   // One controller, history and renderer for the screen's life.
   const [session] = useState(() =>
@@ -98,49 +66,15 @@ export function EditorScreen(props: EditorScreenProps) {
     }
   }, [session])
 
-  useEffect(() => {
-    const el = stageRef.current
-    if (!el) return
-    const measure = () => {
-      setStage({ width: el.clientWidth, height: el.clientHeight })
-    }
-    measure()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(measure)
-    observer.observe(el)
-    return () => {
-      observer.disconnect()
-    }
-  }, [])
-
-  const scale = photo ? fitScale(photo.image, stage) : 1
-  const renderScale = Math.min(1, scale * (window.devicePixelRatio || 1))
-
-  // The photo behind the cutout, drawn once per photo and size.
-  useEffect(() => {
-    const canvas = backdropRef.current
-    if (!photo || !canvas) return
-    canvas.width = Math.max(1, Math.round(photo.image.width * renderScale))
-    canvas.height = Math.max(1, Math.round(photo.image.height * renderScale))
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.imageSmoothingQuality = 'high'
-    ctx.drawImage(photo.source, 0, 0, canvas.width, canvas.height)
-  }, [photo, renderScale])
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    const renderer = session.renderer
-    if (!renderer || !photo || !canvas) return
-    let stale = false
-    void renderer.render(photo.id, selection, renderScale).then((res) => {
-      if (stale || res.type !== 'rendered') return
-      drawCutout(canvas, photo.source, res.mask)
-    })
-    return () => {
-      stale = true
-    }
-  }, [session, photo, selection, renderScale, state?.modelAlpha])
+  const renderMask = useCallback(
+    async (sel: Selection, scale: number) => {
+      const renderer = session.renderer
+      if (!renderer || !photo) return null
+      const res = await renderer.render(photo.id, sel, scale)
+      return res.type === 'rendered' ? res.mask : null
+    },
+    [session, photo],
+  )
 
   const pick = async (file: File) => {
     let next: Photo
@@ -154,49 +88,6 @@ export function EditorScreen(props: EditorScreenProps) {
     }
     setPhotoError(null)
     setPhoto(next)
-  }
-
-  /** The photo point under the pointer, kept at least half a pixel inside the photo. */
-  const toImagePt = (e: PointerEvent<HTMLCanvasElement>): Point | null => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const image = photo?.image
-    if (!image || rect.width <= 0 || rect.height <= 0) return null
-    const inside = (v: number, size: number) =>
-      Math.min(Math.max(v, 0.5), size - 0.5)
-    return {
-      x: inside(
-        ((e.clientX - rect.left) / rect.width) * image.width,
-        image.width,
-      ),
-      y: inside(
-        ((e.clientY - rect.top) / rect.height) * image.height,
-        image.height,
-      ),
-    }
-  }
-
-  // The tap goes where the finger went down: touch keeps sending events to
-  // the canvas after the finger slides past its edge.
-  const onPointerDown = (e: PointerEvent<HTMLCanvasElement>) => {
-    const imagePt = toImagePt(e)
-    down.current = imagePt && {
-      press: { screenPt: { x: e.clientX, y: e.clientY }, t: now() },
-      imagePt,
-    }
-  }
-  const onPointerUp = (e: PointerEvent<HTMLCanvasElement>) => {
-    const start = down.current
-    down.current = null
-    if (!start) return
-    const kind = classifyPress(start.press, {
-      screenPt: { x: e.clientX, y: e.clientY },
-      t: now(),
-    })
-    if (!kind) return
-    session.tap({
-      imagePt: start.imagePt,
-      mode: kind === 'tap' ? 'add' : 'remove',
-    })
   }
 
   const loadSaved = async (record: StickerRecord): Promise<LoadedPhoto> => {
@@ -261,12 +152,11 @@ export function EditorScreen(props: EditorScreenProps) {
   const panel = useStickers(props.stickers, host, photo?.id ?? null, selection)
 
   const lines = state ? statusLines(state) : []
-  const hasCutout = selection.rings.length > 0
 
   return (
     <section
       className="auto-screen"
-      data-testid="auto-screen"
+      data-testid="editor"
       data-phase={state?.phase ?? 'idle'}
       data-fallback={state?.fallbackTool ?? undefined}
     >
@@ -301,46 +191,25 @@ export function EditorScreen(props: EditorScreenProps) {
           </button>
         )}
       </div>
-      <div
-        className="auto-stage"
-        ref={stageRef}
-        data-image-size={
-          photo
-            ? `${String(photo.image.width)}x${String(photo.image.height)}`
-            : undefined
+      <EditorCanvas
+        photo={
+          photo && {
+            id: photo.id,
+            width: photo.image.width,
+            height: photo.image.height,
+            source: photo.source,
+          }
         }
-      >
-        {photo && (
-          <div
-            className="auto-photo"
-            style={{
-              width: photo.image.width * scale,
-              height: photo.image.height * scale,
-            }}
-          >
-            <canvas
-              ref={backdropRef}
-              className="auto-backdrop"
-              data-testid="photo"
-              data-dim={hasCutout || undefined}
-              aria-hidden="true"
-            />
-            <canvas
-              ref={canvasRef}
-              data-testid="cutout"
-              className="auto-cutout"
-              onPointerDown={onPointerDown}
-              onPointerUp={onPointerUp}
-              onPointerCancel={() => {
-                down.current = null
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault()
-              }}
-            />
-          </div>
-        )}
-      </div>
+        selection={selection}
+        renderMask={renderMask}
+        viewMode={viewMode}
+        comparing={false}
+        tool="auto"
+        onIntent={(intent) => {
+          session.tap({ imagePt: intent.imagePt, mode: intent.type })
+        }}
+        {...(props.now && { now: props.now })}
+      />
       {panel && <StickerPanel {...panel} />}
     </section>
   )

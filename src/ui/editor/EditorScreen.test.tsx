@@ -72,7 +72,8 @@ async function pick(
   fireEvent.change(input, {
     target: { files: [new File(['x'], 'photo.png', { type: 'image/png' })] },
   })
-  const canvas = await screen.findByTestId('cutout')
+  await screen.findByTestId('photo')
+  const canvas = screen.getByTestId('canvas')
   canvas.getBoundingClientRect = () =>
     ({
       left: 10,
@@ -124,7 +125,7 @@ describe('EditorScreen', () => {
     fireEvent.pointerUp(canvas, { clientX: 80, clientY: 50, pointerId: 1 })
     expect(fast.calls).toHaveLength(2)
     expect(
-      (await screen.findByTestId('auto-screen')).getAttribute('data-phase'),
+      (await screen.findByTestId('editor')).getAttribute('data-phase'),
     ).toMatch(/sharpening|done/)
   })
 
@@ -158,9 +159,9 @@ describe('EditorScreen', () => {
     ).toBeInTheDocument()
     const button = screen.getByRole('button', { name: 'Use Lasso' })
     fireEvent.click(button)
-    expect(
-      screen.getByTestId('auto-screen').getAttribute('data-fallback'),
-    ).toBe('lasso')
+    expect(screen.getByTestId('editor').getAttribute('data-fallback')).toBe(
+      'lasso',
+    )
   })
 
   it('should_retry_when_the_connection_returns (AC-20)', async () => {
@@ -218,17 +219,17 @@ describe('EditorScreen', () => {
     const input = screen.getByLabelText('Pick a photo')
     const file = new File(['x'], 'photo.png', { type: 'image/png' })
     fireEvent.change(input, { target: { files: [file] } })
-    await screen.findByTestId('cutout')
-    const stage = document.querySelector('.auto-stage')
-    expect(stage?.getAttribute('data-image-size')).toBe('100x50')
+    await screen.findByTestId('photo')
+    const stage = screen.getByTestId('canvas')
+    expect(stage.getAttribute('data-image-size')).toBe('100x50')
 
     fail = true
     fireEvent.change(input, { target: { files: [file] } })
     expect(await screen.findByRole('alert')).toHaveTextContent(
       "This photo can't be opened. Try a JPEG or PNG.",
     )
-    expect(stage?.getAttribute('data-image-size')).toBe('100x50')
-    expect(screen.getByTestId('cutout')).toBeInTheDocument()
+    expect(stage.getAttribute('data-image-size')).toBe('100x50')
+    expect(screen.getByTestId('photo')).toBeInTheDocument()
 
     fail = false
     fireEvent.change(input, { target: { files: [file] } })

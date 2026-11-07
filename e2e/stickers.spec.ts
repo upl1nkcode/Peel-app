@@ -1,71 +1,17 @@
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { inflateRawSync } from 'node:zlib'
 import { expect, test, type Page } from '@playwright/test'
-import { backupEntries, type StickerRecord } from '../src/core/backup'
-import { encodePng, storedDeflate } from '../src/core/png'
-import { serializeSelection } from '../src/core/selection/serialize'
-import { readZip, utf8Decode, writeZip } from '../src/core/zip'
+import { readZip, utf8Decode } from '../src/core/zip'
+import { importFile, SEED_PHOTO as PHOTO, seedBackup } from './helpers/editor'
+
+const inflateRaw = (data: Uint8Array) =>
+  Promise.resolve(new Uint8Array(inflateRawSync(data)))
 
 /**
  * Stickers survive reloads and round-trip through backups (spec 0008 AC-4,
  * AC-5, AC-8, AC-15 to AC-17), in every project. No models are needed: each
  * test seeds a sticker by importing a backup built here from src/core.
  */
-
-const PHOTO = readFileSync(
-  resolve('e2e/fixtures/orientation/orientation-1.jpg'),
-)
-const inflateRaw = (data: Uint8Array) =>
-  Promise.resolve(new Uint8Array(inflateRawSync(data)))
-
-async function seedRecord(): Promise<StickerRecord> {
-  const imageSize = { width: 120, height: 80 }
-  const rect = (x0: number, y0: number, x1: number, y1: number) =>
-    [
-      { x: x0, y: y0 },
-      { x: x1, y: y0 },
-      { x: x1, y: y1 },
-      { x: x0, y: y1 },
-    ].map((p) => ({ ...p, kind: 'corner' as const }))
-  const png = (v: number) =>
-    encodePng(
-      { width: 4, height: 4, data: new Uint8Array(64).fill(v) },
-      storedDeflate,
-    )
-  return {
-    id: '0b9c6c39-4f1a-4c51-9d7c-2f2a8b8f0e11',
-    createdAt: Date.UTC(2026, 10, 1),
-    updatedAt: Date.UTC(2026, 10, 2),
-    imageSize,
-    photo: { bytes: new Uint8Array(PHOTO), type: 'image/jpeg' },
-    selection: serializeSelection(
-      {
-        rings: [{ op: 'add', nodes: rect(10, 10, 110, 70) }],
-        strokes: [],
-        feather: 0,
-      },
-      imageSize,
-    ),
-    sticker: await png(200),
-    thumbnail: await png(120),
-  }
-}
-
-async function seedBackup(): Promise<Buffer> {
-  const entries = backupEntries([await seedRecord()], new Date(2026, 10, 2))
-  return Buffer.concat(writeZip(entries, new Date(2026, 10, 2)))
-}
-
-async function importFile(page: Page, buffer: Buffer) {
-  // The panel enables Import once the sticker store is open.
-  await expect(page.getByLabel('Import')).toBeEnabled()
-  await page.getByLabel('Import').setInputFiles({
-    name: 'peel-stickers-2026-11-02.zip',
-    mimeType: 'application/zip',
-    buffer,
-  })
-}
 
 const thumbnails = (page: Page) =>
   page.getByRole('button', { name: 'Open sticker' })

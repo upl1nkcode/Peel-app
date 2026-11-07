@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { inflateRawSync } from 'node:zlib'
 import { expect, test, type Page } from '@playwright/test'
 import { readZip, utf8Decode } from '../src/core/zip'
+import { imageToClient } from './helpers/editor'
 
 /**
  * Auto cutout with the real MediaPipe models (spec 0007 AC-18, AC-20 to
@@ -33,7 +34,7 @@ const subject = (name: keyof typeof FIXTURES, key: string) => {
 }
 
 const phase = (page: Page) =>
-  page.getByTestId('auto-screen').getAttribute('data-phase')
+  page.getByTestId('editor').getAttribute('data-phase')
 
 /** Loads the ground-truth alphas into the page (as 0–255 per pixel). */
 async function loadTruth(page: Page, files: string[]) {
@@ -140,14 +141,16 @@ async function open(page: Page, name: keyof typeof FIXTURES) {
   await page
     .getByLabel('Pick a photo')
     .setInputFiles(resolve(DIR, FIXTURES[name].image))
-  await expect(page.getByTestId('cutout')).toBeVisible()
+  await expect(page.getByTestId('canvas')).toHaveAttribute(
+    'data-image-size',
+    /\d+x\d+/,
+  )
 }
 
-/** A tap (or a 600 ms long-press) at an image point; the photo is shown at scale 1. */
+/** A tap (or a 600 ms long-press) at an image point, in the current view. */
 async function press(page: Page, at: Pt, holdMs = 0) {
-  const box = await page.getByTestId('cutout').boundingBox()
-  if (!box) throw new Error('no canvas')
-  await page.mouse.move(box.x + at.x, box.y + at.y)
+  const pt = await imageToClient(page, at)
+  await page.mouse.move(pt.x, pt.y)
   await page.mouse.down()
   if (holdMs) await page.waitForTimeout(holdMs)
   await page.mouse.up()
@@ -236,7 +239,10 @@ test.describe('auto cutout with the real models', () => {
     await page
       .getByLabel('Pick a photo')
       .setInputFiles(resolve(DIR, FIXTURES.object.image))
-    await expect(page.getByTestId('cutout')).toBeVisible()
+    await expect(page.getByTestId('canvas')).toHaveAttribute(
+      'data-image-size',
+      /\d+x\d+/,
+    )
     await loadTruth(page, [cup.alpha])
     await press(page, cup.tap)
     await expect
@@ -309,7 +315,10 @@ test('should_explain_offline_first_use (AC-20)', async ({ page, context }) => {
   await page
     .getByLabel('Pick a photo')
     .setInputFiles(resolve(DIR, FIXTURES.object.image))
-  await expect(page.getByTestId('cutout')).toBeVisible()
+  await expect(page.getByTestId('canvas')).toHaveAttribute(
+    'data-image-size',
+    /\d+x\d+/,
+  )
   await press(page, subject('object', 'A').tap)
   await expect(
     page.getByText(
