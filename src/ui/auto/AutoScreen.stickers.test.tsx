@@ -11,9 +11,13 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderMask, type RgbaImage } from '../../core/mask'
 import { storedDeflate } from '../../core/png'
-import { parseSelection } from '../../core/selection/serialize'
+import {
+  parseSelection,
+  serializeSelection,
+} from '../../core/selection/serialize'
 import type { Selection } from '../../core/selection/types'
 import { testInflate, testInflateRaw } from '../../core/testing/codecs'
+import { backupEntries } from '../../core/backup'
 import { writeZip } from '../../core/zip'
 import { exportAll } from '../../services/backup'
 import {
@@ -430,6 +434,44 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
     fireEvent.click(saveButton())
     await screen.findByRole('button', { name: 'Saved' })
     expect(persist).toHaveBeenCalledTimes(1)
+  })
+
+  it('should_ask_for_persistence_after_an_import_that_adds_stickers (AC-13)', async () => {
+    const imageSize = { width: 3, height: 2 }
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    const entries = backupEntries(
+      [
+        {
+          id: 'restored-1',
+          createdAt: 1,
+          updatedAt: 2,
+          imageSize,
+          photo: { bytes: new Uint8Array([1]), type: 'image/jpeg' },
+          selection: serializeSelection(
+            { rings: [], strokes: [], feather: 0 },
+            imageSize,
+          ),
+          sticker: png,
+          thumbnail: png,
+        },
+      ],
+      new Date(2026, 10, 7),
+    )
+    const backupFile = new File(
+      writeZip(entries, new Date(2026, 10, 7)) as BlobPart[],
+      'peel-stickers-2026-11-07.zip',
+    )
+    const persist = vi.fn(() => Promise.resolve(true))
+    setup({ storage: { persist, persisted: () => Promise.resolve(false) } })
+    const importInput = screen.getByLabelText('Import')
+    await waitFor(() => {
+      expect(importInput).toBeEnabled()
+    })
+    fireEvent.change(importInput, { target: { files: [backupFile] } })
+    await screen.findByText('Imported 1 sticker. 0 were already here.')
+    await waitFor(() => {
+      expect(persist).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('should_show_the_storage_status (AC-14)', async () => {

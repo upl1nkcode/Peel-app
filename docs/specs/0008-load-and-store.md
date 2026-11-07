@@ -17,7 +17,7 @@ A sticker is only worth making if it lasts. Today a cutout disappears when the a
 5. **The model alpha is saved with the sticker.** An auto selection's smart edge needs it (spec 0007), so without it a re-opened auto cutout could not be rendered. It is stored as raw 8-bit values compressed with deflate, not as a PNG, because browsers may colour-manage PNGs they decode. Raw bytes come back exactly.
 6. **The thumbnail is a PNG**, not WebP as plan §8 says: Safari cannot encode WebP from a canvas.
 7. **Backups are plain ZIP files written by our own code** (no dependency). Entries are stored uncompressed, since PNGs and JPEGs are already compressed, and CRC-32 comes from the existing PNG code. Import also reads deflate-compressed entries, so a backup re-zipped on a computer still imports.
-8. **Persistent storage is requested once, on the first save.** Browsers decide from engagement and installation, and asking before anything is saved would waste the one request.
+8. **Persistent storage is requested once, on the first save** (or the first import that adds stickers: a restored backup on a new phone needs it just as much). Browsers decide from engagement and installation, and asking before anything is saved would waste the one request.
 
 ## What
 
@@ -63,7 +63,7 @@ A sticker is only worth making if it lasts. Today a cutout disappears when the a
 
 ### Persistent storage (#56)
 
-- **AC-13** Given `navigator.storage.persist` exists, when the first sticker is saved successfully, then `persist()` is called once. It is never called again on that device, even after a reload; the request is remembered in the database. It is never called before a save.
+- **AC-13** Given `navigator.storage.persist` exists, when the first sticker is stored successfully (by Save, or by an Import that adds at least one), then `persist()` is called once. It is never called again on that device, even after a reload; the request is remembered in the database. It is never called before a save.
 - **AC-14** The panel shows the storage status, read with `navigator.storage.persisted()` (which asks nothing):
   - Persisted: "Stickers are kept on this device."
   - Not persisted, or the API is missing: "Your browser may clear stickers if Peel isn't used for a while. Add Peel to your Home Screen, or export a backup."

@@ -260,7 +260,13 @@ export function useStickers(
     onImport: (file) => {
       run(async (s) => {
         try {
-          setMessage(importMessage(await importBackup(s, file, deps.codecs)))
+          const result = await importBackup(s, file, deps.codecs)
+          setMessage(importMessage(result))
+          // A restored backup needs keeping as much as a fresh save (AC-13).
+          if (result.added > 0) {
+            await requestPersistence(deps.storage, s)
+            await showStatus()
+          }
         } finally {
           await refresh(s)
         }
