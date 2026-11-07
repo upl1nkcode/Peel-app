@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest'
 import type { Point } from '../geometry/types'
 import { canvasToImage, viewScale } from './transform'
 import type { View, Viewport } from './types'
-import { applyTwoFingerGesture, clampView, toggleActualSize } from './view'
+import {
+  applyTwoFingerGesture,
+  applyWheelZoom,
+  clampView,
+  toggleActualSize,
+} from './view'
 
 // fitScale = min(400/4000, 800/3000) = 0.1
 const vp: Viewport = {
@@ -246,5 +251,26 @@ describe('pinch and pan', () => {
       RangeError,
     )
     expect(() => toggleActualSize(vp, start, nan)).toThrow(RangeError)
+  })
+})
+
+describe('wheel zoom', () => {
+  const fit: View = { zoom: 2, center: { x: 2000, y: 1500 } }
+  const at = { x: 300, y: 500 }
+
+  // spec 0009 AC-6
+  it('should_zoom_by_the_wheel_around_the_pointer (AC-6)', () => {
+    const inView = applyWheelZoom(vp, fit, at, -200)
+    expect(inView.zoom).toBeCloseTo(4, 10)
+    expectClose(canvasToImage(vp, inView, at), canvasToImage(vp, fit, at))
+    const outView = applyWheelZoom(vp, fit, at, 200)
+    expect(outView.zoom).toBeCloseTo(1, 10)
+    expect(applyWheelZoom(vp, fit, at, -10000).zoom).toBe(16)
+    expect(applyWheelZoom(vp, fit, at, 10000).zoom).toBe(1)
+  })
+
+  it('should_refuse_a_non_finite_wheel_delta (AC-6)', () => {
+    expect(() => applyWheelZoom(vp, fit, at, Number.NaN)).toThrow(RangeError)
+    expect(() => applyWheelZoom(vp, fit, at, Infinity)).toThrow(RangeError)
   })
 })

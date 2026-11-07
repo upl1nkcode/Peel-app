@@ -108,3 +108,24 @@ export function toggleActualSize(
     canvasPt,
   )
 }
+
+/** Wheel px that double (negative) or halve (positive) the zoom (spec 0009 AC-6). */
+const WHEEL_PX_PER_DOUBLING = 200
+
+/**
+ * Wheel or trackpad-pinch zoom by `2^(−deltaYPx / 200)`, keeping the imagePt
+ * under `canvasPt` still, then clamped.
+ */
+export function applyWheelZoom(
+  vp: Viewport,
+  view: View,
+  canvasPt: Point,
+  deltaYPx: number,
+): View {
+  if (!Number.isFinite(deltaYPx)) {
+    throw new RangeError(`wheel delta must be finite, got ${String(deltaYPx)}`)
+  }
+  assertPoint(canvasPt, 'wheel point')
+  const zoom = clampZoom(view.zoom * 2 ** (-deltaYPx / WHEEL_PX_PER_DOUBLING))
+  return anchoredView(vp, zoom, canvasToImage(vp, view, canvasPt), canvasPt)
+}
