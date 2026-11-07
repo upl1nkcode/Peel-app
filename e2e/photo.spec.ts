@@ -22,7 +22,7 @@ async function start(page: Page) {
   await page.context().setOffline(true)
 }
 
-const stage = (page: Page) => page.locator('.auto-stage')
+const stage = (page: Page) => page.getByTestId('canvas')
 
 /** Mean RGB of a box [x0, y0, x1, y1) of the photo canvas, drawn at scale 1. */
 function meanColour(page: Page, box: readonly number[]) {
@@ -101,7 +101,7 @@ test('should_explain_unreadable_files (AC-3)', async ({ page }) => {
     await pick.setInputFiles(file)
     await expect(page.getByText(UNREADABLE)).toBeVisible()
     await expect(stage(page)).toHaveAttribute('data-image-size', '120x80')
-    await expect(page.getByTestId('photo')).toBeVisible()
+    await expect(page.getByTestId('photo')).toBeAttached()
   }
 
   // A good photo clears the message.

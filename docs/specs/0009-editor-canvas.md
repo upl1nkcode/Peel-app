@@ -1,6 +1,6 @@
 # 0009 — I can zoom in and see exactly which pixels are kept
 
-- **Status:** Approved
+- **Status:** Implemented
 - **Issues:** story #58; tasks #59 (editor canvas: pinch zoom, pan, double-tap 100%/fit), #60 (loupe with crosshair), #61 (view toggles), #62 (hold-to-compare), #63 (undo, redo, reset to auto), #64 (bottom toolbar and tool options sheet)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §3.6 (precision aids), §7 (phone-first UI), Phase 8. Builds on spec 0001 (view transforms, gesture machine), spec 0003 (undo history), spec 0007 (Auto) and spec 0008 (sticker panel).
 
@@ -14,7 +14,7 @@ This story turns the temporary tap-to-cut screen (spec 0007 decision 8) into the
 
 1. **Pinch zooms and two fingers pan, like a normal photo, in every tool; double-tap also toggles 100% and fit** (decided 2026-11-07 by the product owner). On Auto a single tap therefore acts 250 ms after the finger lifts, so the two taps of a double-tap only zoom and add nothing. An Auto result already takes 0.35–0.9 s, so the wait hardly shows.
 2. **Slide to aim in Auto** (decided 2026-11-07 by the product owner). Pressing and sliding shows the loupe with a crosshair, and lifting adds the object under the crosshair. A quick tap adds and a long-press removes, as before. A press that moved used to do nothing, so nothing that worked before changes.
-3. **Above 100%, photo pixels are drawn as crisp squares** (my call). Smoothing would blur a leftover background pixel into its neighbours, which is the opposite of the story. At or below 100% the image is downscaled smoothly.
+3. **At 100% and above, photo pixels are drawn as crisp squares** (my call). Smoothing would blur a leftover background pixel into its neighbours, which is the opposite of the story. Below 100% the image is downscaled smoothly. (Amended in the final review: at exactly 100% the photo sits at a fractional offset, so smoothing smeared every pixel over two.)
 4. **At 100% and above, the cutout shown is the full-resolution render**, the same mask a save stores (my call). Below 100% it is rendered at screen resolution, as the plan's preview rule says. Zooming in asks for a sharper render only when the one on screen is too coarse; panning and zooming out never ask for one.
 5. **The Overlay view shades what is removed instead of drawing an outline line** (my call). A line would cover the very edge pixels being checked; shading shows the exact boundary at any zoom. Overlay is the default view.
 6. **The toolbar shows only tools that exist** (my call): Auto and View now. Dots, Lasso and Brush add their buttons in their own stories, so a shipped build never has dead buttons.
@@ -38,7 +38,7 @@ Sizes are CSS pixels unless they say device pixels. "Display scale" means device
 
 ### What the canvas shows (#59, #61)
 
-- **AC-8** Given a display scale above 1, then each photo pixel is drawn as a crisp square: any two device pixels inside the same photo pixel have the same colour. At a display scale of 1 or below, the image is downscaled smoothly.
+- **AC-8** Given a display scale of 1 or above, then each photo pixel is drawn as a crisp square: any two device pixels inside the same photo pixel have the same colour. Below 1, the image is downscaled smoothly. A display scale within 1e-9 of 1 counts as 1.
 - **AC-9** Given a display scale of 1 or more, then the mask on screen is the scale-1 render of the current selection, identical to what a save stores (spec 0008 AC-6). Below 1, it is rendered at the display scale.
 - **AC-10** Given a pinch, pan or zoom out, then no new render is requested. A render is requested when the selection changes, or when zooming in needs a finer mask than the one on screen (AC-9). A pinch requests its render when it ends, and wheel zoom 150 ms after the last wheel event. Until the render arrives, the previous mask is shown stretched.
 - **AC-11** Given the View sheet, then it offers five views: Overlay (the default), Checkerboard, Black, White and Red. The chosen view stays when switching tools and photos. For a photo pixel of colour `p` and mask alpha `a` (0 to 1), the canvas shows:

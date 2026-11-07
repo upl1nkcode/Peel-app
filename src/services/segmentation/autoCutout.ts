@@ -21,6 +21,10 @@ export interface AutoState {
   fallbackTool: 'lasso' | null
   /** The alpha of the auto result the selection came from; the render worker's model alpha. */
   modelAlpha: AlphaMask | null
+  /** Auto has a result for this photo that "Reset to auto" can bring back (spec 0009 AC-20). */
+  hasAutoResult: boolean
+  /** The history snapshot holding the latest result, or null when it isn't applied. */
+  autoResultSelection: Selection | null
 }
 
 export interface AutoCutoutDeps {
@@ -67,6 +71,8 @@ export function createAutoCutout(deps: AutoCutoutDeps) {
     unavailable: null,
     fallbackTool: null,
     modelAlpha: null,
+    hasAutoResult: false,
+    autoResultSelection: null,
   }
   const status: Record<Engine, EngineState> = { fast: 'idle', precise: 'idle' }
   let loading: Promise<void> | null = null
@@ -112,7 +118,12 @@ export function createAutoCutout(deps: AutoCutoutDeps) {
       if (removedAll) {
         // The user removed everything they had added (AC-13): an empty cutout.
         target = null
-        if (show(emptySelection())) set({ modelAlpha: null, notice: quiet() })
+        const shown = show(emptySelection())
+        set({
+          hasAutoResult: false,
+          autoResultSelection: null,
+          ...(shown && { modelAlpha: null, notice: quiet() }),
+        })
         return
       }
       if (from === 'precise' || status.precise !== 'ready') {
@@ -122,10 +133,19 @@ export function createAutoCutout(deps: AutoCutoutDeps) {
     }
     target = result
     if (!show(result.selection)) {
-      if (from === 'precise') set({ notice: 'sharperReady' })
+      set({
+        hasAutoResult: true,
+        autoResultSelection: null,
+        ...(from === 'precise' && { notice: 'sharperReady' as const }),
+      })
       return
     }
-    set({ modelAlpha: result.alpha, notice: quiet() })
+    set({
+      modelAlpha: result.alpha,
+      notice: quiet(),
+      hasAutoResult: true,
+      autoResultSelection: history.current,
+    })
   }
 
   const run = (engine: Engine) => {
@@ -279,7 +299,13 @@ export function createAutoCutout(deps: AutoCutoutDeps) {
       // The previous photo's cutout does not belong to this one.
       expected = history.current
       show(emptySelection())
-      set({ phase: 'idle', notice: quiet(), modelAlpha: null })
+      set({
+        phase: 'idle',
+        notice: quiet(),
+        modelAlpha: null,
+        hasAutoResult: false,
+        autoResultSelection: null,
+      })
       void ensure()
       await Promise.all([fast.setImage(id, img), precise.setImage(id, img)])
     },
@@ -304,7 +330,11 @@ export function createAutoCutout(deps: AutoCutoutDeps) {
       if (!target?.selection) return
       history.execute({ type: 'restore', selection: target.selection })
       expected = history.current
-      set({ modelAlpha: target.alpha, notice: quiet() })
+      set({
+        modelAlpha: target.alpha,
+        notice: quiet(),
+        autoResultSelection: history.current,
+      })
     },
 
     useLasso(): void {

@@ -93,6 +93,52 @@ afterEach(() => {
 })
 
 describe('auto cutout controller', () => {
+  it('should_report_the_latest_auto_result (spec 0009 AC-20)', async () => {
+    const { auto, history, last } = setup()
+    await auto.start()
+    await auto.setImage('p', photo())
+    expect(last().hasAutoResult).toBe(false)
+    expect(last().autoResultSelection).toBeNull()
+    auto.tap(add(60, 50))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(last().hasAutoResult).toBe(true)
+    expect(last().autoResultSelection).toBe(history.current)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(last().autoResultSelection).toBe(history.current)
+  })
+
+  it('should_not_claim_a_result_the_user_moved_away_from (spec 0009 AC-20)', async () => {
+    const { auto, history, last } = setup()
+    await auto.start()
+    await auto.setImage('p', photo())
+    auto.tap(add(60, 50))
+    await vi.advanceTimersByTimeAsync(10)
+    const node = history.current.rings[0]?.nodes[0]
+    history.execute({
+      type: 'moveNode',
+      ring: 0,
+      node: 0,
+      to: { x: (node?.x ?? 0) + 3, y: node?.y ?? 0 },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(last().hasAutoResult).toBe(true)
+    expect(last().autoResultSelection).toBeNull()
+    auto.resetToAuto()
+    expect(last().autoResultSelection).toBe(history.current)
+  })
+
+  it('should_forget_the_result_for_a_new_photo (spec 0009 AC-20)', async () => {
+    const { auto, last } = setup()
+    await auto.start()
+    await auto.setImage('p', photo())
+    auto.tap(add(60, 50))
+    await vi.advanceTimersByTimeAsync(200)
+    expect(last().hasAutoResult).toBe(true)
+    await auto.setImage('q', photo())
+    expect(last().hasAutoResult).toBe(false)
+    expect(last().autoResultSelection).toBeNull()
+  })
+
   it('should_show_the_fast_result_then_the_precise_one (AC-10)', async () => {
     const { auto, history, last } = setup({
       precise: createFakeEngine({ name: 'precise', delayMs: 100 }),
@@ -229,6 +275,8 @@ describe('auto cutout controller', () => {
       unavailable: null,
       fallbackTool: null,
       modelAlpha: null,
+      hasAutoResult: false,
+      autoResultSelection: null,
     }
     expect(statusLines({ ...base, unavailable: 'download' })).toEqual([
       "The cutout model didn't download. Check the connection and try again.",

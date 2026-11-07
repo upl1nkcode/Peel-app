@@ -1,0 +1,5 @@
+/* Screenshots (spec 0009 AC-12, AC-25): the status strip's text depends on
+   the model download, which these tests block, so it is hidden. */
+.editor-status {
+  visibility: hidden;
+}

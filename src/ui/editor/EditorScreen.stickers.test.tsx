@@ -9,7 +9,7 @@ import {
   within,
 } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { renderMask, type RgbaImage } from '../../core/mask'
+import { renderMask, type AlphaMask, type RgbaImage } from '../../core/mask'
 import { storedDeflate } from '../../core/png'
 import {
   parseSelection,
@@ -31,7 +31,7 @@ import {
   type StickerStore,
 } from '../../services/storage'
 import type { LoadedPhoto } from '../../services/photo'
-import { AutoScreen, type Renderer } from './AutoScreen'
+import { EditorScreen, type Renderer } from './EditorScreen'
 
 const image = (width: number, height: number, v = 200): RgbaImage => ({
   width,
@@ -53,6 +53,10 @@ interface RenderLog {
   gate?: Promise<void>
   /** Make the full render cover nothing. */
   empty?: boolean
+  /** Model alphas sent to the renderer, in order. */
+  alphas?: AlphaMask[]
+  /** The model alpha each full render was given. */
+  fullAlphas?: (AlphaMask | undefined)[]
 }
 
 function fakeRenderer(log: RenderLog) {
@@ -61,7 +65,9 @@ function fakeRenderer(log: RenderLog) {
     setImage: (id, img) => {
       sizes.set(id, { width: img.width, height: img.height })
     },
-    setModelAlpha: () => undefined,
+    setModelAlpha: (_id, alpha) => {
+      log.alphas?.push(alpha)
+    },
     render: (id, selection, scale) => {
       log.render?.push(selection)
       return Promise.resolve({
@@ -72,8 +78,9 @@ function fakeRenderer(log: RenderLog) {
         }),
       })
     },
-    renderFull: async (id, selection) => {
+    renderFull: async (id, selection, alpha) => {
       log.renderFull.push(selection)
+      log.fullAlphas?.push(alpha)
       await log.gate
       const size = sizes.get(id) ?? { width: 1, height: 1 }
       return {
@@ -99,8 +106,11 @@ interface Setup {
   storage?: Partial<Pick<StorageManager, 'persist' | 'persisted'>> | undefined
   loadPhoto?: (file: Blob) => Promise<LoadedPhoto>
   precise?: SegmentationEngine
+  fast?: SegmentationEngine
   log?: RenderLog
   clock?: () => number
+  /** Open the Stickers sheet after mounting (default: yes). */
+  openPanel?: boolean
 }
 
 function setup(opts: Setup = {}) {
@@ -108,9 +118,9 @@ function setup(opts: Setup = {}) {
   const log = opts.log ?? { renderFull: [] }
   const t = { now: 1000 }
   render(
-    <AutoScreen
+    <EditorScreen
       engines={{
-        fast: createFakeEngine({ name: 'fast' }),
+        fast: opts.fast ?? createFakeEngine({ name: 'fast' }),
         precise: opts.precise ?? createFakeEngine({ name: 'precise' }),
       }}
       missingBytes={() => Promise.resolve(0)}
@@ -125,14 +135,29 @@ function setup(opts: Setup = {}) {
       }}
     />,
   )
+  // The panel lives in the Stickers sheet (spec 0009 AC-21).
+  if (opts.openPanel ?? true) {
+    fireEvent.click(screen.getByRole('button', { name: 'Stickers' }))
+  }
   return { store, log, t }
 }
 
+/** Waits for a newly picked photo to show (its full-size canvas is replaced). */
+async function shown(before: HTMLElement | null) {
+  await waitFor(() => {
+    const now = screen.queryByTestId('photo')
+    expect(now).not.toBeNull()
+    expect(now).not.toBe(before)
+  })
+  return screen.getByTestId('canvas')
+}
+
 async function pickPhoto() {
+  const before = screen.queryByTestId('photo')
   fireEvent.change(screen.getByLabelText('Pick a photo'), {
     target: { files: [new File(['x'], 'photo.jpg', { type: 'image/jpeg' })] },
   })
-  const canvas = await screen.findByTestId('cutout')
+  const canvas = await shown(before)
   canvas.getBoundingClientRect = () =>
     ({
       left: 0,
@@ -165,7 +190,7 @@ async function cutAndSave(canvas: HTMLElement) {
 }
 
 const stageSize = () =>
-  document.querySelector('.auto-stage')?.getAttribute('data-image-size')
+  screen.getByTestId('canvas').getAttribute('data-image-size')
 
 // jsdom has no 2D canvas; the screen skips drawing without one.
 beforeEach(() => {
@@ -199,11 +224,14 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
     await waitFor(() => {
       expect(saveButton()).toBeDisabled()
     })
+    expect(screen.queryByRole('button', { name: 'Reset to auto' })).toBeNull()
     fireEvent.click(thumbnails()[0] as HTMLElement)
     await waitFor(() => {
       expect(saveButton()).toBeEnabled()
     })
     expect(stageSize()).toBe('100x50')
+    // No Auto result for the re-opened photo yet (spec 0009 AC-20).
+    expect(screen.queryByRole('button', { name: 'Reset to auto' })).toBeNull()
 
     fireEvent.click(saveButton())
     await screen.findByRole('button', { name: 'Saved' })
@@ -266,6 +294,42 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
     const saved = await s.get(only?.id ?? '')
     expect(parseSelection(saved?.selection ?? '').selection).toEqual(atTap)
     expect(atTap?.feather).toBe(0)
+  })
+
+  it('should_render_an_undone_result_with_its_own_model_alpha (spec 0009 Review Focus 1)', async () => {
+    // The precise result's alpha is marked, so A and B can be told apart.
+    const base = createFakeEngine({ name: 'precise' })
+    const precise: SegmentationEngine = {
+      ...base,
+      async segment(id, taps) {
+        const result = await base.segment(id, taps)
+        const data = result.alpha.data.slice()
+        data[0] = 77
+        return { ...result, alpha: { ...result.alpha, data } }
+      },
+    }
+    const log: RenderLog = { renderFull: [], alphas: [], fullAlphas: [] }
+    setup({ precise, log })
+    const canvas = await pickPhoto()
+    tap(canvas, 50, 25)
+    await waitFor(() => {
+      expect(log.alphas?.at(-1)?.data[0]).toBe(77)
+    })
+    const marked = (a: AlphaMask | undefined) => a?.data[0] === 77
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => {
+      expect(marked(log.alphas?.at(-1))).toBe(false)
+    })
+    expect(log.alphas?.at(-1)).toBeDefined()
+    fireEvent.click(saveButton())
+    await screen.findByRole('button', { name: 'Saved' })
+    expect(log.fullAlphas).toHaveLength(1)
+    expect(log.fullAlphas?.[0]).toBeDefined()
+    expect(marked(log.fullAlphas?.[0])).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Redo' }))
+    await waitFor(() => {
+      expect(marked(log.alphas?.at(-1))).toBe(true)
+    })
   })
 
   it('should_save_as_new_after_deleting_the_open_sticker (Review Focus 2)', async () => {
@@ -604,4 +668,56 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
     ).toBeInTheDocument()
     expect(click).not.toHaveBeenCalled()
   }, 20_000)
+
+  it('should_lay_out_top_to_bottom (spec 0009 AC-21)', async () => {
+    setup()
+    await pickPhoto()
+    const order = [
+      screen.getByRole('heading', { name: 'Peel' }),
+      screen.getByRole('button', { name: 'Photo' }),
+      screen.getByRole('button', { name: 'Stickers' }),
+      screen.getByTestId('canvas'),
+      screen.getByRole('button', { name: 'Undo' }),
+      screen.getByRole('button', { name: 'Compare' }),
+      screen.getByTestId('sheet'),
+      screen.getByRole('button', { name: 'Auto' }),
+      screen.getByRole('button', { name: 'View' }),
+    ]
+    for (let i = 1; i < order.length; i++) {
+      const before = order[i - 1] as HTMLElement
+      expect(
+        before.compareDocumentPosition(order[i] as HTMLElement) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+    }
+  })
+
+  it('should_open_the_sticker_panel_in_a_sheet (spec 0009 AC-21)', () => {
+    setup({ openPanel: false })
+    const stickers = screen.getByRole('button', { name: 'Stickers' })
+    expect(stickers).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('region', { name: 'Saved stickers' })).toBeNull()
+    fireEvent.click(stickers)
+    expect(stickers).toHaveAttribute('aria-expanded', 'true')
+    expect(
+      screen.getByRole('region', { name: 'Saved stickers' }),
+    ).toBeInTheDocument()
+    fireEvent.click(stickers)
+    expect(screen.queryByRole('region', { name: 'Saved stickers' })).toBeNull()
+  })
+
+  it('should_show_auto_status_whatever_sheet_is_open (spec 0009 AC-17)', async () => {
+    setup({
+      precise: createFakeEngine({ name: 'precise', failLoad: 'unsupported' }),
+      fast: createFakeEngine({ name: 'fast', failLoad: 'unsupported' }),
+    })
+    await pickPhoto()
+    const text = "Auto cutout doesn't work in this browser."
+    for (const open of ['View', 'Stickers']) {
+      fireEvent.click(screen.getByRole('button', { name: open }))
+      const line = await screen.findByText(text)
+      expect(line.closest('[role=status]')).not.toBeNull()
+      expect(line.closest('.editor-main')).not.toBeNull()
+    }
+  })
 })
