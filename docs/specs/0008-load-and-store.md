@@ -1,6 +1,6 @@
 # 0008 — Photos load the right way up, and stickers are never lost
 
-- **Status:** Approved
+- **Status:** Implemented
 - **Issues:** story #52; tasks #53 (EXIF orientation and the photo size cap), #54 (IndexedDB sticker repository), #55 (schema migrations and quota errors), #56 (persistent storage request), #57 (ZIP export and import)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §1 (storage caveat), §4 (selection model), §8 (output and backup), Phase 7
 
