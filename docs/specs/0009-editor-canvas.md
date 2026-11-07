@@ -1,6 +1,6 @@
 # 0009 — I can zoom in and see exactly which pixels are kept
 
-- **Status:** Approved
+- **Status:** Implemented
 - **Issues:** story #58; tasks #59 (editor canvas: pinch zoom, pan, double-tap 100%/fit), #60 (loupe with crosshair), #61 (view toggles), #62 (hold-to-compare), #63 (undo, redo, reset to auto), #64 (bottom toolbar and tool options sheet)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §3.6 (precision aids), §7 (phone-first UI), Phase 8. Builds on spec 0001 (view transforms, gesture machine), spec 0003 (undo history), spec 0007 (Auto) and spec 0008 (sticker panel).
 
