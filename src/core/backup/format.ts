@@ -48,34 +48,45 @@ interface FileNames {
 
 const folder = (id: string) => `stickers/${id}/`
 
+/** One sticker's line in `peel-backup.json`. */
+export interface ManifestSticker {
+  id: string
+  createdAt: number
+  updatedAt: number
+  imageSize: { width: number; height: number }
+  photoType: string
+  modelAlpha?: { width: number; height: number }
+  files: FileNames
+}
+
 /**
- * The entries of a backup ZIP (spec 0008 AC-15): `peel-backup.json`, then
- * each sticker's files under `stickers/<id>/`. Bytes are not copied.
+ * One sticker's files under `stickers/<id>/` and its manifest line (spec
+ * 0008 AC-15). Bytes are not copied.
  */
-export function backupEntries(
-  stickers: readonly StickerRecord[],
-  exportedAt: Date,
-): ZipEntry[] {
-  const files: ZipEntry[] = []
-  const listed = stickers.map((s) => {
-    const names: FileNames = {
-      photo: `photo.${photoExtension(s.photo.type)}`,
-      selection: 'selection.json',
-      sticker: 'sticker.png',
-      thumbnail: 'thumbnail.png',
-      ...(s.modelAlpha && { modelAlpha: 'model-alpha.bin' }),
-    }
-    const dir = folder(s.id)
-    files.push(
-      { name: dir + names.photo, data: s.photo.bytes },
-      { name: dir + names.selection, data: utf8Encode(s.selection) },
-      { name: dir + names.sticker, data: s.sticker },
-      { name: dir + names.thumbnail, data: s.thumbnail },
-    )
-    if (s.modelAlpha && names.modelAlpha) {
-      files.push({ name: dir + names.modelAlpha, data: s.modelAlpha.deflated })
-    }
-    return {
+export function stickerEntries(s: StickerRecord): {
+  entries: ZipEntry[]
+  listing: ManifestSticker
+} {
+  const names: FileNames = {
+    photo: `photo.${photoExtension(s.photo.type)}`,
+    selection: 'selection.json',
+    sticker: 'sticker.png',
+    thumbnail: 'thumbnail.png',
+    ...(s.modelAlpha && { modelAlpha: 'model-alpha.bin' }),
+  }
+  const dir = folder(s.id)
+  const entries: ZipEntry[] = [
+    { name: dir + names.photo, data: s.photo.bytes },
+    { name: dir + names.selection, data: utf8Encode(s.selection) },
+    { name: dir + names.sticker, data: s.sticker },
+    { name: dir + names.thumbnail, data: s.thumbnail },
+  ]
+  if (s.modelAlpha && names.modelAlpha) {
+    entries.push({ name: dir + names.modelAlpha, data: s.modelAlpha.deflated })
+  }
+  return {
+    entries,
+    listing: {
       id: s.id,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
@@ -85,17 +96,39 @@ export function backupEntries(
         modelAlpha: { width: s.modelAlpha.width, height: s.modelAlpha.height },
       }),
       files: names,
-    }
-  })
+    },
+  }
+}
+
+/** `peel-backup.json` listing `stickers` (spec 0008 AC-15). */
+export function manifestEntry(
+  stickers: readonly ManifestSticker[],
+  exportedAt: Date,
+): ZipEntry {
   const manifest = {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     exportedAt: exportedAt.toISOString(),
-    stickers: listed,
+    stickers,
   }
+  return { name: MANIFEST_NAME, data: utf8Encode(JSON.stringify(manifest)) }
+}
+
+/**
+ * The entries of a backup ZIP (spec 0008 AC-15): `peel-backup.json`, then
+ * each sticker's files under `stickers/<id>/`. Bytes are not copied.
+ */
+export function backupEntries(
+  stickers: readonly StickerRecord[],
+  exportedAt: Date,
+): ZipEntry[] {
+  const parts = stickers.map(stickerEntries)
   return [
-    { name: MANIFEST_NAME, data: utf8Encode(JSON.stringify(manifest)) },
-    ...files,
+    manifestEntry(
+      parts.map((p) => p.listing),
+      exportedAt,
+    ),
+    ...parts.flatMap((p) => p.entries),
   ]
 }
 

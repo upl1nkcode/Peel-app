@@ -8,6 +8,7 @@ import {
 } from './fixtures'
 import {
   checkZipLimits,
+  createZipWriter,
   NotAZipError,
   readZip,
   utf8Decode,
@@ -170,6 +171,36 @@ describe('zip', () => {
     expect(() => {
       checkZipLimits(1, 2 ** 32)
     }).toThrow(ZipLimitError)
+  })
+
+  it('should_write_entries_one_at_a_time (export memory)', async () => {
+    const writer = createZipWriter(when)
+    const first = writer.add({ name: 'a.txt', data: utf8Encode('hello') })
+    const second = writer.add({ name: 'b/c.bin', data: Uint8Array.of(1, 2) })
+    const chunks = [...first, ...second, ...writer.finish()]
+    expect(concat(chunks)).toEqual(
+      concat(
+        writeZip(
+          [
+            { name: 'a.txt', data: utf8Encode('hello') },
+            { name: 'b/c.bin', data: Uint8Array.of(1, 2) },
+          ],
+          when,
+        ),
+      ),
+    )
+    const { files } = await readZip(concat(chunks), testInflateRaw)
+    expect(files.get('b/c.bin')).toEqual(Uint8Array.of(1, 2))
+  })
+
+  it('should_refuse_an_entry_past_the_limits_as_it_is_added (AC-19)', () => {
+    const writer = createZipWriter(when)
+    for (let i = 0; i < 65_535; i++) {
+      writer.add({ name: String(i), data: new Uint8Array(0) })
+    }
+    expect(() =>
+      writer.add({ name: 'one too many', data: new Uint8Array(0) }),
+    ).toThrow(ZipLimitError)
   })
 
   it('should_return_views_not_copies (Review Focus 5)', async () => {

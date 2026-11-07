@@ -164,6 +164,54 @@ describe('backup', () => {
     expect((await b.list()).length).toBe(1)
   })
 
+  it('should_export_one_sticker_at_a_time (export memory)', async () => {
+    const { store, records } = await filled()
+    const events: string[] = []
+    const get = store.get.bind(store)
+    vi.spyOn(store, 'get').mockImplementation((id) => {
+      events.push(`get ${id}`)
+      return get(id)
+    })
+    const RealBlob = Blob
+    vi.stubGlobal(
+      'Blob',
+      class extends RealBlob {
+        constructor(parts?: BlobPart[], options?: BlobPropertyBag) {
+          super(parts, options)
+          const kind = (parts ?? []).every((p) => p instanceof RealBlob)
+            ? 'blobs'
+            : 'bytes'
+          events.push(`blob of ${kind}`)
+        }
+      },
+    )
+    try {
+      const out = await exportAll(store, when)
+      // Each sticker's bytes become a Blob before the next one is read, and
+      // the file is a Blob of those Blobs (no second copy of everything).
+      expect(events).toEqual([
+        'get c',
+        'blob of bytes',
+        'get b',
+        'blob of bytes',
+        'get a',
+        'blob of bytes',
+        'blob of bytes',
+        'blob of blobs',
+      ])
+      const zip = await readZip(
+        new Uint8Array(await (out as { blob: Blob }).blob.arrayBuffer()),
+        browserInflateRaw,
+      )
+      expect(zip.damaged).toEqual([])
+      expect(zip.files.get('stickers/a/sticker.png')).toEqual(
+        records[0]?.sticker,
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('should_name_the_export_by_local_date (AC-15)', async () => {
     const { store } = await filled()
     expect((await exportAll(store, when))?.name).toBe(

@@ -8,9 +8,11 @@ import {
   backupEntries,
   BACKUP_VERSION,
   isPng,
+  manifestEntry,
   NotABackupError,
   parseBackup,
   photoExtension,
+  stickerEntries,
   type StickerRecord,
 } from './index'
 
@@ -112,6 +114,20 @@ describe('backup format', () => {
         asMap(entries).get('stickers/a1/selection.json') as Uint8Array,
       ),
     ).toBe(a.selection)
+  })
+
+  it('should_build_the_same_backup_one_sticker_at_a_time (export memory)', async () => {
+    const a = await record('a1', { alpha: true })
+    const b = await record('b2')
+    const parts = [a, b].map(stickerEntries)
+    const pieced = [
+      manifestEntry(
+        parts.map((p) => p.listing),
+        when,
+      ),
+      ...parts.flatMap((p) => p.entries),
+    ]
+    expect(pieced).toEqual(backupEntries([a, b], when))
   })
 
   it('should_round_trip_stickers (AC-16)', async () => {
