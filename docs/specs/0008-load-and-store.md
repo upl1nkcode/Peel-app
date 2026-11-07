@@ -1,6 +1,6 @@
 # 0008 — Photos load the right way up, and stickers are never lost
 
-- **Status:** Draft
+- **Status:** Approved
 - **Issues:** story #52; tasks #53 (EXIF orientation and the photo size cap), #54 (IndexedDB sticker repository), #55 (schema migrations and quota errors), #56 (persistent storage request), #57 (ZIP export and import)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §1 (storage caveat), §4 (selection model), §8 (output and backup), Phase 7
 
@@ -24,7 +24,7 @@ A sticker is only worth making if it lasts. Today a cutout disappears when the a
 ### Photo loading (#53)
 
 - **AC-1** Given the eight orientation fixtures (JPEG photos with EXIF Orientation 1–8, all showing the same upright test pattern), when each is picked, then the loaded image is upright: its size is the upright size, and each of the pattern's four coloured quadrants is in the right place (mean colour within 12 of the reference per channel). This holds in all three test browsers.
-- **AC-2** Given a photo of W × H pixels, then it loads at W × H when W·H ≤ 12,582,912 and max(W, H) ≤ 16,384. Otherwise it loads at ⌊W·s⌋ × ⌊H·s⌋ (each at least 1), where s is the largest scale that brings it within both limits. A photo is never enlarged. Examples:
+- **AC-2** Given a photo of W × H pixels, then it loads at W × H when W·H ≤ 12,582,912 and max(W, H) ≤ 16,384. Otherwise it loads at max(1, ⌊W·s⌋) × max(1, ⌊H·s⌋), where s = min(√(12,582,912 / (W·H)), 16,384 / max(W, H)); if rounding still leaves it over, the longer side shrinks by one pixel at a time. A photo is never enlarged. Examples:
   - 8064 × 6048 → 4096 × 3072
   - 4032 × 3024 → unchanged
   - 6000 × 4000 → 4344 × 2896
@@ -45,7 +45,7 @@ A sticker is only worth making if it lasts. Today a cutout disappears when the a
 
   The save is all or nothing.
 - **AC-6** The sticker PNG is the full-resolution cutout: `renderMask` at scale 1 with the smart edge, then `applyMask` on the loaded image, then trimmed with `trimBounds` (padding 0) and written with `encodePng`. It is byte-identical to what those functions produce. Nothing from the screen-resolution preview is used.
-- **AC-7** The thumbnail is the sticker PNG scaled to at most 256 px on its long side (never enlarged), encoded as PNG.
+- **AC-7** The thumbnail is the sticker image scaled to at most 256 px on its long side (never enlarged): s = min(1, 256 / max(w, h)), size max(1, round(w·s)) × max(1, round(h·s)), downscaled by area averaging (`resizeRgba`) and encoded as PNG.
 - **AC-8** Given saved stickers, then `list()` returns them newest first by updated time, without reading photo, sticker or model-alpha bytes. `get(id)` returns everything. `delete(id)` removes every part. Unknown IDs: `get` returns `undefined` and `delete` does nothing.
 - **AC-9** Given a saved sticker, when it is re-opened, then:
   - Its photo loads through AC-1/AC-2 at the saved image size.
@@ -86,7 +86,7 @@ A sticker is only worth making if it lasts. Today a cutout disappears when the a
 ### Temporary panel (decision 3)
 
 - **AC-20** On the tap-to-cut screen, a panel shows:
-  - Save: enabled when the cutout has at least one ring; shows "Saved" after a save
+  - Save: enabled when the cutout has at least one ring; shows "Saved" after a save. If the cutout renders to nothing (a ring too small to cover a pixel), it shows "Nothing to save: the cutout is empty." and stores nothing.
   - the saved stickers' thumbnails, newest first: tapping one re-opens it, and each has a Delete button that asks "Delete this sticker?" inline before deleting
   - Export all, and Import (a file picker for `.zip`)
   - the storage status line (AC-14)
