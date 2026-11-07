@@ -106,8 +106,11 @@ interface Setup {
   storage?: Partial<Pick<StorageManager, 'persist' | 'persisted'>> | undefined
   loadPhoto?: (file: Blob) => Promise<LoadedPhoto>
   precise?: SegmentationEngine
+  fast?: SegmentationEngine
   log?: RenderLog
   clock?: () => number
+  /** Open the Stickers sheet after mounting (default: yes). */
+  openPanel?: boolean
 }
 
 function setup(opts: Setup = {}) {
@@ -117,7 +120,7 @@ function setup(opts: Setup = {}) {
   render(
     <EditorScreen
       engines={{
-        fast: createFakeEngine({ name: 'fast' }),
+        fast: opts.fast ?? createFakeEngine({ name: 'fast' }),
         precise: opts.precise ?? createFakeEngine({ name: 'precise' }),
       }}
       missingBytes={() => Promise.resolve(0)}
@@ -132,6 +135,10 @@ function setup(opts: Setup = {}) {
       }}
     />,
   )
+  // The panel lives in the Stickers sheet (spec 0009 AC-21).
+  if (opts.openPanel ?? true) {
+    fireEvent.click(screen.getByRole('button', { name: 'Stickers' }))
+  }
   return { store, log, t }
 }
 
@@ -661,4 +668,56 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
     ).toBeInTheDocument()
     expect(click).not.toHaveBeenCalled()
   }, 20_000)
+
+  it('should_lay_out_top_to_bottom (spec 0009 AC-21)', async () => {
+    setup()
+    await pickPhoto()
+    const order = [
+      screen.getByRole('heading', { name: 'Peel' }),
+      screen.getByRole('button', { name: 'Photo' }),
+      screen.getByRole('button', { name: 'Stickers' }),
+      screen.getByTestId('canvas'),
+      screen.getByRole('button', { name: 'Undo' }),
+      screen.getByRole('button', { name: 'Compare' }),
+      screen.getByTestId('sheet'),
+      screen.getByRole('button', { name: 'Auto' }),
+      screen.getByRole('button', { name: 'View' }),
+    ]
+    for (let i = 1; i < order.length; i++) {
+      const before = order[i - 1] as HTMLElement
+      expect(
+        before.compareDocumentPosition(order[i] as HTMLElement) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+    }
+  })
+
+  it('should_open_the_sticker_panel_in_a_sheet (spec 0009 AC-21)', () => {
+    setup({ openPanel: false })
+    const stickers = screen.getByRole('button', { name: 'Stickers' })
+    expect(stickers).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('region', { name: 'Saved stickers' })).toBeNull()
+    fireEvent.click(stickers)
+    expect(stickers).toHaveAttribute('aria-expanded', 'true')
+    expect(
+      screen.getByRole('region', { name: 'Saved stickers' }),
+    ).toBeInTheDocument()
+    fireEvent.click(stickers)
+    expect(screen.queryByRole('region', { name: 'Saved stickers' })).toBeNull()
+  })
+
+  it('should_show_auto_status_whatever_sheet_is_open (spec 0009 AC-17)', async () => {
+    setup({
+      precise: createFakeEngine({ name: 'precise', failLoad: 'unsupported' }),
+      fast: createFakeEngine({ name: 'fast', failLoad: 'unsupported' }),
+    })
+    await pickPhoto()
+    const text = "Auto cutout doesn't work in this browser."
+    for (const open of ['View', 'Stickers']) {
+      fireEvent.click(screen.getByRole('button', { name: open }))
+      const line = await screen.findByText(text)
+      expect(line.closest('[role=status]')).not.toBeNull()
+      expect(line.closest('.editor-main')).not.toBeNull()
+    }
+  })
 })

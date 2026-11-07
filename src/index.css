@@ -1,11 +1,43 @@
+/* Colours follow the system's light or dark setting (spec 0009 decision 9).
+   The canvas backgrounds are drawn, not themed, so colours are judged the same way in both. */
 :root {
   font-family: system-ui, sans-serif;
   color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1c1c21;
+  --muted: #5c5c68;
+  --surface: #f1f1f4;
+  --border: #d3d3db;
+  --accent: #2459c9;
+  --accent-fg: #ffffff;
+  --strip-bg: rgb(255 255 255 / 0.9);
+  --error-bg: #fdecea;
+  --error-fg: #8a1c13;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121215;
+    --fg: #ececf0;
+    --muted: #a3a3b0;
+    --surface: #1f1f25;
+    --border: #3a3a44;
+    --accent: #7aa5ff;
+    --accent-fg: #0b0b0e;
+    --strip-bg: rgb(18 18 21 / 0.9);
+    --error-bg: #3d1714;
+    --error-fg: #ffb4ab;
+  }
 }
 
 body {
   margin: 0;
   min-height: 100dvh;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* The editor fills the screen; only its canvas moves (spec 0009 AC-21). */
+body.editor-open {
+  overflow: hidden;
 }

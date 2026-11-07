@@ -394,4 +394,68 @@ describe('EditorScreen', () => {
     fireEvent.keyUp(compare, { key: 'Enter' })
     expect(canvas).toHaveAttribute('data-comparing', 'false')
   })
+
+  it('should_name_every_control_and_mark_the_active_tool (spec 0009 AC-22)', async () => {
+    const { fast, precise } = fastOnly()
+    await pick(fast, precise, { t: 0 })
+    for (const b of screen.getAllByRole('button')) {
+      expect((b.getAttribute('aria-label') ?? b.textContent).trim()).not.toBe(
+        '',
+      )
+    }
+    expect(button('Auto')).toHaveAttribute('aria-pressed', 'true')
+    expect(button('View')).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(button('View'))
+    expect(button('View')).toHaveAttribute('aria-pressed', 'true')
+    const views = screen.getByRole('radiogroup', { name: 'View' })
+    expect(views).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Overlay' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+  })
+
+  it('should_open_the_tool_sheet_and_toggle_it (spec 0009 AC-23)', async () => {
+    const { fast, precise } = fastOnly()
+    await pick(fast, precise, { t: 0 })
+    const hint = 'Tap to add · Hold to remove · Slide to aim'
+    expect(screen.getByText(hint)).toBeInTheDocument()
+    fireEvent.click(button('View'))
+    expect(screen.queryByText(hint)).toBeNull()
+    expect(screen.getAllByRole('radio').map((r) => r.textContent)).toEqual([
+      'Overlay',
+      'Checkerboard',
+      'Black',
+      'White',
+      'Red',
+    ])
+    fireEvent.click(button('View'))
+    expect(screen.queryAllByRole('radio')).toHaveLength(0)
+    fireEvent.click(button('View'))
+    fireEvent.click(screen.getByRole('radio', { name: 'Red' }))
+    expect(screen.getByTestId('canvas')).toHaveAttribute('data-view', 'red')
+    fireEvent.click(button('Auto'))
+    expect(screen.getByText(hint)).toBeInTheDocument()
+    await choose()
+    expect(screen.getByTestId('canvas')).toHaveAttribute('data-view', 'red')
+    fireEvent.click(button('View'))
+    expect(screen.getByRole('radio', { name: 'Red' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+  })
+
+  it('should_disable_tools_until_a_photo_is_picked (spec 0009 AC-24)', async () => {
+    const { fast, precise } = fastOnly()
+    mount(fast, precise, { t: 0 })
+    expect(button('Pick a photo')).toBeEnabled()
+    for (const name of ['Auto', 'View', 'Undo', 'Redo', 'Compare']) {
+      expect(button(name)).toBeDisabled()
+    }
+    await choose()
+    expect(screen.queryByRole('button', { name: 'Pick a photo' })).toBeNull()
+    for (const name of ['Auto', 'View', 'Compare']) {
+      expect(button(name)).toBeEnabled()
+    }
+  })
 })

@@ -48,7 +48,26 @@ export async function seedBackup(): Promise<Buffer> {
   return Buffer.concat(writeZip(entries, new Date(2026, 10, 2)))
 }
 
+/** Opens the Stickers sheet (spec 0009 AC-21) unless it is open already. */
+export async function openStickers(page: Page) {
+  const button = page.getByRole('button', { name: 'Stickers' })
+  if ((await button.getAttribute('aria-expanded')) !== 'true') {
+    await button.click()
+  }
+  await expect(button).toHaveAttribute('aria-expanded', 'true')
+}
+
+/** Closes the Stickers sheet, giving the canvas its room back. */
+export async function closeStickers(page: Page) {
+  const button = page.getByRole('button', { name: 'Stickers' })
+  if ((await button.getAttribute('aria-expanded')) === 'true') {
+    await button.click()
+  }
+  await expect(button).toHaveAttribute('aria-expanded', 'false')
+}
+
 export async function importFile(page: Page, buffer: Buffer) {
+  await openStickers(page)
   // The panel enables Import once the sticker store is open.
   await expect(page.getByLabel('Import')).toBeEnabled()
   await page.getByLabel('Import').setInputFiles({
@@ -87,6 +106,7 @@ export async function seedAndOpen(page: Page) {
   await page.getByRole('button', { name: 'Open sticker' }).first().click()
   const canvas = page.getByTestId('canvas')
   await expect(canvas).toHaveAttribute('data-image-size', '120x80')
+  await closeStickers(page)
   await expect(canvas).not.toHaveAttribute('data-mask-scale', '')
   await nextFrame(page)
 }

@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { inflateRawSync } from 'node:zlib'
 import { expect, test, type Page } from '@playwright/test'
 import { readZip, utf8Decode } from '../src/core/zip'
-import { imageToClient } from './helpers/editor'
+import { imageToClient, openStickers } from './helpers/editor'
 
 /**
  * Auto cutout with the real MediaPipe models (spec 0007 AC-18, AC-20 to
@@ -256,6 +256,7 @@ test.describe('auto cutout with the real models', () => {
   }) => {
     /** Saves the cutout on screen, then exports; returns the backup's files. */
     const saveAndExport = async () => {
+      await openStickers(page)
       await page.getByRole('button', { name: 'Save', exact: true }).click()
       await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible({
         timeout: 60_000,
@@ -284,6 +285,7 @@ test.describe('auto cutout with the real models', () => {
     expect(first.file('model-alpha.bin')).toBeDefined()
 
     await page.reload()
+    await openStickers(page)
     await page.getByRole('button', { name: 'Open sticker' }).click()
     await expect(
       page.getByRole('button', { name: 'Save', exact: true }),

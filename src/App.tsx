@@ -67,8 +67,6 @@ export default function App() {
   const [stickers] = useState(stickerDeps)
   return (
     <main>
-      <h1>Peel</h1>
-      <p>Cut anything out of a photo.</p>
       <EditorScreen
         engines={engines}
         missingBytes={(files) => store.missingBytes(files)}

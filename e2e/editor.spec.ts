@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { loupeScale, viewPixel } from '../src/core/editor'
+import {
+  checkerColourAt,
+  loupeScale,
+  VIEW_LABELS,
+  VIEW_MODES,
+  viewPixel,
+} from '../src/core/editor'
 import {
   canvasInfo,
   devicePixel,
@@ -162,4 +168,70 @@ test('should_magnify_under_the_finger_with_a_crosshair (AC-13)', async ({
 
   await page.mouse.up()
   await expect(loupe).toBeHidden()
+})
+
+test('should_draw_each_view_with_the_spec_colours (AC-11)', async ({
+  page,
+}) => {
+  await seedAndOpen(page)
+  await page.getByRole('button', { name: 'View' }).click()
+  const canvas = page.getByTestId('canvas')
+  const { dpr } = await canvasInfo(page)
+  const probes = [
+    { px: { x: 60, y: 40 }, a: 1 },
+    { px: { x: 5, y: 5 }, a: 0 },
+  ]
+  for (const mode of VIEW_MODES) {
+    await page.getByRole('radio', { name: VIEW_LABELS[mode] }).click()
+    await expect(canvas).toHaveAttribute('data-view', mode)
+    await nextFrame(page)
+    for (const { px, a } of probes) {
+      const dev = await imageToDevice(page, { x: px.x + 0.5, y: px.y + 0.5 })
+      const i = { x: Math.floor(dev.x), y: Math.floor(dev.y) }
+      const checker = checkerColourAt((i.x + 0.5) / dpr, (i.y + 0.5) / dpr)
+      const want = viewPixel(mode, await photoPixel(page, px), a, checker)
+      expectRgb(
+        await devicePixel(page, i),
+        want,
+        2,
+        `${mode} at (${String(px.x)}, ${String(px.y)})`,
+      )
+    }
+  }
+})
+
+test('should_fit_the_screen_with_44_px_targets (AC-21, AC-22)', async ({
+  page,
+}) => {
+  await seedAndOpen(page)
+  const fits = await page.evaluate(() => {
+    const el = document.scrollingElement ?? document.documentElement
+    return {
+      scrollHeight: el.scrollHeight,
+      scrollWidth: el.scrollWidth,
+      innerHeight: window.innerHeight,
+      innerWidth: window.innerWidth,
+    }
+  })
+  expect(fits.scrollHeight).toBeLessThanOrEqual(fits.innerHeight)
+  expect(fits.scrollWidth).toBeLessThanOrEqual(fits.innerWidth)
+  for (const sheet of ['Auto', 'View', 'Stickers']) {
+    await page.getByRole('button', { name: sheet }).click()
+    const targets = page
+      .getByTestId('editor')
+      .locator('button:visible, label:visible')
+    const n = await targets.count()
+    expect(n).toBeGreaterThan(4)
+    for (let k = 0; k < n; k++) {
+      const box = await targets.nth(k).boundingBox()
+      const name = (await targets.nth(k).textContent()) ?? ''
+      expect(box?.width, `${sheet}: ${name} width`).toBeGreaterThanOrEqual(44)
+      expect(box?.height, `${sheet}: ${name} height`).toBeGreaterThanOrEqual(44)
+    }
+  }
+  expect(
+    await page
+      .getByTestId('canvas')
+      .evaluate((el) => getComputedStyle(el).touchAction),
+  ).toBe('none')
 })

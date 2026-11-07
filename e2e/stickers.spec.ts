@@ -2,7 +2,12 @@ import { readFileSync } from 'node:fs'
 import { inflateRawSync } from 'node:zlib'
 import { expect, test, type Page } from '@playwright/test'
 import { readZip, utf8Decode } from '../src/core/zip'
-import { importFile, SEED_PHOTO as PHOTO, seedBackup } from './helpers/editor'
+import {
+  importFile,
+  openStickers,
+  SEED_PHOTO as PHOTO,
+  seedBackup,
+} from './helpers/editor'
 
 const inflateRaw = (data: Uint8Array) =>
   Promise.resolve(new Uint8Array(inflateRawSync(data)))
@@ -24,6 +29,7 @@ test('should_keep_stickers_after_reload (AC-5, AC-8)', async ({ page }) => {
   ).toBeVisible()
   await expect(thumbnails(page)).toHaveCount(1)
   await page.reload()
+  await openStickers(page)
   await expect(thumbnails(page)).toHaveCount(1)
 })
 

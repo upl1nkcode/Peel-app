@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ViewMode } from '../../core/editor'
 import { emptySelection } from '../../core/selection/model'
 import type { Selection } from '../../core/selection/types'
@@ -13,9 +13,10 @@ import type { StickerRecord } from '../../core/backup'
 import { parseSelection } from '../../core/selection/serialize'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { inflateModelAlpha } from '../../services/sticker'
-import { EditorCanvas } from './EditorCanvas'
+import { EditorCanvas, type EditorTool } from './EditorCanvas'
 import { StickerPanel } from './StickerPanel'
 import { copyMask, createSession, type Photo, type Renderer } from './session'
+import { Toolbar, ToolSheet } from './Toolbar'
 import { useStickers, type StickerDeps, type StickerHost } from './useStickers'
 import './EditorScreen.css'
 
@@ -39,16 +40,24 @@ export interface EditorScreenProps {
 }
 
 /**
- * The editor (spec 0009): pick a photo, then tap to add, long-press to
- * remove. The canvas shows the cutout against the chosen view, at screen
- * resolution below 100% and at full resolution above.
+ * The editor (spec 0009). Top to bottom: a top bar (Photo, Stickers), the
+ * canvas with the status strip over it, the action row (Undo, Redo, Reset
+ * to auto, Compare), the options sheet, and the toolbar (Auto, View). The
+ * canvas shows the cutout against the chosen view, at screen resolution
+ * below 100% and at full resolution above.
  */
 export function EditorScreen(props: EditorScreenProps) {
   const [state, setState] = useState<AutoState | null>(null)
   const [photo, setPhoto] = useState<Photo | null>(null)
   const [photoError, setPhotoError] = useState<string | null>(null)
   /** The chosen view; it stays across tools and photos (AC-11). */
-  const [viewMode] = useState<ViewMode>('overlay')
+  const [viewMode, setViewMode] = useState<ViewMode>('overlay')
+  const [tool, setTool] = useState<EditorTool>('auto')
+  /** The active tool's options sheet (AC-23). */
+  const [sheetOpen, setSheetOpen] = useState(true)
+  /** The spec 0008 panel, in the sheet's place while open (AC-21). */
+  const [stickersOpen, setStickersOpen] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
   /** Hold-to-compare (AC-18). */
   const [comparing, setComparing] = useState(false)
   const [selection, setSelection] = useState<Selection>(emptySelection())
@@ -56,6 +65,14 @@ export function EditorScreen(props: EditorScreenProps) {
   const [session] = useState(() =>
     createSession({ ...props, onState: setState, onSelection: setSelection }),
   )
+
+  // Only the canvas moves; the page itself never scrolls (AC-21).
+  useEffect(() => {
+    document.body.classList.add('editor-open')
+    return () => {
+      document.body.classList.remove('editor-open')
+    }
+  }, [])
 
   // A download that failed offline is tried again when the connection returns.
   useEffect(() => {
@@ -158,63 +175,105 @@ export function EditorScreen(props: EditorScreenProps) {
     setComparing(false)
   }
 
+  const choosePhoto = () => {
+    fileRef.current?.click()
+  }
+  const chooseTool = (next: EditorTool) => {
+    if (next === tool && !stickersOpen) {
+      setSheetOpen((open) => !open)
+    } else {
+      setTool(next)
+      setSheetOpen(true)
+    }
+    setStickersOpen(false)
+  }
+  const showPanel = stickersOpen && panel !== null
+
   return (
     <section
-      className="auto-screen"
+      className="editor"
       data-testid="editor"
       data-phase={state?.phase ?? 'idle'}
       data-fallback={state?.fallbackTool ?? undefined}
     >
-      <label className="auto-pick">
-        Pick a photo
+      <header className="editor-top">
+        <h1 className="editor-title">Peel</h1>
+        <button type="button" onClick={choosePhoto}>
+          Photo
+        </button>
+        {panel && (
+          <button
+            type="button"
+            aria-expanded={stickersOpen}
+            onClick={() => {
+              setStickersOpen((open) => !open)
+            }}
+          >
+            Stickers
+          </button>
+        )}
         <input
+          ref={fileRef}
+          className="editor-file"
           type="file"
           accept="image/*"
+          aria-label="Pick a photo"
+          tabIndex={-1}
           onChange={(e) => {
             const file = e.currentTarget.files?.[0]
             if (file) void pick(file)
+            e.currentTarget.value = ''
           }}
         />
-      </label>
-      {photoError && (
-        <p className="auto-error" role="alert">
-          {photoError}
-        </p>
-      )}
-      <div className="auto-status" role="status" aria-live="polite">
-        {lines.map((line) => (
-          <p key={line}>{line}</p>
-        ))}
-        {state?.unavailable && (
-          <button
-            type="button"
-            onClick={() => {
-              session.useLasso()
-            }}
-          >
-            {USE_LASSO_LABEL}
-          </button>
-        )}
-      </div>
-      <EditorCanvas
-        photo={
-          photo && {
-            id: photo.id,
-            width: photo.image.width,
-            height: photo.image.height,
-            source: photo.source,
+      </header>
+      <div className="editor-main">
+        <EditorCanvas
+          photo={
+            photo && {
+              id: photo.id,
+              width: photo.image.width,
+              height: photo.image.height,
+              source: photo.source,
+            }
           }
-        }
-        selection={selection}
-        renderMask={renderMask}
-        viewMode={viewMode}
-        comparing={comparing}
-        tool="auto"
-        onIntent={(intent) => {
-          session.tap({ imagePt: intent.imagePt, mode: intent.type })
-        }}
-        {...(props.now && { now: props.now })}
-      />
+          selection={selection}
+          renderMask={renderMask}
+          viewMode={viewMode}
+          comparing={comparing}
+          tool={tool}
+          onIntent={(intent) => {
+            session.tap({ imagePt: intent.imagePt, mode: intent.type })
+          }}
+          {...(props.now && { now: props.now })}
+        />
+        {!photo && (
+          <div className="editor-empty">
+            <button type="button" onClick={choosePhoto}>
+              Pick a photo
+            </button>
+          </div>
+        )}
+        <div className="editor-status" role="status" aria-live="polite">
+          {photoError && (
+            <p className="editor-error" role="alert">
+              {photoError}
+            </p>
+          )}
+          {lines.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+          {state?.unavailable && (
+            <button
+              type="button"
+              onClick={() => {
+                session.useLasso()
+              }}
+            >
+              {USE_LASSO_LABEL}
+            </button>
+          )}
+        </div>
+      </div>
       <div className="editor-actions">
         <button
           type="button"
@@ -270,7 +329,20 @@ export function EditorScreen(props: EditorScreenProps) {
           Compare
         </button>
       </div>
-      {panel && <StickerPanel {...panel} />}
+      {(showPanel || sheetOpen) && (
+        <div className="editor-sheet" data-testid="sheet">
+          {showPanel ? (
+            <StickerPanel {...panel} />
+          ) : (
+            <ToolSheet
+              tool={tool}
+              viewMode={viewMode}
+              onViewMode={setViewMode}
+            />
+          )}
+        </div>
+      )}
+      <Toolbar tool={tool} disabled={!photo} onTool={chooseTool} />
     </section>
   )
 }
