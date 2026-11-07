@@ -130,6 +130,35 @@ describe('backup format', () => {
     expect(out.stickers[1]).not.toHaveProperty('modelAlpha')
   })
 
+  it('should_read_a_backup_re_zipped_inside_a_folder (decision 7)', async () => {
+    // Finder's "Compress" and Windows' "Compressed folder" put everything
+    // under the folder's name, and Finder adds __MACOSX/ entries.
+    const input = [await record('a1', { alpha: true }), await record('b2')]
+    const prefix = 'peel-stickers-2026-11-07/'
+    const entries = backupEntries(input, when)
+    const files = new Map(entries.map((e) => [prefix + e.name, e.data]))
+    files.set('__MACOSX/peel-stickers-2026-11-07/._peel-backup.json', png())
+    const out = await parseBackup(
+      files,
+      [prefix + 'stickers/b2/sticker.png'],
+      testInflate,
+    )
+    expect(out.stickers).toEqual([input[0]])
+    expect(out.damaged).toBe(1)
+  })
+
+  it('should_not_guess_between_two_folders_with_a_manifest (decision 7)', async () => {
+    const entries = backupEntries([await record('a1')], when)
+    const files = new Map<string, Uint8Array>()
+    for (const e of entries) {
+      files.set('one/' + e.name, e.data)
+      files.set('two/' + e.name, e.data)
+    }
+    await expect(parseBackup(files, [], testInflate)).rejects.toThrow(
+      NotABackupError,
+    )
+  })
+
   it('should_count_damaged_stickers (AC-17)', async () => {
     const ids = [
       'ok',

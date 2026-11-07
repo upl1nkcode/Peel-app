@@ -123,10 +123,11 @@ const isSize = (v: unknown): v is { width: number; height: number } =>
  * `inflate` (zlib) checks each model alpha's length.
  */
 export async function parseBackup(
-  files: ReadonlyMap<string, Uint8Array>,
-  damagedNames: readonly string[],
+  zipFiles: ReadonlyMap<string, Uint8Array>,
+  zipDamagedNames: readonly string[],
   inflate: Inflate,
 ): Promise<{ stickers: StickerRecord[]; damaged: number }> {
+  const { files, damagedNames } = unwrapFolder(zipFiles, zipDamagedNames)
   const manifestBytes = damagedNames.includes(MANIFEST_NAME)
     ? undefined
     : files.get(MANIFEST_NAME)
@@ -160,6 +161,36 @@ export async function parseBackup(
     stickers.push(record)
   }
   return { stickers, damaged }
+}
+
+/**
+ * A backup re-zipped on a computer (Finder's "Compress", Windows' "Compressed
+ * folder") has every entry under one folder. With no manifest at the root and
+ * exactly one `<folder>/peel-backup.json`, that folder becomes the root;
+ * anything else is left as it is.
+ */
+function unwrapFolder(
+  files: ReadonlyMap<string, Uint8Array>,
+  damagedNames: readonly string[],
+): { files: ReadonlyMap<string, Uint8Array>; damagedNames: readonly string[] } {
+  const names = [...files.keys(), ...damagedNames]
+  if (names.includes(MANIFEST_NAME)) return { files, damagedNames }
+  const prefixes = names
+    .filter((n) => !n.startsWith('__MACOSX/'))
+    .filter((n) => /^[^/]+\/peel-backup\.json$/.test(n))
+    .map((n) => n.slice(0, -MANIFEST_NAME.length))
+  if (prefixes.length !== 1) return { files, damagedNames }
+  const prefix = prefixes[0] as string
+  const strip = (n: string) =>
+    n.startsWith(prefix) ? [n.slice(prefix.length)] : []
+  return {
+    files: new Map(
+      [...files].flatMap(([n, data]) =>
+        strip(n).map((m) => [m, data] as const),
+      ),
+    ),
+    damagedNames: damagedNames.flatMap(strip),
+  }
 }
 
 async function readSticker(
