@@ -265,6 +265,8 @@ export interface DotDrag {
   readonly fineEnabled: boolean
   /** Where and when the finger last moved more than 2 px. */
   readonly still: { pt: Point; t: number }
+  /** The finger's last point, where the dots were last shown. */
+  readonly last: Point
   /** Once fine mode is on: the finger and the dots at that moment. */
   readonly engaged: { finger: Point; dots: readonly Point[] } | null
 }
@@ -283,6 +285,7 @@ export function startDrag(
     scale: viewScale(vp, view),
     fineEnabled,
     still: { pt: fingerCanvasPt, t },
+    last: fingerCanvasPt,
     engaged: null,
   }
 }
@@ -290,39 +293,51 @@ export function startDrag(
 const moved = (dots: readonly Point[], dx: number, dy: number): Point[] =>
   dots.map((p) => ({ x: p.x + dx, y: p.y + dy }))
 
+/** The dots for the finger at `pt`, one to one from where it went down (AC-3). */
+const oneToOne = (drag: DotDrag, pt: Point): Point[] =>
+  moved(
+    drag.start,
+    (pt.x - drag.finger.x) / drag.scale,
+    (pt.y - drag.finger.y) / drag.scale,
+  )
+
 /**
  * The dots' positions for the finger at `fingerCanvasPt` at time `t` (ms).
  * They move by the finger's movement since it went down, in image px, so the
  * press slop isn't lost (AC-3). With fine mode allowed, once the finger has
  * stayed within 2 px for 300 ms, they move a quarter as far from there on
- * (AC-6). Positions are never rounded (AC-7).
+ * (AC-6). A still finger sends no events, so the hold is judged when the
+ * next one comes, whatever its distance: fine mode engages at the finger's
+ * last point, with the dots where they were shown, and this movement already
+ * counts a quarter. Asked again at the same point (the canvas's timer), the
+ * dots don't move. Positions are never rounded (AC-7).
  */
 export function dragTo(
   drag: DotDrag,
   fingerCanvasPt: Point,
   t: number,
 ): { drag: DotDrag; positions: Point[]; fine: boolean } {
-  let next = drag
-  if (dist(fingerCanvasPt, drag.still.pt) > FINE_STILL_PX) {
-    next = { ...next, still: { pt: fingerCanvasPt, t } }
+  let engaged = drag.engaged
+  if (!engaged && drag.fineEnabled && t - drag.still.t >= FINE_HOLD_MS) {
+    engaged = { finger: drag.last, dots: oneToOne(drag, drag.last) }
   }
-  if (next.engaged) {
-    const k = FINE_FACTOR / next.scale
-    const positions = moved(
-      next.engaged.dots,
-      (fingerCanvasPt.x - next.engaged.finger.x) * k,
-      (fingerCanvasPt.y - next.engaged.finger.y) * k,
-    )
-    return { drag: next, positions, fine: true }
+  const still =
+    dist(fingerCanvasPt, drag.still.pt) > FINE_STILL_PX
+      ? { pt: fingerCanvasPt, t }
+      : drag.still
+  const next: DotDrag = { ...drag, still, last: fingerCanvasPt, engaged }
+  if (!engaged) {
+    return {
+      drag: next,
+      positions: oneToOne(next, fingerCanvasPt),
+      fine: false,
+    }
   }
+  const k = FINE_FACTOR / drag.scale
   const positions = moved(
-    next.start,
-    (fingerCanvasPt.x - next.finger.x) / next.scale,
-    (fingerCanvasPt.y - next.finger.y) / next.scale,
+    engaged.dots,
+    (fingerCanvasPt.x - engaged.finger.x) * k,
+    (fingerCanvasPt.y - engaged.finger.y) * k,
   )
-  if (next.fineEnabled && t - next.still.t >= FINE_HOLD_MS) {
-    next = { ...next, engaged: { finger: fingerCanvasPt, dots: positions } }
-    return { drag: next, positions, fine: true }
-  }
-  return { drag: next, positions, fine: false }
+  return { drag: next, positions, fine: true }
 }

@@ -287,10 +287,11 @@ describe('dot drags', () => {
       [239, 151, 400],
     ])
     expect(r.map((s) => s.fine)).toEqual([false, false, false, true, true])
-    // At the engage point the dot is where the finger put it…
-    expect(r[3]?.positions[0]).toEqual({ x: 162, y: 102 })
+    // It engages where the dot was shown, at the finger's last point
+    // (230.5, 151) → (161, 102); the 0.5 px since then counts a quarter…
+    expect(r[3]?.positions[0]).toEqual({ x: 161.25, y: 102 })
     // …then 8 canvas px (16 image px) move it a quarter: 4 image px.
-    expect(r[4]?.positions[0]).toEqual({ x: 166, y: 102 })
+    expect(r[4]?.positions[0]).toEqual({ x: 165.25, y: 102 })
 
     // A move of more than 2 px restarts the wait.
     const late = run(true, [
@@ -301,6 +302,29 @@ describe('dot drags', () => {
       [234, 150.5, 500],
     ])
     expect(late.map((s) => s.fine)).toEqual([false, false, false, false, true])
+  })
+
+  it('should_engage_after_a_still_hold_with_no_events (AC-6, final review I-1)', () => {
+    // A still finger sends no moves; the next one is 3 px away.
+    const r = run(true, [
+      [230, 150, 50],
+      [233, 150, 550],
+      [241, 150, 566],
+    ])
+    expect(r.map((s) => s.fine)).toEqual([false, true, true])
+    // Engaged at (230, 150), where the dot was (160, 100); then a quarter.
+    expect(r[1]?.positions[0]).toEqual({ x: 161.5, y: 100 })
+    expect(r[2]?.positions[0]).toEqual({ x: 165.5, y: 100 })
+  })
+
+  it('should_engage_in_place_when_asked_again_after_the_hold (AC-6, final review I-1)', () => {
+    // The canvas asks again with the same finger point once 300 ms pass.
+    const r = run(true, [
+      [230, 150, 50],
+      [230, 150, 350],
+    ])
+    expect(r.map((s) => s.fine)).toEqual([false, true])
+    expect(r[1]?.positions).toEqual(r[0]?.positions)
   })
 
   it('should_stay_one_to_one_with_fine_off (AC-6)', () => {

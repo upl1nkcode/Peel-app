@@ -10,6 +10,7 @@ import {
 import {
   displayScale,
   dragTo,
+  FINE_HOLD_MS,
   hitDots,
   loupePlacement,
   needsFinerMask,
@@ -200,6 +201,8 @@ export function createCanvasController(
   /** The loupe's aim when it isn't the finger (a dragged dot), and fine mode. */
   let loupeAim: Point | null = null
   let loupeFine = false
+  /** Fires when a still finger has held long enough for fine mode (AC-6). */
+  let fineTimer: number | null = null
 
   const now = () => (p?.now ?? (() => performance.now()))()
 
@@ -373,7 +376,34 @@ export function createCanvasController(
   }
 
   /** Drops a dot drag or box without editing (AC-4, Review Focus 1). */
+  function clearFineTimer() {
+    if (fineTimer !== null) window.clearTimeout(fineTimer)
+    fineTimer = null
+  }
+
+  /**
+   * A still finger sends no moves, so once it has held for 300 ms the drag is
+   * asked again at the same point: fine mode engages and the loupe shows it,
+   * with the dots where they are (spec 0010 AC-6, final review I-1).
+   */
+  function armFineTimer() {
+    clearFineTimer()
+    const d = dotDrag?.drag
+    if (!d || d.engaged || !d.fineEnabled) return
+    const at = d.last
+    const due = d.still.t + FINE_HOLD_MS
+    fineTimer = window.setTimeout(
+      () => {
+        fineTimer = null
+        // The timer firing means the hold is over, whatever the clock says.
+        moveDots(at, Math.max(now(), due))
+      },
+      Math.max(0, due - now()),
+    )
+  }
+
   function dropDots() {
+    clearFineTimer()
     const had = dotDrag !== null || box !== null
     dotDrag = null
     box = null
@@ -459,23 +489,28 @@ export function createCanvasController(
     moveDots(canvasPt)
   }
 
-  function moveDots(canvasPt: Point) {
+  function moveDots(canvasPt: Point, t = now()) {
     if (box) {
       box = { ...box, b: canvasPt }
       schedule()
       return
     }
     if (!dotDrag) return
-    const r = dragTo(dotDrag.drag, canvasPt, now())
+    const r = dragTo(dotDrag.drag, canvasPt, t)
     const first = dotDrag.starts[0] as Point
     const moved = r.positions[0] as Point
+    const before = preview ? (dotDrag.positions[0] as Point) : null
     dotDrag = { ...dotDrag, drag: r.drag, positions: r.positions }
-    preview = applyCommand(dotDrag.from, {
-      type: 'moveNodes',
-      refs: dotDrag.refs,
-      delta: { x: moved.x - first.x, y: moved.y - first.y },
-    })
-    previews.add(preview)
+    // Unmoved dots keep their preview, so no render is asked for again.
+    if (!before || before.x !== moved.x || before.y !== moved.y) {
+      preview = applyCommand(dotDrag.from, {
+        type: 'moveNodes',
+        refs: dotDrag.refs,
+        delta: { x: moved.x - first.x, y: moved.y - first.y },
+      })
+      previews.add(preview)
+    }
+    armFineTimer()
     loupeAt = canvasPt
     loupeAim = r.positions[dotDrag.held] ?? null
     loupeFine = r.fine
@@ -534,6 +569,7 @@ export function createCanvasController(
   }
 
   function resetGestures() {
+    clearFineTimer()
     machine.reset()
     sequencer.reset()
     gesture = null

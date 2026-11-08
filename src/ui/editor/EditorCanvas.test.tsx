@@ -539,8 +539,24 @@ describe('dots tool (spec 0010)', () => {
     await advance(300)
     fireEvent.pointerMove(canvas, at(130.5, 100))
     expect(loupe()?.getAttribute('data-fine')).toBe('true')
-    // The crosshair is on the dot, not the finger.
-    expect(loupe()?.getAttribute('data-aim')).toBe('1305.0000,1000.0000')
+    // The crosshair is on the dot, not the finger (which is over 1305): the
+    // hold engaged fine mode at 1300, so the 0.5 px since counts a quarter.
+    expect(loupe()?.getAttribute('data-aim')).toBe('1301.2500,1000.0000')
+  })
+
+  it('should_show_fine_mode_while_the_finger_holds_still (AC-6, final review I-1)', async () => {
+    const { canvas } = dots()
+    await advance(20)
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 })
+    const aim = loupe()?.getAttribute('data-aim')
+    expect(loupe()?.getAttribute('data-fine')).toBe('false')
+    // No moves at all: a still finger sends none.
+    await advance(310)
+    expect(loupe()?.getAttribute('data-fine')).toBe('true')
+    expect(loupe()?.getAttribute('data-aim')).toBe(aim)
+    // Then 8 CSS px (80 image px at fit) move the dot a quarter: 20.
+    fireEvent.pointerMove(canvas, at(138, 100))
+    expect(loupe()?.getAttribute('data-aim')).toBe('1320.0000,1000.0000')
   })
 
   it('should_insert_on_an_edge_tap (AC-8)', async () => {
