@@ -4,6 +4,7 @@ import {
   devicePixel,
   expectRgb,
   generatedJpeg,
+  imageToClient,
   imageToDevice,
   nextFrame,
   photoPixel,
@@ -113,4 +114,107 @@ test('should_draw_a_12_mp_photo_at_100_percent (Review Focus 5)', async ({
     2,
     'cutout at the centre',
   )
+})
+
+/** The median of the last 30 frame times while `act` runs, in ms. */
+async function medianFrame(page: Page, act: () => Promise<void>) {
+  await page.evaluate(() => {
+    performance.clearMeasures('peel-frame')
+  })
+  await act()
+  await nextFrame(page)
+  const durations = await page.evaluate(() =>
+    performance.getEntriesByName('peel-frame').map((e) => e.duration),
+  )
+  expect(durations.length).toBeGreaterThanOrEqual(30)
+  const last = durations.slice(-30).sort((a, b) => a - b)
+  return ((last[14] ?? 0) + (last[15] ?? 0)) / 2
+}
+
+test('should_draw_a_dots_frame_under_8_ms (spec 0010 AC-20)', async ({
+  page,
+}) => {
+  await page.goto('/')
+  const photo = await generatedJpeg(page, SIZE.width, SIZE.height)
+  const mid = { x: SIZE.width / 2, y: SIZE.height / 2 }
+  const nodes = Array.from({ length: 2000 }, (_, i) => {
+    const a = (i / 2000) * 2 * Math.PI
+    return {
+      x: mid.x + 1400 * Math.cos(a),
+      y: mid.y + 1000 * Math.sin(a),
+      kind: 'smooth' as const,
+    }
+  })
+  await seedAndOpen(page, {
+    photo,
+    imageSize: SIZE,
+    rings: [{ op: 'add', nodes }],
+  })
+  const canvas = page.getByTestId('canvas')
+  await page.getByRole('button', { name: 'Dots' }).click()
+  await expect(canvas).toHaveAttribute('data-dot-count', '2000')
+
+  // Zoomed in a little, so the view can pan and most dots stay on screen.
+  const box = await canvas.boundingBox()
+  if (!box) throw new Error('no canvas')
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+  await page.mouse.move(cx, cy)
+  for (let i = 0; i < 40; i++) {
+    if (Number(await canvas.getAttribute('data-zoom')) >= 2) break
+    await page.mouse.wheel(0, -100)
+    await nextFrame(page)
+  }
+  expect(Number(await canvas.getAttribute('data-zoom'))).toBeGreaterThanOrEqual(
+    2,
+  )
+
+  // Two fingers pan; in the Dots tool one finger is for the dots.
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Emulation.setTouchEmulationEnabled', {
+    enabled: true,
+    maxTouchPoints: 2,
+  })
+  const touch = (
+    type: 'touchStart' | 'touchMove' | 'touchEnd',
+    dx: number,
+    dy: number,
+  ) =>
+    cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints:
+        type === 'touchEnd'
+          ? []
+          : [
+              { x: cx - 40 + dx, y: cy + dy, id: 0 },
+              { x: cx + 40 + dx, y: cy + dy, id: 1 },
+            ],
+    })
+  const before = await canvas.getAttribute('data-center')
+  const panning = await medianFrame(page, async () => {
+    await touch('touchStart', 0, 0)
+    for (let i = 1; i <= 30; i++) {
+      await touch('touchMove', -i * 6, -i * 2)
+      await nextFrame(page)
+    }
+    await touch('touchEnd', 0, 0)
+  })
+  expect(await canvas.getAttribute('data-center')).not.toBe(before)
+  console.log(`dots, panning: median frame ${panning.toFixed(2)} ms`)
+  expect(panning, 'panning median frame (ms)').toBeLessThan(8)
+
+  // Drag the rightmost dot.
+  const dot = await imageToClient(page, nodes[0] ?? mid)
+  const dragging = await medianFrame(page, async () => {
+    await page.mouse.move(dot.x, dot.y)
+    await page.mouse.down()
+    for (let i = 1; i <= 30; i++) {
+      await page.mouse.move(dot.x - i * 4, dot.y + i * 2)
+      await nextFrame(page)
+    }
+    await expect(page.getByTestId('loupe')).toBeVisible()
+    await page.mouse.up()
+  })
+  console.log(`dots, dragging: median frame ${dragging.toFixed(2)} ms`)
+  expect(dragging, 'dragging median frame (ms)').toBeLessThan(8)
 })
