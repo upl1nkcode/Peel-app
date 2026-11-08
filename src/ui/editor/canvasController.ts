@@ -1,4 +1,9 @@
-import { canvasToImage, initialView } from '../../core/coords/transform'
+import {
+  canvasToImage,
+  fitScale,
+  initialView,
+  viewScale,
+} from '../../core/coords/transform'
 import type { View, Viewport } from '../../core/coords/types'
 import {
   applyTwoFingerGesture,
@@ -40,8 +45,10 @@ import {
   drawFrame,
   drawLasso,
   drawLoupe,
+  drawStrokeBand,
   type DotsLayer,
 } from './drawView'
+import { createBrushTool, type BrushSettings } from './brushTool'
 import {
   createLassoTool,
   type DrawnSection,
@@ -90,6 +97,8 @@ export interface CanvasInputs {
   snapOn?: boolean
   /** A lasso drag ended: lifted, or interrupted by a second finger (AC-1 to AC-7). */
   onLassoSection?(section: DrawnSection): void
+  /** The Brush tool's settings (spec 0011 AC-18, AC-19). */
+  brush?: BrushSettings | undefined
   now?: () => number
 }
 
@@ -103,7 +112,14 @@ export interface CanvasSnapshot {
    * The loupe while aiming or dragging a dot (AC-13, AC-14): where it sits,
    * what it aims at, and whether fine mode is on (spec 0010 AC-5, AC-6).
    */
-  loupe: { center: Point; below: boolean; aim: Point; fine: boolean } | null
+  loupe: {
+    center: Point
+    below: boolean
+    aim: Point
+    fine: boolean
+    /** The brush's circles in loupe CSS px (spec 0011 AC-20). */
+    brush?: { outer: number; inner: number | null }
+  } | null
   /** The lasso's state and its number of points (spec 0011 test hooks). */
   lasso: LassoState
   lassoPoints: number
@@ -146,6 +162,8 @@ const sameSnapshot = (a: CanvasSnapshot, b: CanvasSnapshot) =>
   a.loupe?.aim.x === b.loupe?.aim.x &&
   a.loupe?.aim.y === b.loupe?.aim.y &&
   a.loupe?.fine === b.loupe?.fine &&
+  a.loupe?.brush?.outer === b.loupe?.brush?.outer &&
+  a.loupe?.brush?.inner === b.loupe?.brush?.inner &&
   a.lasso === b.lasso &&
   a.lassoPoints === b.lassoPoints
 
@@ -239,6 +257,36 @@ export function createCanvasController(
     }
   }
 
+  const brushTool = createBrushTool({
+    inputs: () => p,
+    viewport,
+    view: () => view,
+    schedule: () => {
+      schedule()
+    },
+    emit: () => {
+      emit()
+    },
+    setLoupe: (at, aim) => {
+      loupeAt = at
+      loupeAim = aim
+      loupeFine = false
+      schedule()
+      emit()
+    },
+    setPreview: (sel) => {
+      if (sel) {
+        preview = sel
+        previews.add(sel)
+        renderPreview()
+      } else {
+        preview = null
+        previews = new WeakSet()
+      }
+      schedule()
+    },
+  })
+
   const lassoTool = createLassoTool({
     inputs: () => p,
     viewport,
@@ -260,6 +308,7 @@ export function createCanvasController(
 
   function emit() {
     const vp = viewport()
+    const brushRadii = brushTool.loupeRadii()
     const next: CanvasSnapshot = {
       zoom: view?.zoom ?? null,
       displayScale: vp && view ? displayScale(vp, view) : null,
@@ -271,6 +320,7 @@ export function createCanvasController(
               ...loupePlacement(loupeAt, size),
               aim: loupeAim ?? canvasToImage(vp, view, loupeAt),
               fine: loupeFine,
+              ...(brushRadii && { brush: brushRadii }),
             }
           : null,
       lasso: lassoTool.state(),
@@ -312,6 +362,9 @@ export function createCanvasController(
     if (dots) drawDots(ctx, { vp, view }, dots)
     const lasso = lassoTool.layer(accentColour())
     if (lasso) drawLasso(ctx, { vp, view }, lasso)
+    const band = brushTool.band()
+    if (band) drawStrokeBand(ctx, { vp, view }, band)
+    const brush = brushTool.loupeRadii()
     const lctx = loupeAt && loupeCanvas?.getContext('2d')
     if (lctx && loupeAt) {
       drawLoupe(lctx, {
@@ -324,6 +377,8 @@ export function createCanvasController(
         aim: loupeAim ?? canvasToImage(vp, view, loupeAt),
         ...(dots && { dots: { ...dots, box: null } }),
         ...(lasso && { lasso }),
+        ...(band && { band }),
+        ...(brush && { brush }),
       })
     }
     performance.measure('peel-frame', FRAME_MARK)
@@ -629,6 +684,7 @@ export function createCanvasController(
 
   function resetGestures() {
     lassoTool.reset()
+    brushTool.reset()
     clearFineTimer()
     machine.reset()
     sequencer.reset()
@@ -745,6 +801,7 @@ export function createCanvasController(
           break
         case 'tap':
           if (p?.tool === 'dots') dotTap(downHits.get(it.canvasPt))
+          else if (p?.tool === 'brush') brushTool.dab(it.canvasPt)
           else act('add', downImagePts.get(it.canvasPt) ?? null)
           break
         case 'longPress':
@@ -756,7 +813,8 @@ export function createCanvasController(
                 p.selectedDots ?? [],
               )
             }
-          } else act('remove', downImagePts.get(it.canvasPt) ?? null)
+          } else if (p?.tool === 'brush') brushTool.dab(it.canvasPt)
+          else act('remove', downImagePts.get(it.canvasPt) ?? null)
           break
         case 'aimEnd':
           if (p?.tool === 'dots') {
@@ -767,6 +825,10 @@ export function createCanvasController(
             lassoTool.end(it.canvasPt)
             break
           }
+          if (p?.tool === 'brush') {
+            brushTool.end(it.canvasPt)
+            break
+          }
           setLoupe(null)
           act('add', toImagePt(it.canvasPt))
           break
@@ -775,14 +837,17 @@ export function createCanvasController(
           if (p?.tool === 'auto') setLoupe(it.canvasPt)
           else if (p?.tool === 'dots') beginDots(it.canvasPt)
           else if (p?.tool === 'lasso') lassoTool.begin(it.canvasPt)
+          else if (p?.tool === 'brush') brushTool.begin(it.canvasPt)
           break
         case 'aimMove':
           if (p?.tool === 'auto') setLoupe(it.canvasPt)
           else if (p?.tool === 'dots') moveDots(it.canvasPt)
           else if (p?.tool === 'lasso') lassoTool.move(it.canvasPt)
+          else if (p?.tool === 'brush') brushTool.move(it.canvasPt)
           break
         case 'cancel':
           lassoTool.cancel()
+          brushTool.cancel()
           dropDots()
           setLoupe(null)
           break
@@ -817,6 +882,7 @@ export function createCanvasController(
             lastHits = [lastHits[1], down]
           }
           if (p?.tool === 'lasso') lassoTool.down(a.point)
+          if (p?.tool === 'brush') brushTool.down(a.point)
           if (p?.tool === 'view' && view) {
             gesture = { view, points: [a.point, a.point] }
           }
@@ -824,6 +890,7 @@ export function createCanvasController(
         }
         case 'toolMove':
           if (p?.tool === 'lasso') lassoTool.moveRaw(a.point)
+          if (p?.tool === 'brush') brushTool.moveRaw(a.point)
           if (p?.tool === 'view' && vp && gesture) {
             setView(
               applyTwoFingerGesture(vp, gesture.view, gesture.points, [
@@ -876,6 +943,20 @@ export function createCanvasController(
       return vp && view ? visiblePhotoRect(vp, view) : null
     },
 
+    /**
+     * CSS px per image px (spec 0011 AC-19): for the photo on screen, or, with
+     * `image`, for a photo of that size just shown (at fit).
+     */
+    cssPerImagePx(image?: { width: number; height: number }): number | null {
+      measure()
+      if (image) {
+        if (!(size.width > 0) || !(size.height > 0)) return null
+        return fitScale({ canvas: size, image, dpr })
+      }
+      const vp = viewport()
+      return vp && view ? viewScale(vp, view) : null
+    },
+
     setInputs(next: CanvasInputs) {
       const prev = p
       p = next
@@ -893,6 +974,10 @@ export function createCanvasController(
       // Switching tool mid-drag keeps the section so far (spec 0011 AC-7).
       if (!photoChanged && prev?.tool === 'lasso' && next.tool !== 'lasso') {
         lassoTool.cancel()
+      }
+      // A stroke is dropped by a tool change, like a second finger (AC-18).
+      if (!photoChanged && prev?.tool === 'brush' && next.tool !== 'brush') {
+        brushTool.cancel()
       }
       if (photoChanged) newPhoto(next.photo)
       if (

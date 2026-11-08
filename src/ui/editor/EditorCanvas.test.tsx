@@ -10,7 +10,11 @@ import type { AlphaMask } from '../../core/mask'
 import { emptySelection } from '../../core/selection/model'
 import type { Point } from '../../core/geometry/types'
 import type { Command, NodeRef, Selection } from '../../core/selection/types'
-import { snapReachPx, type LassoSection } from '../../core/editor'
+import {
+  loupeBrushRadii,
+  snapReachPx,
+  type LassoSection,
+} from '../../core/editor'
 import type { DrawnSection } from './canvasController'
 import { EditorCanvas, type EditorCanvasProps } from './EditorCanvas'
 
@@ -921,5 +925,147 @@ describe('lasso tool (spec 0011)', () => {
     expect(calls).toHaveLength(2)
     expect(calls[1]?.finger.at(-1)).toEqual({ x: 1450, y: 1000 })
     lift(canvas, { x: 145, y: 100 })
+  })
+})
+
+describe('brush tool (spec 0011)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // At fit (0.1 CSS px per image px) canvas (x, y) is image (10x, 10y).
+  type StrokeCommand = Extract<Command, { type: 'addStroke' }>
+  function brush(over: Partial<EditorCanvasProps> = {}) {
+    const edits: Command[] = []
+    const s = setup({
+      tool: 'brush',
+      brush: { mode: 'erase', sizePx: 24, hardness: 1 },
+      onEdit: (c) => edits.push(c),
+      ...over,
+    })
+    return { ...s, edits }
+  }
+  const drag = (canvas: HTMLElement, from: Point, ...to: Point[]) => {
+    fireEvent.pointerDown(canvas, at(from.x, from.y))
+    for (const p of to) fireEvent.pointerMove(canvas, at(p.x, p.y))
+  }
+  const lift = (canvas: HTMLElement, p: Point) => {
+    fireEvent.pointerUp(canvas, at(p.x, p.y))
+  }
+  const tap = (canvas: HTMLElement, x: number, y: number) => {
+    fireEvent.pointerDown(canvas, at(x, y))
+    fireEvent.pointerUp(canvas, at(x, y))
+  }
+
+  it('should_paint_one_stroke_per_drag (AC-18)', async () => {
+    const { canvas, edits } = brush()
+    await advance(20)
+    drag(
+      canvas,
+      { x: 100, y: 100 },
+      { x: 103, y: 100 },
+      { x: 106, y: 100 },
+      { x: 115, y: 100 },
+      { x: 130, y: 100 },
+    )
+    expect(edits).toEqual([])
+    lift(canvas, { x: 140, y: 100 })
+    expect(edits).toHaveLength(1)
+    const c = edits[0] as StrokeCommand
+    expect(c.type).toBe('addStroke')
+    expect(c.stroke).toMatchObject({ mode: 'erase', sizePx: 24, hardness: 1 })
+    expect(c.stroke.points[0]).toEqual({ x: 1000, y: 1000 })
+    // The samples before the 10 px slop are kept.
+    expect(c.stroke.points).toContainEqual({ x: 1030, y: 1000 })
+    expect(c.stroke.points).toContainEqual({ x: 1060, y: 1000 })
+    expect(c.stroke.points.at(-1)).toEqual({ x: 1400, y: 1000 })
+    expect(screen.queryByTestId('loupe')).toBeNull()
+  })
+
+  it('should_cancel_a_stroke_on_a_second_finger (AC-18)', async () => {
+    const { canvas, edits } = brush()
+    await advance(20)
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 }, { x: 160, y: 100 })
+    fireEvent.pointerDown(canvas, at(250, 250, 2))
+    lift(canvas, { x: 160, y: 100 })
+    fireEvent.pointerUp(canvas, at(250, 250, 2))
+    await advance(600)
+    expect(edits).toEqual([])
+    expect(screen.queryByTestId('loupe')).toBeNull()
+  })
+
+  it('should_dab_on_a_tap_and_zoom_on_a_double_tap (AC-18)', async () => {
+    const { canvas, edits } = brush()
+    await advance(20)
+    tap(canvas, 100, 100)
+    expect(edits).toEqual([])
+    await advance(300)
+    expect(edits).toEqual([
+      {
+        type: 'addStroke',
+        stroke: {
+          mode: 'erase',
+          sizePx: 24,
+          hardness: 1,
+          points: [{ x: 1000, y: 1000 }],
+        },
+      },
+    ])
+    tap(canvas, 200, 150)
+    await advance(100)
+    tap(canvas, 200, 150)
+    await advance(600)
+    expect(edits).toHaveLength(1)
+    expect(canvas.getAttribute('data-zoom')).toBe('5.0000')
+  })
+
+  it('should_preview_the_stroke_while_painting (AC-21)', async () => {
+    const { canvas, calls } = brush()
+    await advance(20)
+    calls[0]?.resolve(mask(0.2))
+    await advance(0)
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 })
+    expect(calls).toHaveLength(2)
+    expect(calls[1]?.selection.strokes.at(-1)?.points.at(-1)).toEqual({
+      x: 1300,
+      y: 1000,
+    })
+    fireEvent.pointerMove(canvas, at(150, 100))
+    fireEvent.pointerMove(canvas, at(170, 100))
+    // One render at a time.
+    expect(calls).toHaveLength(2)
+    calls[1]?.resolve(mask(0.2))
+    await advance(0)
+    expect(calls).toHaveLength(3)
+    expect(calls[2]?.selection.strokes.at(-1)?.points.at(-1)).toEqual({
+      x: 1700,
+      y: 1000,
+    })
+    lift(canvas, { x: 170, y: 100 })
+  })
+
+  it('should_show_the_brush_in_the_loupe (AC-20)', async () => {
+    const { canvas, rerender } = brush({
+      brush: { mode: 'restore', sizePx: 24, hardness: 0.5 },
+    })
+    await advance(20)
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 }, { x: 160, y: 110 })
+    const soft = loupeBrushRadii(24, 0.5, 0.1)
+    expect(screen.getByTestId('loupe').getAttribute('data-aim')).toBe(
+      '1600.0000,1100.0000',
+    )
+    expect(screen.getByTestId('loupe').getAttribute('data-brush-radius')).toBe(
+      `${soft.outer.toFixed(4)},${(soft.inner ?? 0).toFixed(4)}`,
+    )
+    lift(canvas, { x: 160, y: 110 })
+    rerender({ brush: { mode: 'restore', sizePx: 24, hardness: 1 } })
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 })
+    expect(screen.getByTestId('loupe').getAttribute('data-brush-radius')).toBe(
+      loupeBrushRadii(24, 1, 0.1).outer.toFixed(4),
+    )
+    lift(canvas, { x: 130, y: 100 })
   })
 })

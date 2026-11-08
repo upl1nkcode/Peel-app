@@ -21,6 +21,11 @@ export type EditorCanvasProps = CanvasInputs
 export interface EditorCanvasHandle {
   /** The part of the photo on screen, in image px; null before it is laid out. */
   visiblePhotoRect(): Rect | null
+  /**
+   * CSS px per image px, for the photo on screen or, with `image`, for a
+   * photo of that size just shown at fit (spec 0011 AC-19).
+   */
+  cssPerImagePx(image?: { width: number; height: number }): number | null
 }
 
 const fixed = (n: number | null | undefined) =>
@@ -41,6 +46,7 @@ export function EditorCanvas({
     ref,
     () => ({
       visiblePhotoRect: () => ctl.visibleRect(),
+      cssPerImagePx: (image) => ctl.cssPerImagePx(image),
     }),
     [ctl],
   )

@@ -17,6 +17,7 @@ import { toBezierSegments } from '../../core/geometry/bezier'
 import type { Point } from '../../core/geometry/types'
 import type { AlphaMask } from '../../core/mask'
 import type { NodeRef, Selection } from '../../core/selection/types'
+import type { BrushBand } from './brushTool'
 import type { LassoLayer } from './lassoTool'
 
 /** What one frame shows (spec 0009 AC-8, AC-11, AC-18). */
@@ -185,7 +186,14 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame): void {
  */
 export function drawLoupe(
   ctx: CanvasRenderingContext2D,
-  f: Frame & { aim: Point; dots?: DotsLayer; lasso?: LassoLayer },
+  f: Frame & {
+    aim: Point
+    dots?: DotsLayer
+    lasso?: LassoLayer
+    band?: BrushBand
+    /** The brush's circles in loupe CSS px (spec 0011 AC-20). */
+    brush?: { outer: number; inner: number | null }
+  },
 ): void {
   const d = LOUPE_DIAMETER_PX
   const vp: Viewport = {
@@ -198,6 +206,7 @@ export function drawLoupe(
   drawFrame(ctx, { ...f, vp, view })
   if (f.dots) drawDots(ctx, { vp, view }, f.dots)
   if (f.lasso) drawLasso(ctx, { vp, view }, f.lasso)
+  if (f.band) drawStrokeBand(ctx, { vp, view }, f.band)
   const size = ctx.canvas.width
   const line = Math.max(1, Math.round(f.vp.dpr))
   const c = Math.floor(size / 2) - Math.floor(line / 2)
@@ -210,6 +219,35 @@ export function drawLoupe(
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(c, 0, line, size)
   ctx.fillRect(0, c, size, line)
+  if (f.brush) drawBrushCircles(ctx, f.brush, f.vp.dpr)
+}
+
+/**
+ * The brush in the loupe (spec 0011 AC-20): its outline at true size, and a
+ * dashed circle where full strength ends. Radii are loupe CSS px.
+ */
+function drawBrushCircles(
+  ctx: CanvasRenderingContext2D,
+  r: { outer: number; inner: number | null },
+  dpr: number,
+): void {
+  const c = ctx.canvas.width / 2
+  const ring = (radius: number, colour: string, width: number) => {
+    ctx.beginPath()
+    ctx.arc(c, c, radius * dpr, 0, 2 * Math.PI)
+    ctx.strokeStyle = colour
+    ctx.lineWidth = width * dpr
+    ctx.stroke()
+  }
+  ctx.save()
+  ring(r.outer, LINE_DARK, 3)
+  ring(r.outer, '#ffffff', 1)
+  if (r.inner !== null) {
+    ctx.setLineDash([4 * dpr, 4 * dpr])
+    ring(r.inner, LINE_DARK, 3)
+    ring(r.inner, '#ffffff', 1)
+  }
+  ctx.restore()
 }
 
 /** The Dots tool's layer (spec 0010 AC-1, AC-11). */
@@ -428,5 +466,42 @@ export function drawLasso(
     ctx.strokeStyle = layer.accent
     ctx.stroke()
   }
+  ctx.restore()
+}
+
+/** The painted area's colours (spec 0011 AC-21). */
+export const BAND_COLOURS = {
+  erase: 'rgba(220, 38, 38, 0.4)',
+  restore: 'rgba(22, 163, 74, 0.4)',
+} as const
+
+/**
+ * The stroke being painted as one translucent band of the brush's diameter
+ * (spec 0011 AC-21), with round caps and joins, so a dab is a disc.
+ */
+export function drawStrokeBand(
+  ctx: CanvasRenderingContext2D,
+  f: { vp: Viewport; view: View },
+  band: BrushBand,
+): void {
+  const first = band.points[0]
+  if (!first) return
+  const { vp, view } = f
+  const dpr = vp.dpr
+  const k = displayScale(vp, view)
+  const ox = (vp.canvas.width * dpr) / 2 - view.center.x * k
+  const oy = (vp.canvas.height * dpr) / 2 - view.center.y * k
+  const path = new Path2D()
+  path.moveTo(first.x * k + ox, first.y * k + oy)
+  for (const p of band.points) path.lineTo(p.x * k + ox, p.y * k + oy)
+  ctx.save()
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.globalAlpha = 1
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = band.sizePx * k
+  ctx.strokeStyle = BAND_COLOURS[band.mode]
+  ctx.stroke(path)
   ctx.restore()
 }

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RgbaImage } from '../../core/mask'
 import type { Tap } from '../../core/segmentation'
-import { snapReachPx } from '../../core/editor'
+import { brushSliderAt, snapReachPx } from '../../core/editor'
 import type { Point } from '../../core/geometry/types'
 import { fitRing as realFitRing } from '../../core/selection/density'
 import type { Selection } from '../../core/selection/types'
@@ -1266,5 +1266,102 @@ describe('EditorScreen lasso tool (spec 0011)', () => {
     expect(lastRendered()?.rings).toHaveLength(0)
     expect(button('Undo')).toBeDisabled()
     expect(button('Lasso')).toHaveAttribute('aria-pressed', 'true')
+  })
+})
+
+describe('EditorScreen brush tool (spec 0011)', () => {
+  // 2 CSS px per image px, as in the dots tests.
+  const hint = () =>
+    screen.getByTestId('sheet').querySelector('.editor-hint')?.textContent
+  const radio = (name: string) => screen.getByRole('radio', { name })
+  const slider = (name: string) => screen.getByRole('slider', { name })
+
+  async function brushTool() {
+    const clock = { t: 0 }
+    const { fast, precise } = fastOnly()
+    const canvas = await pick(fast, precise, clock)
+    fireEvent.click(button('Brush'))
+    return { canvas, clock }
+  }
+  function paint(canvas: HTMLElement) {
+    const at = (x: number) => ({ clientX: x, clientY: 70, pointerId: 1 })
+    fireEvent.pointerDown(canvas, at(60))
+    fireEvent.pointerMove(canvas, at(90))
+    fireEvent.pointerMove(canvas, at(120))
+    fireEvent.pointerUp(canvas, at(120))
+  }
+
+  it('should_show_the_brush_hints (AC-24)', async () => {
+    await brushTool()
+    const sheet = screen.getByTestId('sheet')
+    expect(hint()).toBe('Paint over what to remove')
+    // Top to bottom: Erase | Restore, Size, Hardness.
+    expect(
+      [...sheet.querySelectorAll('button, input')].map(
+        (c) => c.getAttribute('aria-label') ?? c.textContent,
+      ),
+    ).toEqual(['Erase', 'Restore', 'Size', 'Hardness'])
+    fireEvent.click(radio('Restore'))
+    expect(hint()).toBe('Paint over what to bring back')
+  })
+
+  it('should_show_size_and_hardness (AC-19)', async () => {
+    const { canvas } = await brushTool()
+    // round(40 / k) with k = 2.
+    expect(screen.getByText('Size 20 px')).toBeInTheDocument()
+    expect(screen.getByText('Hardness 100%')).toBeInTheDocument()
+    expect(radio('Erase')).toHaveAttribute('aria-checked', 'true')
+    fireEvent.change(slider('Size'), {
+      target: { value: String(brushSliderAt(7)) },
+    })
+    expect(screen.getByText('Size 7 px')).toBeInTheDocument()
+    const zoom = canvas.getAttribute('data-zoom')
+    // Pinch out (a double-tap does nothing: this photo is past 100% at fit).
+    const finger = (x: number, pointerId: number) => ({
+      clientX: x,
+      clientY: 70,
+      pointerId,
+    })
+    fireEvent.pointerDown(canvas, finger(90, 1))
+    fireEvent.pointerDown(canvas, finger(130, 2))
+    fireEvent.pointerMove(canvas, finger(170, 2))
+    fireEvent.pointerUp(canvas, finger(90, 1))
+    fireEvent.pointerUp(canvas, finger(170, 2))
+    await waitFor(() => {
+      expect(canvas.getAttribute('data-zoom')).not.toBe(zoom)
+    })
+    expect(screen.getByText('Size 7 px')).toBeInTheDocument()
+    // The size stays with the photo when Brush opens again.
+    fireEvent.click(button('Auto'))
+    fireEvent.click(button('Brush'))
+    expect(screen.getByText('Size 7 px')).toBeInTheDocument()
+  })
+
+  it('should_use_the_current_settings_for_a_stroke (AC-18, AC-19)', async () => {
+    const { canvas } = await brushTool()
+    fireEvent.click(radio('Restore'))
+    fireEvent.change(slider('Hardness'), { target: { value: '50' } })
+    expect(screen.getByText('Hardness 50%')).toBeInTheDocument()
+    paint(canvas)
+    await waitFor(() => {
+      expect(lastRendered()?.strokes).toHaveLength(1)
+    })
+    expect(lastRendered()?.strokes[0]).toMatchObject({
+      mode: 'restore',
+      sizePx: 20,
+      hardness: 0.5,
+    })
+  })
+
+  it('should_restore_with_no_rings (AC-22)', async () => {
+    const { canvas } = await brushTool()
+    fireEvent.click(radio('Restore'))
+    paint(canvas)
+    await waitFor(() => {
+      expect(lastRendered()?.strokes).toHaveLength(1)
+    })
+    expect(lastRendered()?.rings).toEqual([])
+    expect(lastRendered()?.strokes[0]?.points[0]).toEqual({ x: 25, y: 25 })
+    expect(button('Undo')).toBeEnabled()
   })
 })
