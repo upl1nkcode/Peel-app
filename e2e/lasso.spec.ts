@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { cutoutAlpha, cutoutAlphas, drag, finger, zoomAt } from './helpers/dots'
-import { canvasInfo, imageToClient, nextFrame } from './helpers/editor'
+import { canvasInfo, imageToClient } from './helpers/editor'
 import { around, openLasso, trace } from './helpers/lasso'
 
 // The PWA's service worker would fetch the models itself, past page.route,
@@ -17,6 +17,11 @@ const canvas = (page: Page) => page.getByTestId('canvas')
 const points = async (page: Page) =>
   Number(await canvas(page).getAttribute('data-lasso-points'))
 
+/** Waits until the new ring's mask is shown: `inside` turns opaque. */
+async function settled(page: Page, inside: { x: number; y: number }) {
+  await expect.poll(() => cutoutAlpha(page, inside)).toBe(255)
+}
+
 async function dotsOpened(page: Page) {
   await expect(canvas(page)).toHaveAttribute('data-tool', 'dots')
   await expect
@@ -32,7 +37,7 @@ test('should_close_a_traced_lasso_into_dots (AC-1, AC-4, AC-16)', async ({
   await trace(page, f, around(30, 20, 90, 60))
   await dotsOpened(page)
   await expect(canvas(page)).toHaveAttribute('data-selected-count', '0')
-  expect(await cutoutAlpha(page, { x: 60, y: 40 })).toBe(255)
+  await settled(page, { x: 60, y: 40 })
   expect(await cutoutAlpha(page, { x: 10, y: 10 })).toBe(0)
 })
 
@@ -67,7 +72,7 @@ test('should_pause_zoom_and_continue (AC-5, AC-6, AC-9)', async ({
   await page.getByRole('button', { name: 'Finish' }).click()
   await dotsOpened(page)
   // Inside (30,20) (90,20) (90,60) (75,60), and outside its closing line.
-  expect(await cutoutAlpha(page, { x: 80, y: 40 })).toBe(255)
+  await settled(page, { x: 80, y: 40 })
   expect(await cutoutAlpha(page, { x: 40, y: 50 })).toBe(0)
 })
 
@@ -100,6 +105,7 @@ test('should_snap_to_the_colour_edge (AC-12)', async ({ page }, info) => {
   await page.getByRole('switch', { name: 'Snap to edges' }).click()
   await trace(page, f, await wobblyRect(page), { stepPx: 2 })
   await dotsOpened(page)
+  await settled(page, { x: 85, y: 40 })
   expect(await wrongRows(page)).toEqual([])
 
   // The same trace without snapping keeps the wobble.
@@ -109,8 +115,10 @@ test('should_snap_to_the_colour_edge (AC-12)', async ({ page }, info) => {
   await expect(
     page.getByRole('switch', { name: 'Snap to edges' }),
   ).toHaveAttribute('aria-checked', 'false')
+  await expect.poll(() => cutoutAlpha(page, { x: 85, y: 40 })).toBe(0)
   await trace(page, f, await wobblyRect(page), { stepPx: 2 })
   await dotsOpened(page)
+  await settled(page, { x: 85, y: 40 })
   expect((await wrongRows(page)).length).toBeGreaterThan(0)
 })
 
@@ -135,6 +143,5 @@ test('should_trace_off_the_photo (Review Focus 3)', async ({ page }, info) => {
   const inside = roomRight ? { x: 115, y: 40 } : { x: 60, y: 75 }
   await trace(page, f, trail)
   await dotsOpened(page)
-  await nextFrame(page)
-  expect(await cutoutAlpha(page, inside)).toBe(255)
+  await settled(page, inside)
 })
