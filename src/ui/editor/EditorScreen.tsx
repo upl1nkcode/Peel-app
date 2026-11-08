@@ -25,7 +25,13 @@ import {
   type EditorTool,
 } from './EditorCanvas'
 import { StickerPanel } from './StickerPanel'
-import { copyMask, createSession, type Photo, type Renderer } from './session'
+import {
+  copyMask,
+  createSession,
+  type Photo,
+  type Renderer,
+  type Snapper,
+} from './session'
 import { Toolbar, ToolSheet } from './Toolbar'
 import { useStickers, type StickerDeps, type StickerHost } from './useStickers'
 import './EditorScreen.css'
@@ -54,6 +60,8 @@ export interface EditorScreenProps {
   engines: { fast: SegmentationEngine; precise: SegmentationEngine }
   missingBytes(files: readonly ModelFile[]): Promise<number>
   createRenderer(): Renderer
+  /** The live-wire worker for snapping lasso sections (spec 0011 AC-11). */
+  createSnapper?(): Snapper
   /** Decodes a picked file; rejects (e.g. `PhotoUnreadableError`) when it can't. */
   loadPhoto(file: Blob): Promise<LoadedPhoto>
   /** Whether the browser can run the engines; checked before any download. */

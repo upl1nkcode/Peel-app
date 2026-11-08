@@ -3,7 +3,7 @@ import type { StickerRecord } from '../../core/backup/types'
 import type { AlphaMask, RgbaImage } from '../../core/mask'
 import type { Command, Selection } from '../../core/selection/types'
 import { createFakeEngine } from '../../services/segmentation'
-import { createSession, type Renderer } from './session'
+import { createSession, type Renderer, type Snapper } from './session'
 
 const PHOTO: RgbaImage = {
   width: 100,
@@ -99,5 +99,42 @@ describe('session edits (spec 0010)', () => {
     const before = s.snapshot()?.selection
     expect(() => s.edit({ type: 'deleteNode', ring: 3, node: 0 })).toThrow()
     expect(s.snapshot()?.selection).toBe(before)
+  })
+
+  it('should_give_each_photo_to_the_snapper (spec 0011 AC-11)', async () => {
+    const rendered: RgbaImage[] = []
+    const snapped: [string, RgbaImage][] = []
+    const snapper: Snapper = {
+      setImage: (id, image) => {
+        snapped.push([id, image])
+      },
+      snap: () => Promise.resolve({ type: 'cancelled' as const }),
+    }
+    const s = createSession({
+      engines: {
+        fast: createFakeEngine({ name: 'fast' }),
+        precise: createFakeEngine({ name: 'precise' }),
+      },
+      missingBytes: () => Promise.resolve(0),
+      createRenderer: () => ({
+        ...renderer,
+        setImage: (_id: string, image: RgbaImage) => {
+          rendered.push(image)
+        },
+      }),
+      createSnapper: () => snapper,
+      loadPhoto: () => Promise.resolve(loaded()),
+      onState: () => undefined,
+      onSelection: () => undefined,
+    })
+    const photo = await s.pick(new File([], 'a.png'))
+    expect(s.snapper).toBe(snapper)
+    expect(snapped).toHaveLength(1)
+    const [id, image] = snapped[0] as [string, RgbaImage]
+    expect(id).toBe(photo.id)
+    // Its own copy: sending to a worker detaches the buffer.
+    expect(image.data).toEqual(PHOTO.data)
+    expect(image.data).not.toBe(PHOTO.data)
+    expect(image.data).not.toBe(rendered[0]?.data)
   })
 })

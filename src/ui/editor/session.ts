@@ -8,7 +8,10 @@ import type { Command, Selection } from '../../core/selection/types'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { createAutoCutout, type AutoState } from '../../services/segmentation'
 import type { Cancelled } from '../../services/workerClient'
-import type { FromRenderWorker } from '../../workers/protocol'
+import type {
+  FromLiveWireWorker,
+  FromRenderWorker,
+} from '../../workers/protocol'
 import type { EditorScreenProps } from './EditorScreen'
 import type { SaveSnapshot, StickerRef } from './useStickers'
 
@@ -73,6 +76,16 @@ function photoCanvas(image: RgbaImage): HTMLCanvasElement {
   return canvas
 }
 
+/** The live-wire worker (spec 0006), which snaps lasso sections (spec 0011 AC-11). */
+export interface Snapper {
+  setImage(imageId: string, image: RgbaImage): void
+  snap(
+    imageId: string,
+    finger: Point[],
+    reachPx: number,
+  ): Promise<FromLiveWireWorker | Cancelled>
+}
+
 export interface SessionDeps extends EditorScreenProps {
   onState(state: AutoState): void
   onSelection(selection: Selection): void
@@ -89,6 +102,7 @@ export interface SessionDeps extends EditorScreenProps {
 export function createSession(deps: SessionDeps) {
   const history = createHistory(emptySelection())
   let renderer: Renderer | null = null
+  let snapper: Snapper | null = null
   let started = false
   let photos = 0
   let photo: Photo | null = null
@@ -145,6 +159,8 @@ export function createSession(deps: SessionDeps) {
     } else {
       renderer.setImage(id, copyImage(image))
     }
+    snapper ??= deps.createSnapper?.() ?? null
+    snapper?.setImage(id, copyImage(image))
     if (!started) {
       started = true
       void auto.start()
@@ -160,6 +176,10 @@ export function createSession(deps: SessionDeps) {
   return {
     get renderer() {
       return renderer
+    },
+    /** Null when the app gives no live-wire worker (spec 0011 AC-11). */
+    get snapper() {
+      return snapper
     },
     /** What a save stores, as it is now (spec 0008 Review Focus 1). */
     snapshot(): SaveSnapshot | null {
