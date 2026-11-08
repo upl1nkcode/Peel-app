@@ -3,6 +3,7 @@ import { createHistory } from '../../core/history/history'
 import type { AlphaMask, RgbaImage } from '../../core/mask'
 import type { Tap } from '../../core/segmentation'
 import { emptySelection } from '../../core/selection/model'
+import type { Point } from '../../core/geometry/types'
 import type { Command, Selection } from '../../core/selection/types'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { createAutoCutout, type AutoState } from '../../services/segmentation'
@@ -29,6 +30,11 @@ export interface Renderer {
   /** Every ring re-simplified to `tolerancePx` (spec 0010 AC-15), off the main thread. */
   resimplify(
     selection: Selection,
+    tolerancePx: number,
+  ): Promise<FromRenderWorker | Cancelled>
+  /** A closed lasso path's dots (spec 0011 AC-15), off the main thread. */
+  fitRing(
+    path: Point[],
     tolerancePx: number,
   ): Promise<FromRenderWorker | Cancelled>
 }

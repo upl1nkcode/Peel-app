@@ -1,4 +1,6 @@
 import { sampleSegment, toBezierSegments } from '../geometry/bezier'
+import { InvalidLassoError } from '../geometry/lasso'
+import { isDegenerateRing } from '../geometry/polygon'
 import { simplifyPathIndices, simplifyRingIndices } from '../geometry/simplify'
 import type { BezierSegment, Node, Point } from '../geometry/types'
 
@@ -354,6 +356,12 @@ function removeDots(ctx: Context, nodes: readonly Node[]): number[] {
  * old sample. Null if it cannot finish (the caller then keeps the ring).
  */
 function repair(ctx: Context, start: readonly number[]): Node[] | null {
+  const kept = repairKept(ctx, start)
+  return kept && nodesAt(ctx, kept)
+}
+
+/** `repair`, giving the dense indices of the dots instead of the dots. */
+function repairKept(ctx: Context, start: readonly number[]): number[] | null {
   const { pts, isCorner, limit, oldGrid } = ctx
   const n = pts.length
   let kept = [...start]
@@ -393,7 +401,7 @@ function repair(ctx: Context, start: readonly number[]): Node[] | null {
       }
     }
 
-    if (worst.size === 0) return candidate
+    if (worst.size === 0) return kept
     const additions: number[] = []
     for (const [g, w] of worst) {
       const index = w.index ?? midOfGap(kept, g, n)
@@ -474,4 +482,123 @@ function upperGap(kept: readonly number[], i: number): number {
     else hi = mid - 1
   }
   return lo
+}
+
+/** `fitRing`'s removal filter samples the path a tolerance / 4 apart. */
+const REMOVAL_STEP_FRACTION = 4
+
+/** The tolerances `fitRing` accepts: the density slider's range (spec 0003 AC-24). */
+const FIT_TOLERANCE_MIN = 0.01
+const FIT_TOLERANCE_MAX = 8
+
+/** A closed path resampled so consecutive points are at most `step` apart. */
+function resampleRing(path: readonly Point[], step: number): Point[] {
+  const out: Point[] = []
+  const m = path.length
+  for (let i = 0; i < m; i++) {
+    const a = path[i] as Point
+    const b = path[(i + 1) % m] as Point
+    const parts = Math.max(
+      1,
+      Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / step),
+    )
+    for (let k = 0; k < parts; k++) {
+      out.push({
+        x: a.x + ((b.x - a.x) * k) / parts,
+        y: a.y + ((b.y - a.y) * k) / parts,
+      })
+    }
+  }
+  return out
+}
+
+/**
+ * Smooth dots for a closed lasso path (spec 0011 AC-15): every point of the
+ * path, sampled every 0.1 px, lies within `tolerancePx` of the drawn curve,
+ * and every point of the curve within `tolerancePx` of the path. This is
+ * density's guarantee (spec 0003 AC-21) applied to a path: dots picked by RDP,
+ * then repaired until both directions hold. Density's dot-removal pass is
+ * skipped; it is what makes `resimplifyRing` slow on long rings (AC-27).
+ * Throws `InvalidLassoError` for fewer than 3 distinct points or points all on
+ * one line (AC-10), and `RangeError` for a tolerance outside [0.01, 8].
+ */
+export function fitRing(path: readonly Point[], tolerancePx: number): Node[] {
+  if (
+    !Number.isFinite(tolerancePx) ||
+    tolerancePx < FIT_TOLERANCE_MIN ||
+    tolerancePx > FIT_TOLERANCE_MAX
+  ) {
+    throw new RangeError(
+      `tolerance must be in [0.01, 8] px, got ${String(tolerancePx)}`,
+    )
+  }
+  const distinct: Point[] = []
+  for (const p of path) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+      throw new RangeError('lasso points must be finite')
+    }
+    const last = distinct.at(-1)
+    if (!last || last.x !== p.x || last.y !== p.y) {
+      distinct.push({ x: p.x, y: p.y })
+    }
+  }
+  const first = distinct[0]
+  const last = distinct.at(-1)
+  if (
+    first &&
+    last &&
+    distinct.length > 1 &&
+    first.x === last.x &&
+    first.y === last.y
+  ) {
+    distinct.pop()
+  }
+  if (distinct.length < 3 || isDegenerateRing(distinct)) {
+    throw new InvalidLassoError(
+      `a lasso needs at least 3 points not on one line, got ${String(distinct.length)}`,
+    )
+  }
+  const pts = resampleRing(distinct, DENSITY_SAMPLE_STEP)
+  const limit = tolerancePx * CHECK_MARGIN
+  const ctx: Context = {
+    pts,
+    nodeAt: [],
+    isCorner: new Uint8Array(pts.length),
+    limit,
+    oldGrid: new PolylineGrid(pts, limit),
+  }
+  const kept =
+    repairKept(ctx, pickByRdp(ctx, [])) ??
+    repairKept(ctx, sortedUnique(simplifyRingIndices(pts, limit / 4)))
+  if (kept) {
+    // RDP's picks sit on the wobbles of a traced line; take out every dot
+    // the curve can do without, as density does, then repair again. The
+    // removal check is a filter, so it runs on every f-th path sample (a
+    // quarter of the tolerance apart); `repair` re-checks at 0.1 px.
+    const f = Math.max(
+      1,
+      Math.floor(tolerancePx / REMOVAL_STEP_FRACTION / DENSITY_SAMPLE_STEP),
+    )
+    const coarse = pts.filter((_, i) => i % f === 0)
+    const coarseCtx: Context = {
+      pts: coarse,
+      nodeAt: kept.map((k) => Math.floor(k / f)),
+      isCorner: new Uint8Array(coarse.length),
+      limit,
+      oldGrid: new PolylineGrid(coarse, limit),
+    }
+    const pruned = removeDots(coarseCtx, nodesAt(ctx, kept)).map(
+      (i) => kept[i] as number,
+    )
+    const fewer = pruned.length < kept.length ? repairKept(ctx, pruned) : null
+    return nodesAt(ctx, fewer && fewer.length < kept.length ? fewer : kept)
+  }
+  // Safety stop: one dot every tolerance (at least 0.5 px) along the path.
+  const every = Math.max(
+    1,
+    Math.round(Math.max(0.5, tolerancePx) / DENSITY_SAMPLE_STEP),
+  )
+  return pts
+    .filter((_, i) => i % every === 0)
+    .map((p) => ({ x: p.x, y: p.y, kind: 'smooth' as const }))
 }

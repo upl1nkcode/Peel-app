@@ -2,6 +2,7 @@ import { smartEdgeRefiner } from '../core/matting'
 import { renderMask, type EdgeRefiner } from '../core/mask/render'
 import type { RgbaImage } from '../core/mask/types'
 import { applyCommand } from '../core/selection/commands'
+import { fitRing } from '../core/selection/density'
 import {
   unknownImage,
   unknownMessage,
@@ -70,6 +71,15 @@ export function createRenderHandler(): Handler<
           transfer: [],
         }
       }
+      case 'fitRing':
+        return {
+          message: {
+            type: 'fitted',
+            jobId: msg.jobId,
+            nodes: fitRing(msg.path, msg.tolerancePx),
+          },
+          transfer: [],
+        }
       default:
         throw unknownMessage(msg)
     }

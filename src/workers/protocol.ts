@@ -1,4 +1,4 @@
-import type { Point, Size } from '../core/geometry/types'
+import type { Node, Point, Size } from '../core/geometry/types'
 import type { AlphaMask, RgbaImage } from '../core/mask/types'
 import type { Tap } from '../core/segmentation/types'
 import type { Selection } from '../core/selection/types'
@@ -43,9 +43,12 @@ export type ToRenderWorker =
       selection: Selection
       tolerancePx: number
     }
+  /** A closed lasso path's dots (spec 0011 AC-15, AC-27). */
+  | { type: 'fitRing'; jobId: number; path: Point[]; tolerancePx: number }
 export type FromRenderWorker =
   | { type: 'rendered'; jobId: number; mask: AlphaMask }
   | { type: 'resimplified'; jobId: number; selection: Selection }
+  | { type: 'fitted'; jobId: number; nodes: Node[] }
   | { type: 'cancelled'; jobId: number }
   | { type: 'error'; jobId: number; message: string }
 
