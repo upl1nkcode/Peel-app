@@ -1,4 +1,4 @@
-import { fitScale, imageToCanvas, viewScale } from '../../core/coords/transform'
+import { fitScale, viewScale } from '../../core/coords/transform'
 import type { View, Viewport } from '../../core/coords/types'
 import {
   CHECKER_DARK,
@@ -6,6 +6,7 @@ import {
   CHECKER_PX,
   displayScale,
   isCrisp,
+  photoDivisor,
   LOUPE_DIAMETER_PX,
   loupeScale,
   VIEW_BACKGROUNDS,
@@ -90,6 +91,38 @@ export function checkerPattern(
   return pattern
 }
 
+const photoCopies = new WeakMap<object, Map<number, HTMLCanvasElement>>()
+
+/**
+ * The photo at 1/`d` of its size, made once per photo and size (spec 0010
+ * AC-20); the photo itself when `d` is 1 or a copy can't be made.
+ */
+function photoCopy(
+  photo: CanvasImageSource,
+  iw: number,
+  ih: number,
+  d: number,
+): CanvasImageSource {
+  if (d === 1 || typeof document === 'undefined') return photo
+  let copies = photoCopies.get(photo)
+  if (!copies) {
+    copies = new Map()
+    photoCopies.set(photo, copies)
+  }
+  const cached = copies.get(d)
+  if (cached) return cached
+  const copy = document.createElement('canvas')
+  copy.width = Math.max(1, Math.ceil(iw / d))
+  copy.height = Math.max(1, Math.ceil(ih / d))
+  const c = copy.getContext('2d')
+  if (!c) return photo
+  c.imageSmoothingEnabled = true
+  c.imageSmoothingQuality = 'high'
+  c.drawImage(photo, 0, 0, copy.width, copy.height)
+  copies.set(d, copy)
+  return copy
+}
+
 /** Sizes `ctx.canvas` to the viewport × dpr and draws one frame. */
 export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame): void {
   const { vp, view } = f
@@ -125,13 +158,14 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame): void {
   ctx.imageSmoothingQuality = 'high'
   const { width: iw, height: ih } = vp.image
 
+  const photo = photoCopy(f.photo, iw, ih, photoDivisor(k))
   if (f.comparing) {
-    ctx.drawImage(f.photo, 0, 0, iw, ih)
+    ctx.drawImage(photo, 0, 0, iw, ih)
     return
   }
   if (f.mode === 'overlay') {
     ctx.globalAlpha = OVERLAY_HALF
-    ctx.drawImage(f.photo, 0, 0, iw, ih)
+    ctx.drawImage(photo, 0, 0, iw, ih)
     if (f.cutout) {
       ctx.globalCompositeOperation = 'lighter'
       ctx.drawImage(f.cutout, 0, 0, iw, ih)
@@ -191,6 +225,8 @@ export const DOT_PX = 8
 export const DOT_SELECTED_PX = 12
 const DOT_OUTLINE_PX = 1.5
 const LINE_DARK = '#111114'
+/** Ring and node index in one number, for the selected set. */
+const RING_STRIDE = 2 ** 24
 
 const curvePaths = new WeakMap<Selection, Path2D>()
 
@@ -247,31 +283,44 @@ export function drawDots(
   ctx.lineWidth = dpr / k
   ctx.stroke(path)
 
+  // Device px. Each group is one path, filled then outlined: two calls for
+  // 2,000 dots instead of 4,000 (AC-20). Selected dots go on top.
   ctx.setTransform(1, 0, 0, 1, 0, 0)
-  const selected = new Set(
-    layer.selected.map((r) => `${String(r.ring)}:${String(r.node)}`),
-  )
+  const picked = layer.selected.map((r) => r.ring * RING_STRIDE + r.node)
+  const selected = new Set(picked)
   const w = vp.canvas.width * dpr
   const h = vp.canvas.height * dpr
   const margin = DOT_SELECTED_PX * dpr
-  ctx.lineWidth = DOT_OUTLINE_PX * dpr
-  ctx.strokeStyle = LINE_DARK
+  const ox = w / 2 - view.center.x * k
+  const oy = h / 2 - view.center.y * k
+  const plain = new Path2D()
+  const chosen = new Path2D()
   layer.selection.rings.forEach((ring, r) => {
     ring.nodes.forEach((n, i) => {
-      const c = imageToCanvas(vp, view, n)
-      const x = c.x * dpr
-      const y = c.y * dpr
+      const x = n.x * k + ox
+      const y = n.y * k + oy
       if (x < -margin || y < -margin || x > w + margin || y > h + margin) return
-      const on = selected.has(`${String(r)}:${String(i)}`)
+      const on = selected.has(r * RING_STRIDE + i)
+      const path = on ? chosen : plain
       const half = ((on ? DOT_SELECTED_PX : DOT_PX) * dpr) / 2
-      ctx.fillStyle = on ? layer.accent : '#ffffff'
-      ctx.beginPath()
-      if (n.kind === 'corner') ctx.rect(x - half, y - half, half * 2, half * 2)
-      else ctx.arc(x, y, half, 0, 2 * Math.PI)
-      ctx.fill()
-      ctx.stroke()
+      if (n.kind === 'corner') {
+        path.rect(x - half, y - half, half * 2, half * 2)
+      } else {
+        path.moveTo(x + half, y)
+        path.arc(x, y, half, 0, 2 * Math.PI)
+      }
     })
   })
+  ctx.lineWidth = DOT_OUTLINE_PX * dpr
+  ctx.strokeStyle = LINE_DARK
+  ctx.fillStyle = '#ffffff'
+  ctx.fill(plain)
+  ctx.stroke(plain)
+  if (selected.size > 0) {
+    ctx.fillStyle = layer.accent
+    ctx.fill(chosen)
+    ctx.stroke(chosen)
+  }
 
   if (layer.box) {
     const { a, b } = layer.box
