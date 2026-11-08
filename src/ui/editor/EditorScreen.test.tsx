@@ -45,6 +45,7 @@ const fakeRenderer = (): Renderer => ({
   setImage: () => undefined,
   setModelAlpha: () => undefined,
   renderFull: () => Promise.resolve({ type: 'cancelled' as const }),
+  resimplify: () => Promise.resolve({ type: 'cancelled' as const }),
   render: (_id, selection, scale) => {
     rendered.push(selection)
     return Promise.resolve({

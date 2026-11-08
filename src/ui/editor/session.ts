@@ -26,6 +26,11 @@ export interface Renderer {
     selection: Selection,
     modelAlpha?: AlphaMask,
   ): Promise<FromRenderWorker | Cancelled>
+  /** Every ring re-simplified to `tolerancePx` (spec 0010 AC-15), off the main thread. */
+  resimplify(
+    selection: Selection,
+    tolerancePx: number,
+  ): Promise<FromRenderWorker | Cancelled>
 }
 
 export interface Photo {

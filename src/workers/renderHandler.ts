@@ -1,6 +1,7 @@
 import { smartEdgeRefiner } from '../core/matting'
 import { renderMask, type EdgeRefiner } from '../core/mask/render'
 import type { RgbaImage } from '../core/mask/types'
+import { applyCommand } from '../core/selection/commands'
 import {
   unknownImage,
   unknownMessage,
@@ -53,6 +54,20 @@ export function createRenderHandler(): Handler<
         return {
           message: { type: 'rendered', jobId: msg.jobId, mask },
           transfer: [mask.data.buffer as ArrayBuffer],
+        }
+      }
+      case 'resimplify': {
+        let selection = msg.selection
+        for (let ring = 0; ring < msg.selection.rings.length; ring++) {
+          selection = applyCommand(selection, {
+            type: 'setDensity',
+            ring,
+            tolerancePx: msg.tolerancePx,
+          })
+        }
+        return {
+          message: { type: 'resimplified', jobId: msg.jobId, selection },
+          transfer: [],
         }
       }
       default:

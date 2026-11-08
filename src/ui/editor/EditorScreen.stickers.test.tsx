@@ -78,6 +78,7 @@ function fakeRenderer(log: RenderLog) {
         }),
       })
     },
+    resimplify: () => Promise.resolve({ type: 'cancelled' as const }),
     renderFull: async (id, selection, alpha) => {
       log.renderFull.push(selection)
       log.fullAlphas?.push(alpha)

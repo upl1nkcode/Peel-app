@@ -5,6 +5,9 @@ import type { Selection } from '../core/selection/types'
 import { blurredModel, discScene } from '../test/sceneFixtures'
 import type { FromRenderWorker } from './protocol'
 import { createRenderHandler } from './renderHandler'
+import { newestWins } from './newestWins'
+import { applyCommand } from '../core/selection/commands'
+import type { Node } from '../core/geometry/types'
 
 function rendered(reply: { message: FromRenderWorker } | undefined) {
   if (reply?.message.type !== 'rendered') {
@@ -195,5 +198,88 @@ describe('render worker handler', () => {
         refineEdge: smartEdgeRefiner(scene.image),
       }),
     )
+  })
+
+  describe('resimplify (spec 0010 AC-15)', () => {
+    const circle = (cx: number, r: number): Node[] =>
+      Array.from({ length: 64 }, (_, i) => {
+        const a = (i / 64) * 2 * Math.PI
+        return {
+          x: cx + r * Math.cos(a),
+          y: 200 + r * Math.sin(a),
+          kind: 'smooth' as const,
+        }
+      })
+    const two: Selection = {
+      rings: [
+        { op: 'add', nodes: circle(200, 150) },
+        { op: 'subtract', nodes: circle(200, 60) },
+      ],
+      strokes: [],
+      feather: 0,
+    }
+
+    it('should_resimplify_every_ring (AC-15)', () => {
+      const reply = createRenderHandler()({
+        type: 'resimplify',
+        jobId: 7,
+        selection: two,
+        tolerancePx: 2,
+      })
+      expect(reply?.message.type).toBe('resimplified')
+      if (reply?.message.type !== 'resimplified') throw new Error('no reply')
+      const local = [0, 1].reduce(
+        (sel, ring) =>
+          applyCommand(sel, { type: 'setDensity', ring, tolerancePx: 2 }),
+        two,
+      )
+      expect(reply.message).toEqual({
+        type: 'resimplified',
+        jobId: 7,
+        selection: local,
+      })
+      for (const ring of reply.message.selection.rings) {
+        expect(ring.nodes.length).toBeLessThan(64)
+      }
+    })
+
+    it('should_keep_only_the_newest_resimplify (AC-15)', () => {
+      const posted: FromRenderWorker[] = []
+      const deferred: (() => void)[] = []
+      const onMessage = newestWins(
+        createRenderHandler(),
+        (reply) => posted.push(reply.message as FromRenderWorker),
+        (f) => {
+          deferred.push(f)
+        },
+      )
+      const image = { width: 4, height: 4, data: new Uint8Array(64) }
+      onMessage({ type: 'setImage', imageId: 'a', image })
+      onMessage({
+        type: 'resimplify',
+        jobId: 1,
+        selection: two,
+        tolerancePx: 2,
+      })
+      onMessage({
+        type: 'render',
+        jobId: 2,
+        imageId: 'a',
+        selection: { rings: [], strokes: [], feather: 0 },
+        scale: 1,
+      })
+      onMessage({
+        type: 'resimplify',
+        jobId: 3,
+        selection: two,
+        tolerancePx: 4,
+      })
+      for (const f of deferred) f()
+      expect(posted.map((m) => [m.type, m.jobId])).toEqual([
+        ['cancelled', 1],
+        ['resimplified', 3],
+        ['rendered', 2],
+      ])
+    })
   })
 })
