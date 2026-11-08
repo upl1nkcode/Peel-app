@@ -268,8 +268,8 @@ Each task: failing test → see it fail → minimal code → pass → refactor �
 - [ ] EditorCanvas with zoom/pan, double-tap 100%/fit. *Tests.*
 - [ ] Loupe with crosshair during drags. *Test.*
 - [ ] **Dots tool:** drag, fine mode (¼ speed), insert on edge tap, double-tap delete, long-press corner/smooth, multi-select, nudge pad, density slider. *Playwright touch tests for each gesture.*
-- [ ] **Lasso tool:** draw, pause/continue across zoom/pan, magnetic toggle, add/subtract, convert to dots. *Tests.*
-- [ ] **Brush tool:** erase/restore, size/hardness, size in image px. *Tests.*
+- [x] **Lasso tool:** draw, pause/continue across zoom/pan, magnetic toggle, add/subtract, convert to dots. *Tests.*
+- [x] **Brush tool:** erase/restore, size/hardness, size in image px. *Tests.*
 - [ ] **Auto tool:** Person / Tap object, loading, errors. *Tests with fake engine.*
 - [ ] **View toggles:** overlay, checkerboard/black/white/red, hold-to-compare. *Screenshot tests.*
 - [ ] Undo/redo buttons and "reset to auto". *Tests.*

@@ -1,9 +1,21 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import {
+  act,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+} from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AlphaMask } from '../../core/mask'
 import { emptySelection } from '../../core/selection/model'
 import type { Point } from '../../core/geometry/types'
 import type { Command, NodeRef, Selection } from '../../core/selection/types'
+import {
+  loupeBrushRadii,
+  snapReachPx,
+  type LassoSection,
+} from '../../core/editor'
+import type { DrawnSection } from './canvasController'
 import { EditorCanvas, type EditorCanvasProps } from './EditorCanvas'
 
 /** The canvas's CSS size; tests change it to resize. */
@@ -711,5 +723,349 @@ describe('dots tool (spec 0010)', () => {
     await advance(20)
     expect(calls).toHaveLength(first + 2)
     expect(calls[first + 1]?.selection.rings[0]?.nodes[0]?.x).toBe(1500)
+  })
+})
+
+describe('lasso tool (spec 0011)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // At fit (0.1 CSS px per image px) canvas (x, y) is image (10x, 10y).
+  function lasso(over: Partial<EditorCanvasProps> = {}) {
+    const sections: DrawnSection[] = []
+    const s = setup({
+      tool: 'lasso',
+      onLassoSection: (d) => sections.push(d),
+      ...over,
+    })
+    return { ...s, sections }
+  }
+  const drag = (canvas: HTMLElement, from: Point, ...to: Point[]) => {
+    fireEvent.pointerDown(canvas, at(from.x, from.y))
+    for (const p of to) fireEvent.pointerMove(canvas, at(p.x, p.y))
+  }
+  const lift = (canvas: HTMLElement, p: Point) => {
+    fireEvent.pointerUp(canvas, at(p.x, p.y))
+  }
+  const paused = (): { sections: LassoSection[]; busy: boolean } => ({
+    sections: [
+      {
+        points: [
+          { x: 1000, y: 1000 },
+          { x: 1600, y: 1000 },
+          { x: 1600, y: 1600 },
+        ],
+        snapped: false,
+        tolerancePx: 8,
+      },
+    ],
+    busy: false,
+  })
+
+  it('should_start_a_lasso_where_the_finger_went_down (AC-1)', async () => {
+    const { canvas, sections } = lasso()
+    await advance(20)
+    expect(canvas.getAttribute('data-lasso')).toBe('none')
+    drag(
+      canvas,
+      { x: 100, y: 100 },
+      { x: 103, y: 100 },
+      { x: 106, y: 100 },
+      { x: 115, y: 100 },
+      { x: 130, y: 100 },
+    )
+    expect(canvas.getAttribute('data-lasso')).toBe('drawing')
+    expect(sections).toEqual([])
+    fireEvent.pointerMove(canvas, at(160, 100))
+    lift(canvas, { x: 160, y: 100 })
+    expect(sections).toHaveLength(1)
+    const d = sections[0] as DrawnSection
+    expect(d.points[0]).toEqual({ x: 1000, y: 1000 })
+    // The samples before the 10 px slop are kept.
+    expect(d.points).toContainEqual({ x: 1030, y: 1000 })
+    expect(d.points).toContainEqual({ x: 1060, y: 1000 })
+    expect(d.points.at(-1)).toEqual({ x: 1600, y: 1000 })
+    expect(d.closes).toBe(false)
+    expect(d.k).toBeCloseTo(0.1, 12)
+  })
+
+  it('should_record_coalesced_samples (AC-1)', async () => {
+    const { canvas, sections } = lasso()
+    await advance(20)
+    drag(canvas, { x: 100, y: 100 }, { x: 115, y: 100 })
+    const ev = createEvent.pointerMove(canvas, at(130, 100))
+    Object.defineProperty(ev, 'getCoalescedEvents', {
+      value: () => [at(120, 100), at(125, 100), at(130, 100)],
+    })
+    fireEvent(canvas, ev)
+    lift(canvas, { x: 130, y: 100 })
+    const pts = (sections[0] as DrawnSection).points
+    expect(pts).toContainEqual({ x: 1200, y: 1000 })
+    expect(pts).toContainEqual({ x: 1250, y: 1000 })
+    expect(pts).toContainEqual({ x: 1300, y: 1000 })
+  })
+
+  it('should_show_the_loupe_on_the_finger (AC-3)', async () => {
+    const { canvas } = lasso()
+    await advance(20)
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 }, { x: 160, y: 110 })
+    expect(screen.getByTestId('loupe').getAttribute('data-aim')).toBe(
+      '1600.0000,1100.0000',
+    )
+    lift(canvas, { x: 160, y: 110 })
+    expect(screen.queryByTestId('loupe')).toBeNull()
+  })
+
+  it('should_close_when_lifting_near_the_start (AC-4)', async () => {
+    const { canvas, sections } = lasso()
+    await advance(20)
+    drag(
+      canvas,
+      { x: 100, y: 100 },
+      { x: 200, y: 100 },
+      { x: 200, y: 200 },
+      { x: 100, y: 200 },
+      { x: 105, y: 105 },
+    )
+    lift(canvas, { x: 105, y: 105 })
+    expect(sections.map((d) => d.closes)).toEqual([true])
+
+    drag(
+      canvas,
+      { x: 100, y: 100 },
+      { x: 115, y: 100 },
+      { x: 130, y: 100 },
+      { x: 110, y: 100 },
+    )
+    lift(canvas, { x: 110, y: 100 })
+    expect(sections.map((d) => d.closes)).toEqual([true, false])
+  })
+
+  it('should_continue_only_from_the_end_handle (AC-5, AC-6)', async () => {
+    const { canvas, sections } = lasso({ lasso: paused() })
+    await advance(20)
+    expect(canvas.getAttribute('data-lasso')).toBe('paused')
+    expect(canvas.getAttribute('data-lasso-points')).toBe('3')
+    // The end is at canvas (160, 160); this press is 11 px from it.
+    drag(canvas, { x: 170, y: 165 }, { x: 180, y: 170 }, { x: 190, y: 180 })
+    lift(canvas, { x: 190, y: 180 })
+    expect(sections).toHaveLength(1)
+    const d = sections[0] as DrawnSection
+    expect(d.points[0]).toEqual({ x: 1600, y: 1600 })
+    expect(d.points.at(-1)?.x).toBeCloseTo(1800, 9)
+    expect(d.points.at(-1)?.y).toBeCloseTo(1750, 9)
+
+    drag(canvas, { x: 220, y: 160 }, { x: 240, y: 160 }, { x: 260, y: 160 })
+    lift(canvas, { x: 260, y: 160 })
+    fireEvent.pointerDown(canvas, at(160, 160))
+    fireEvent.pointerUp(canvas, at(160, 160))
+    await advance(300)
+    expect(sections).toHaveLength(1)
+  })
+
+  it('should_keep_the_section_when_a_second_finger_lands (AC-7)', async () => {
+    const { canvas, sections } = lasso()
+    await advance(20)
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 }, { x: 160, y: 100 })
+    fireEvent.pointerDown(canvas, at(250, 250, 2))
+    expect(sections).toHaveLength(1)
+    expect((sections[0] as DrawnSection).closes).toBe(false)
+    expect((sections[0] as DrawnSection).points.at(-1)).toEqual({
+      x: 1600,
+      y: 1000,
+    })
+    fireEvent.pointerMove(canvas, at(330, 300, 2))
+    expect(Number(canvas.getAttribute('data-zoom'))).toBeGreaterThan(1)
+    lift(canvas, { x: 160, y: 100 })
+    fireEvent.pointerUp(canvas, at(330, 300, 2))
+    expect(sections).toHaveLength(1)
+  })
+
+  it('should_ignore_the_handle_while_busy (Review Focus 5)', async () => {
+    const { canvas, sections } = lasso({ lasso: { ...paused(), busy: true } })
+    await advance(20)
+    expect(canvas.getAttribute('data-lasso')).toBe('busy')
+    drag(canvas, { x: 160, y: 160 }, { x: 180, y: 170 }, { x: 190, y: 180 })
+    lift(canvas, { x: 190, y: 180 })
+    expect(sections).toEqual([])
+  })
+
+  it('should_snap_the_trail_while_drawing (AC-11)', async () => {
+    const calls: {
+      finger: Point[]
+      reachPx: number
+      resolve(path: Point[] | null): void
+    }[] = []
+    const { canvas } = lasso({
+      snapOn: true,
+      snap: (finger, reachPx) =>
+        new Promise((resolve) => {
+          calls.push({ finger, reachPx, resolve })
+        }),
+    })
+    await advance(20)
+    drag(
+      canvas,
+      { x: 100, y: 100 },
+      { x: 115, y: 100 },
+      { x: 130, y: 100 },
+      { x: 145, y: 100 },
+    )
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.reachPx).toBeCloseTo(snapReachPx(0.1), 9)
+    calls[0]?.resolve([
+      { x: 1000, y: 1000 },
+      { x: 1150, y: 1000 },
+    ])
+    await advance(0)
+    expect(calls).toHaveLength(2)
+    expect(calls[1]?.finger.at(-1)).toEqual({ x: 1450, y: 1000 })
+    lift(canvas, { x: 145, y: 100 })
+  })
+})
+
+describe('brush tool (spec 0011)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // At fit (0.1 CSS px per image px) canvas (x, y) is image (10x, 10y).
+  type StrokeCommand = Extract<Command, { type: 'addStroke' }>
+  function brush(over: Partial<EditorCanvasProps> = {}) {
+    const edits: Command[] = []
+    const s = setup({
+      tool: 'brush',
+      brush: { mode: 'erase', sizePx: 24, hardness: 1 },
+      onEdit: (c) => edits.push(c),
+      ...over,
+    })
+    return { ...s, edits }
+  }
+  const drag = (canvas: HTMLElement, from: Point, ...to: Point[]) => {
+    fireEvent.pointerDown(canvas, at(from.x, from.y))
+    for (const p of to) fireEvent.pointerMove(canvas, at(p.x, p.y))
+  }
+  const lift = (canvas: HTMLElement, p: Point) => {
+    fireEvent.pointerUp(canvas, at(p.x, p.y))
+  }
+  const tap = (canvas: HTMLElement, x: number, y: number) => {
+    fireEvent.pointerDown(canvas, at(x, y))
+    fireEvent.pointerUp(canvas, at(x, y))
+  }
+
+  it('should_paint_one_stroke_per_drag (AC-18)', async () => {
+    const { canvas, edits } = brush()
+    await advance(20)
+    drag(
+      canvas,
+      { x: 100, y: 100 },
+      { x: 103, y: 100 },
+      { x: 106, y: 100 },
+      { x: 115, y: 100 },
+      { x: 130, y: 100 },
+    )
+    expect(edits).toEqual([])
+    lift(canvas, { x: 140, y: 100 })
+    expect(edits).toHaveLength(1)
+    const c = edits[0] as StrokeCommand
+    expect(c.type).toBe('addStroke')
+    expect(c.stroke).toMatchObject({ mode: 'erase', sizePx: 24, hardness: 1 })
+    expect(c.stroke.points[0]).toEqual({ x: 1000, y: 1000 })
+    // The samples before the 10 px slop are kept.
+    expect(c.stroke.points).toContainEqual({ x: 1030, y: 1000 })
+    expect(c.stroke.points).toContainEqual({ x: 1060, y: 1000 })
+    expect(c.stroke.points.at(-1)).toEqual({ x: 1400, y: 1000 })
+    expect(screen.queryByTestId('loupe')).toBeNull()
+  })
+
+  it('should_cancel_a_stroke_on_a_second_finger (AC-18)', async () => {
+    const { canvas, edits } = brush()
+    await advance(20)
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 }, { x: 160, y: 100 })
+    fireEvent.pointerDown(canvas, at(250, 250, 2))
+    lift(canvas, { x: 160, y: 100 })
+    fireEvent.pointerUp(canvas, at(250, 250, 2))
+    await advance(600)
+    expect(edits).toEqual([])
+    expect(screen.queryByTestId('loupe')).toBeNull()
+  })
+
+  it('should_dab_on_a_tap_and_zoom_on_a_double_tap (AC-18)', async () => {
+    const { canvas, edits } = brush()
+    await advance(20)
+    tap(canvas, 100, 100)
+    expect(edits).toEqual([])
+    await advance(300)
+    expect(edits).toEqual([
+      {
+        type: 'addStroke',
+        stroke: {
+          mode: 'erase',
+          sizePx: 24,
+          hardness: 1,
+          points: [{ x: 1000, y: 1000 }],
+        },
+      },
+    ])
+    tap(canvas, 200, 150)
+    await advance(100)
+    tap(canvas, 200, 150)
+    await advance(600)
+    expect(edits).toHaveLength(1)
+    expect(canvas.getAttribute('data-zoom')).toBe('5.0000')
+  })
+
+  it('should_preview_the_stroke_while_painting (AC-21)', async () => {
+    const { canvas, calls } = brush()
+    await advance(20)
+    calls[0]?.resolve(mask(0.2))
+    await advance(0)
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 })
+    expect(calls).toHaveLength(2)
+    expect(calls[1]?.selection.strokes.at(-1)?.points.at(-1)).toEqual({
+      x: 1300,
+      y: 1000,
+    })
+    fireEvent.pointerMove(canvas, at(150, 100))
+    fireEvent.pointerMove(canvas, at(170, 100))
+    // One render at a time.
+    expect(calls).toHaveLength(2)
+    calls[1]?.resolve(mask(0.2))
+    await advance(0)
+    expect(calls).toHaveLength(3)
+    expect(calls[2]?.selection.strokes.at(-1)?.points.at(-1)).toEqual({
+      x: 1700,
+      y: 1000,
+    })
+    lift(canvas, { x: 170, y: 100 })
+  })
+
+  it('should_show_the_brush_in_the_loupe (AC-20)', async () => {
+    const { canvas, rerender } = brush({
+      brush: { mode: 'restore', sizePx: 24, hardness: 0.5 },
+    })
+    await advance(20)
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 }, { x: 160, y: 110 })
+    const soft = loupeBrushRadii(24, 0.5, 0.1)
+    expect(screen.getByTestId('loupe').getAttribute('data-aim')).toBe(
+      '1600.0000,1100.0000',
+    )
+    expect(screen.getByTestId('loupe').getAttribute('data-brush-radius')).toBe(
+      `${soft.outer.toFixed(4)},${(soft.inner ?? 0).toFixed(4)}`,
+    )
+    lift(canvas, { x: 160, y: 110 })
+    rerender({ brush: { mode: 'restore', sizePx: 24, hardness: 1 } })
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 })
+    expect(screen.getByTestId('loupe').getAttribute('data-brush-radius')).toBe(
+      loupeBrushRadii(24, 1, 0.1).outer.toFixed(4),
+    )
+    lift(canvas, { x: 130, y: 100 })
   })
 })

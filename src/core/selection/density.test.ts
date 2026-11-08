@@ -4,7 +4,8 @@ import { mulberry32 } from '../../test/random'
 import { sampleSegment, toBezierSegments } from '../geometry/bezier'
 import type { Node, Point } from '../geometry/types'
 import { applyCommand } from './commands'
-import { resimplifyRing } from './density'
+import { InvalidLassoError } from '../geometry/lasso'
+import { fitRing, resimplifyRing } from './density'
 import { InvalidCommandError } from './errors'
 import { emptySelection } from './model'
 
@@ -315,5 +316,136 @@ describe('dot density', () => {
     const same = resimplifyRing(two, 1)
     expect(same).toEqual(two)
     expect(same).not.toBe(two)
+  })
+})
+
+/** A closed path resampled so consecutive points are at most `step` apart. */
+function resampleClosed(path: readonly Point[], step: number): Point[] {
+  const out: Point[] = []
+  path.forEach((a, i) => {
+    const b = path[(i + 1) % path.length] as Point
+    const parts = Math.max(
+      1,
+      Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / step),
+    )
+    for (let k = 0; k < parts; k++) {
+      out.push({
+        x: a.x + ((b.x - a.x) * k) / parts,
+        y: a.y + ((b.y - a.y) * k) / parts,
+      })
+    }
+  })
+  return out
+}
+
+/** Spec 0011 AC-15: 0 when the path and the fitted curve are within `tol` of each other. */
+function fitExcess(
+  path: readonly Point[],
+  nodes: readonly Node[],
+  tol: number,
+): number {
+  const a = resampleClosed(path, 0.05)
+  const b = sampleCurve(nodes, 0.05)
+  return Math.max(oneSidedExcess(a, b, tol), oneSidedExcess(b, a, tol))
+}
+
+function noisyCirclePath(
+  rand: () => number,
+  r: number,
+  noise: number,
+): Point[] {
+  const count = Math.max(24, Math.round((2 * Math.PI * r) / 3))
+  return Array.from({ length: count }, (_, i) => {
+    const a = (i / count) * 2 * Math.PI
+    const rr = r + (rand() * 2 - 1) * noise
+    return { x: 500 + rr * Math.cos(a), y: 500 + rr * Math.sin(a) }
+  })
+}
+
+function rectPath(
+  x0: number,
+  y0: number,
+  w: number,
+  h: number,
+  step: number,
+): Point[] {
+  return resampleClosed(
+    [
+      { x: x0, y: y0 },
+      { x: x0 + w, y: y0 },
+      { x: x0 + w, y: y0 + h },
+      { x: x0, y: y0 + h },
+    ],
+    step,
+  )
+}
+
+describe('fitRing', () => {
+  it('should_fit_a_ring_within_tolerance_both_ways (AC-15)', () => {
+    const rand = mulberry32(110)
+    const tolerances = [0.25, 0.5, 2, 8]
+    for (let i = 0; i < 30; i++) {
+      const tol = tolerances[i % tolerances.length] as number
+      const kind = i % 3
+      const path =
+        kind === 0
+          ? noisyCirclePath(rand, 20 + rand() * 380, 2)
+          : kind === 1
+            ? rectPath(10, 20, 100 + rand() * 200, 100 + rand() * 200, 2)
+            : rectPath(5, 5, 400, 6, 2)
+      const nodes = fitRing(path, tol)
+      expect(nodes.every((d) => d.kind === 'smooth')).toBe(true)
+      expect(
+        fitExcess(path, nodes, tol),
+        `path ${String(i)} at ${String(tol)} px`,
+      ).toBe(0)
+    }
+  }, 60_000) // 30 paths × two 0.05 px samplings: slower under coverage
+
+  it('should_give_fewer_dots_than_points (AC-15)', () => {
+    const rand = mulberry32(7)
+    const count = 2000
+    const path = Array.from({ length: count }, (_, i) => {
+      const a = (i / count) * 2 * Math.PI
+      const rr = 400 + (rand() * 2 - 1) * 1
+      return { x: 500 + rr * Math.cos(a), y: 500 + rr * Math.sin(a) }
+    })
+    expect(fitRing(path, 2).length).toBeLessThan(100)
+  })
+
+  it('should_reject_a_lasso_that_is_not_a_ring (AC-10)', () => {
+    expect(() =>
+      fitRing(
+        [
+          { x: 0, y: 0 },
+          { x: 5, y: 5 },
+        ],
+        1,
+      ),
+    ).toThrow(InvalidLassoError)
+    expect(() =>
+      fitRing(
+        [
+          { x: 0, y: 0 },
+          { x: 1, y: 1 },
+          { x: 2, y: 2 },
+          { x: 3, y: 3 },
+        ],
+        1,
+      ),
+    ).toThrow(InvalidLassoError)
+    expect(() => fitRing(rectPath(0, 0, 10, 10, 1), 9)).toThrow(RangeError)
+  })
+
+  it('should_fit_a_long_straight_closing_edge (Review Focus 2)', () => {
+    // A traced arc whose "Finish" line back to the start is 300 px long.
+    const arc = Array.from({ length: 200 }, (_, i) => {
+      const a = Math.PI + (i / 199) * Math.PI
+      return { x: 300 + 150 * Math.cos(a), y: 300 + 150 * Math.sin(a) }
+    })
+    for (const tol of [0.25, 2]) {
+      const nodes = fitRing(arc, tol)
+      expect(fitExcess(arc, nodes, tol), `at ${String(tol)} px`).toBe(0)
+    }
   })
 })

@@ -189,6 +189,18 @@
   max-width: 10rem;
 }
 
+/* The Brush sheet's slider readouts (spec 0011 AC-19). */
+.editor-value {
+  min-width: 7.5rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* The Lasso sheet's Add | Subtract sits inside a row (spec 0011 AC-24). */
+.editor-modes {
+  padding-top: 0;
+}
+
 /* The Dots sheet (spec 0010 AC-18): rows of 44 px controls. */
 .editor-row {
   display: flex;

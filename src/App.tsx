@@ -10,7 +10,11 @@ import {
   createWorkerEngine,
   sha256Hex,
 } from './services/segmentation'
-import { startRenderWorker, startSegmentationWorker } from './services/workers'
+import {
+  startLiveWireWorker,
+  startRenderWorker,
+  startSegmentationWorker,
+} from './services/workers'
 import { loadPhoto } from './services/photo'
 import { openStickerStore } from './services/storage'
 import { EditorScreen } from './ui/editor/EditorScreen'
@@ -71,6 +75,7 @@ export default function App() {
         engines={engines}
         missingBytes={(files) => store.missingBytes(files)}
         createRenderer={startRenderWorker}
+        createSnapper={startLiveWireWorker}
         loadPhoto={loadPhoto}
         supported={canRunEngines}
         stickers={stickers}

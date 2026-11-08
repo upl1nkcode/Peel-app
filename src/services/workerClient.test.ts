@@ -119,4 +119,24 @@ describe('worker client', () => {
     reply({ type: 'resimplified', jobId: 1, selection })
     expect(await job).toEqual({ type: 'resimplified', jobId: 1, selection })
   })
+
+  it('should_cancel_an_older_fitRing (spec 0011 AC-27)', async () => {
+    const { port, sent, reply } = fakePort()
+    const render = renderWorkerClient(port)
+    const path = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 0, y: 10 },
+    ]
+    const older = render.fitRing(path, 1)
+    const newer = render.fitRing(path, 2)
+    expect(sent[1]).toEqual({
+      message: { type: 'fitRing', path, tolerancePx: 2, jobId: 2 },
+      transfer: [],
+    })
+    expect(await older).toEqual({ type: 'cancelled' })
+    const nodes = path.map((p) => ({ ...p, kind: 'smooth' as const }))
+    reply({ type: 'fitted', jobId: 2, nodes })
+    expect(await newer).toEqual({ type: 'fitted', jobId: 2, nodes })
+  })
 })

@@ -12,7 +12,8 @@ import {
 test.use({ serviceWorkers: 'block' })
 
 /**
- * Screenshot baselines (spec 0009 AC-12, AC-25; spec 0010 AC-19). Fonts and rasterising
+ * Screenshot baselines (spec 0009 AC-12, AC-25; spec 0010 AC-19; spec 0011
+ * AC-25). Fonts and rasterising
  * differ between systems, so baselines are made and checked on CI Linux,
  * in the Pixel 8 project only.
  */
@@ -108,4 +109,68 @@ test('should_match_the_dots_tool (spec 0010 AC-19)', async ({ page }) => {
       )
     }
   }
+})
+
+/** Every size and scheme: the page doesn't overflow and matches `name`. */
+async function eachScreen(
+  page: import('@playwright/test').Page,
+  name: string,
+  setUp: () => Promise<void>,
+) {
+  for (const size of [
+    { width: 375, height: 812 },
+    { width: 430, height: 932 },
+  ]) {
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.setViewportSize(size)
+      await page.emulateMedia({ colorScheme })
+      await seedAndOpen(page)
+      await setUp()
+      await nextFrame(page)
+      const fits = await page.evaluate(() => ({
+        scrollWidth: (document.scrollingElement ?? document.documentElement)
+          .scrollWidth,
+        innerWidth: window.innerWidth,
+      }))
+      expect(fits.scrollWidth).toBeLessThanOrEqual(fits.innerWidth)
+      await expect(page).toHaveScreenshot(
+        `${name}-${String(size.width)}-${colorScheme}.png`,
+        SHOT,
+      )
+    }
+  }
+}
+
+test('should_match_the_lasso_tool (spec 0011 AC-25)', async ({ page }) => {
+  await eachScreen(page, 'lasso', async () => {
+    await page.getByRole('button', { name: 'Lasso', exact: true }).click()
+    // An open lasso over the selection, paused with its end handle.
+    const path = [
+      { x: 30, y: 30 },
+      { x: 50, y: 20 },
+      { x: 75, y: 25 },
+      { x: 95, y: 45 },
+      { x: 80, y: 62 },
+    ]
+    const pts = []
+    for (const p of path) pts.push(await imageToClient(page, p))
+    const first = pts[0]
+    await page.mouse.move(first.x, first.y)
+    await page.mouse.down()
+    for (const c of pts.slice(1)) {
+      await page.mouse.move(c.x, c.y, { steps: 6 })
+    }
+    await page.mouse.up()
+    await expect(page.getByTestId('canvas')).toHaveAttribute(
+      'data-lasso',
+      'paused',
+    )
+  })
+})
+
+test('should_match_the_brush_tool (spec 0011 AC-25)', async ({ page }) => {
+  await eachScreen(page, 'brush', async () => {
+    await page.getByRole('button', { name: 'Brush' }).click()
+    await expect(page.getByRole('slider', { name: 'Hardness' })).toBeVisible()
+  })
 })

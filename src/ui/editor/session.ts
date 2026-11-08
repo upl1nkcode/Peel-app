@@ -3,11 +3,15 @@ import { createHistory } from '../../core/history/history'
 import type { AlphaMask, RgbaImage } from '../../core/mask'
 import type { Tap } from '../../core/segmentation'
 import { emptySelection } from '../../core/selection/model'
+import type { Point } from '../../core/geometry/types'
 import type { Command, Selection } from '../../core/selection/types'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { createAutoCutout, type AutoState } from '../../services/segmentation'
 import type { Cancelled } from '../../services/workerClient'
-import type { FromRenderWorker } from '../../workers/protocol'
+import type {
+  FromLiveWireWorker,
+  FromRenderWorker,
+} from '../../workers/protocol'
 import type { EditorScreenProps } from './EditorScreen'
 import type { SaveSnapshot, StickerRef } from './useStickers'
 
@@ -29,6 +33,11 @@ export interface Renderer {
   /** Every ring re-simplified to `tolerancePx` (spec 0010 AC-15), off the main thread. */
   resimplify(
     selection: Selection,
+    tolerancePx: number,
+  ): Promise<FromRenderWorker | Cancelled>
+  /** A closed lasso path's dots (spec 0011 AC-15), off the main thread. */
+  fitRing(
+    path: Point[],
     tolerancePx: number,
   ): Promise<FromRenderWorker | Cancelled>
 }
@@ -67,6 +76,16 @@ function photoCanvas(image: RgbaImage): HTMLCanvasElement {
   return canvas
 }
 
+/** The live-wire worker (spec 0006), which snaps lasso sections (spec 0011 AC-11). */
+export interface Snapper {
+  setImage(imageId: string, image: RgbaImage): void
+  snap(
+    imageId: string,
+    finger: Point[],
+    reachPx: number,
+  ): Promise<FromLiveWireWorker | Cancelled>
+}
+
 export interface SessionDeps extends EditorScreenProps {
   onState(state: AutoState): void
   onSelection(selection: Selection): void
@@ -83,6 +102,9 @@ export interface SessionDeps extends EditorScreenProps {
 export function createSession(deps: SessionDeps) {
   const history = createHistory(emptySelection())
   let renderer: Renderer | null = null
+  let snapper: Snapper | null = null
+  /** The photo the snapper has; it is sent on the first snap (final review). */
+  let snapperPhoto: string | null = null
   let started = false
   let photos = 0
   let photo: Photo | null = null
@@ -154,6 +176,28 @@ export function createSession(deps: SessionDeps) {
   return {
     get renderer() {
       return renderer
+    },
+    /** The photo on screen, or null before the first (spec 0011). */
+    get photoId() {
+      return photo?.id ?? null
+    },
+    /**
+     * Snaps a lasso path on the photo on screen (spec 0011 AC-11). The worker
+     * and its copy of the photo are made on the first snap, since Snap is off
+     * by default; null without a photo or a live-wire worker.
+     */
+    snap(
+      finger: Point[],
+      reachPx: number,
+    ): Promise<FromLiveWireWorker | Cancelled | null> {
+      if (!photo) return Promise.resolve(null)
+      snapper ??= deps.createSnapper?.() ?? null
+      if (!snapper) return Promise.resolve(null)
+      if (snapperPhoto !== photo.id) {
+        snapper.setImage(photo.id, copyImage(photo.image))
+        snapperPhoto = photo.id
+      }
+      return snapper.snap(photo.id, finger, reachPx)
     },
     /** What a save stores, as it is now (spec 0008 Review Focus 1). */
     snapshot(): SaveSnapshot | null {

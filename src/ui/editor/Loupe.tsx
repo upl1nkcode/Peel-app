@@ -10,6 +10,8 @@ export interface LoupeProps {
   aim: Point
   /** Fine mode is on: the ring turns the accent colour (spec 0010 AC-6). */
   fine: boolean
+  /** The brush's circles, in loupe CSS px (spec 0011 AC-20). */
+  brush?: { outer: number; inner: number | null }
   canvasRef: (el: HTMLCanvasElement | null) => void
 }
 
@@ -19,7 +21,14 @@ const R = LOUPE_DIAMETER_PX / 2
  * The magnifier shown while aiming (spec 0009 AC-13 to AC-15). The editor
  * canvas draws into it; this only places it.
  */
-export function Loupe({ center, below, aim, fine, canvasRef }: LoupeProps) {
+export function Loupe({
+  center,
+  below,
+  aim,
+  fine,
+  brush,
+  canvasRef,
+}: LoupeProps) {
   return (
     <canvas
       ref={canvasRef}
@@ -28,6 +37,14 @@ export function Loupe({ center, below, aim, fine, canvasRef }: LoupeProps) {
       data-below={below ? 'true' : 'false'}
       data-aim={`${aim.x.toFixed(4)},${aim.y.toFixed(4)}`}
       data-fine={fine ? 'true' : 'false'}
+      data-brush-radius={
+        brush
+          ? [brush.outer, brush.inner]
+              .filter((r): r is number => r !== null)
+              .map((r) => r.toFixed(4))
+              .join(',')
+          : undefined
+      }
       aria-hidden="true"
       style={{
         left: center.x - R,

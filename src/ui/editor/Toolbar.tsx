@@ -5,10 +5,12 @@ import type { EditorTool } from './EditorCanvas'
 /** The Auto tool's options sheet (spec 0009 AC-23). */
 export const AUTO_HINT = 'Tap to add · Hold to remove · Slide to aim'
 
-const TOOLS: readonly EditorTool[] = ['auto', 'dots', 'view']
+const TOOLS: readonly EditorTool[] = ['auto', 'lasso', 'dots', 'brush', 'view']
 const TOOL_LABELS: Record<EditorTool, string> = {
   auto: 'Auto',
+  lasso: 'Lasso',
   dots: 'Dots',
+  brush: 'Brush',
   view: 'View',
 }
 
@@ -18,7 +20,7 @@ export interface ToolbarProps {
   onTool: (tool: EditorTool) => void
 }
 
-/** The bottom toolbar: Auto · Dots · View (spec 0009 AC-21 to AC-23, spec 0010 AC-18). */
+/** The bottom toolbar: Auto · Lasso · Dots · Brush · View (spec 0011 AC-23). */
 export function Toolbar({ tool, disabled, onTool }: ToolbarProps) {
   return (
     <nav className="editor-tools" aria-label="Tools">
@@ -40,8 +42,8 @@ export function Toolbar({ tool, disabled, onTool }: ToolbarProps) {
 }
 
 export interface ToolSheetProps {
-  /** The Dots tool has its own sheet (DotsSheet). */
-  tool: Exclude<EditorTool, 'dots'>
+  /** Lasso, Dots and Brush have their own sheets. */
+  tool: 'auto' | 'view'
   viewMode: ViewMode
   onViewMode: (mode: ViewMode) => void
 }

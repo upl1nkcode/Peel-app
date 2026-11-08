@@ -8,6 +8,8 @@ import { createRenderHandler } from './renderHandler'
 import { newestWins } from './newestWins'
 import { applyCommand } from '../core/selection/commands'
 import type { Node } from '../core/geometry/types'
+import { InvalidLassoError } from '../core/geometry/lasso'
+import { fitRing } from '../core/selection/density'
 
 function rendered(reply: { message: FromRenderWorker } | undefined) {
   if (reply?.message.type !== 'rendered') {
@@ -280,6 +282,49 @@ describe('render worker handler', () => {
         ['resimplified', 3],
         ['rendered', 2],
       ])
+    })
+  })
+
+  describe('fitRing (spec 0011 AC-15, AC-27)', () => {
+    const square = Array.from({ length: 40 }, (_, i) => {
+      const side = Math.floor(i / 10)
+      const t = (i % 10) / 10
+      return [
+        { x: 10 + 100 * t, y: 10 },
+        { x: 110, y: 10 + 100 * t },
+        { x: 110 - 100 * t, y: 110 },
+        { x: 10, y: 110 - 100 * t },
+      ][side] as { x: number; y: number }
+    })
+
+    it('should_fit_a_ring_in_the_worker (AC-27)', () => {
+      const reply = createRenderHandler()({
+        type: 'fitRing',
+        jobId: 4,
+        path: square,
+        tolerancePx: 0.5,
+      })
+      expect(reply?.message).toEqual({
+        type: 'fitted',
+        jobId: 4,
+        nodes: fitRing(square, 0.5),
+      })
+    })
+
+    it('should_throw_for_a_lasso_that_is_not_a_ring (AC-10)', () => {
+      // wireWorker turns a throw into an `error` reply (wire.test.ts).
+      expect(() =>
+        createRenderHandler()({
+          type: 'fitRing',
+          jobId: 5,
+          path: [
+            { x: 0, y: 0 },
+            { x: 1, y: 1 },
+            { x: 2, y: 2 },
+          ],
+          tolerancePx: 1,
+        }),
+      ).toThrow(InvalidLassoError)
     })
   })
 })

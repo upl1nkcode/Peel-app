@@ -111,6 +111,10 @@ export function renderWorkerClient(port: Port) {
     resimplify(selection: Selection, tolerancePx: number) {
       return client.request({ type: 'resimplify', selection, tolerancePx }, [])
     },
+    /** A closed lasso path's dots (spec 0011 AC-15); newest wins. */
+    fitRing(path: Point[], tolerancePx: number) {
+      return client.request({ type: 'fitRing', path, tolerancePx }, [])
+    },
   }
 }
 

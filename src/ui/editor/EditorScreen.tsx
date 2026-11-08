@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  defaultBrushSize,
   densityTolerance,
   sameRings,
   startingShape,
@@ -18,15 +19,25 @@ import type { StickerRecord } from '../../core/backup'
 import { parseSelection } from '../../core/selection/serialize'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { inflateModelAlpha } from '../../services/sticker'
+import { BrushSheet } from './BrushSheet'
+import type { BrushSettings } from './brushTool'
 import { DotsSheet } from './DotsSheet'
+import { LassoSheet } from './LassoSheet'
 import {
   EditorCanvas,
   type EditorCanvasHandle,
   type EditorTool,
 } from './EditorCanvas'
 import { StickerPanel } from './StickerPanel'
-import { copyMask, createSession, type Photo, type Renderer } from './session'
+import {
+  copyMask,
+  createSession,
+  type Photo,
+  type Renderer,
+  type Snapper,
+} from './session'
 import { Toolbar, ToolSheet } from './Toolbar'
+import { useLasso } from './useLasso'
 import { useStickers, type StickerDeps, type StickerHost } from './useStickers'
 import './EditorScreen.css'
 
@@ -54,6 +65,8 @@ export interface EditorScreenProps {
   engines: { fast: SegmentationEngine; precise: SegmentationEngine }
   missingBytes(files: readonly ModelFile[]): Promise<number>
   createRenderer(): Renderer
+  /** The live-wire worker for snapping lasso sections (spec 0011 AC-11). */
+  createSnapper?(): Snapper
   /** Decodes a picked file; rejects (e.g. `PhotoUnreadableError`) when it can't. */
   loadPhoto(file: Blob): Promise<LoadedPhoto>
   /** Whether the browser can run the engines; checked before any download. */
@@ -66,7 +79,8 @@ export interface EditorScreenProps {
 /**
  * The editor (spec 0009). Top to bottom: a top bar (Photo, Stickers), the
  * canvas with the status strip over it, the action row (Undo, Redo, Reset
- * to auto, Compare), the options sheet, and the toolbar (Auto, Dots, View). The
+ * to auto, Compare), the options sheet, and the toolbar (Auto, Lasso, Dots,
+ * Brush, View). The
  * canvas shows the cutout against the chosen view, at screen resolution
  * below 100% and at full resolution above.
  */
@@ -106,6 +120,39 @@ export function EditorScreen(props: EditorScreenProps) {
   const density = useRef<DensityDrag | null>(null)
   /** The newest density result, shown until the slider is let go. */
   const [densityPreview, setDensityPreview] = useState<Selection | null>(null)
+  /** The open lasso and its options (spec 0011). A closed ring opens Dots (AC-16). */
+  const lasso = useLasso(session, {
+    onFinished: () => {
+      dropDensity()
+      setDots(null)
+      setTool('dots')
+      setSheetOpen(true)
+      setStickersOpen(false)
+    },
+    hasRings: selection.rings.length > 0,
+  })
+  /** The brush (spec 0011 AC-18, AC-19): mode and hardness stay; the size is per photo. */
+  const [brushMode, setBrushMode] = useState<BrushSettings['mode']>('erase')
+  const [hardness, setHardness] = useState(1)
+  const [brushSize, setBrushSize] = useState<{
+    photoId: string
+    px: number
+  } | null>(null)
+  /** 40 CSS px at the zoom Brush first opens at on this photo (AC-19). */
+  const sizeBrushFor = (
+    photoId: string,
+    image?: { width: number; height: number },
+  ) => {
+    if (brushSize?.photoId === photoId) return
+    const k = canvasRef.current?.cssPerImagePx(image) ?? null
+    setBrushSize({ photoId, px: defaultBrushSize(k ?? 1) })
+  }
+  const brush: BrushSettings | undefined =
+    tool === 'brush' && photo && brushSize?.photoId === photo.id
+      ? { mode: brushMode, sizePx: brushSize.px, hardness }
+      : undefined
+  /** Undo and Redo work on the open lasso's sections (AC-8). */
+  const lassoUndo = tool === 'lasso' && lasso.open !== null
 
   // Only the canvas moves; the page itself never scrolls (AC-21).
   useEffect(() => {
@@ -149,6 +196,8 @@ export function EditorScreen(props: EditorScreenProps) {
     setPhotoError(null)
     setDots(null)
     dropDensity()
+    lasso.drop()
+    if (tool === 'brush') sizeBrushFor(next.id, next.image)
     setPhoto(next)
   }
 
@@ -273,13 +322,18 @@ export function EditorScreen(props: EditorScreenProps) {
       setPhotoError(null)
       setDots(null)
       dropDensity()
+      lasso.drop()
+      if (tool === 'brush') sizeBrushFor(shown.id, shown.image)
       setPhoto(shown)
       return sameSize ? null : DIFFERENT_SIZE
     },
   }
   const panel = useStickers(props.stickers, host, photo?.id ?? null, selection)
 
-  const lines = state ? statusLines(state) : []
+  const lines = [
+    ...(state ? statusLines(state) : []),
+    ...(lasso.notice ? [lasso.notice] : []),
+  ]
   const release = () => {
     setComparing(false)
   }
@@ -290,6 +344,7 @@ export function EditorScreen(props: EditorScreenProps) {
   const chooseTool = (next: EditorTool) => {
     // The sheet goes, so its slider never sees the finger lift (I-3).
     dropDensity()
+    if (next === 'brush' && photo) sizeBrushFor(photo.id)
     if (next === tool && !stickersOpen) {
       setSheetOpen((open) => !open)
     } else {
@@ -364,6 +419,11 @@ export function EditorScreen(props: EditorScreenProps) {
             if (density.current) return
             setDots({ selection, refs: [...refs] })
           }}
+          lasso={lasso.open}
+          snap={lasso.liveSnap}
+          snapOn={lasso.snapOn}
+          onLassoSection={lasso.addSection}
+          brush={brush}
           {...(props.now && { now: props.now })}
         />
         {!photo && (
@@ -382,11 +442,12 @@ export function EditorScreen(props: EditorScreenProps) {
           {lines.map((line) => (
             <p key={line}>{line}</p>
           ))}
-          {state?.unavailable && (
+          {state?.unavailable && tool === 'auto' && (
             <button
               type="button"
               onClick={() => {
                 session.useLasso()
+                chooseTool('lasso')
               }}
             >
               {USE_LASSO_LABEL}
@@ -397,16 +458,17 @@ export function EditorScreen(props: EditorScreenProps) {
       <div className="editor-actions">
         <button
           type="button"
-          disabled={!session.canUndo}
+          disabled={lassoUndo ? lasso.open?.busy : !session.canUndo}
           onClick={() => {
-            session.undo()
+            if (lassoUndo) lasso.undoSection()
+            else session.undo()
           }}
         >
           Undo
         </button>
         <button
           type="button"
-          disabled={!session.canRedo}
+          disabled={lassoUndo || !session.canRedo}
           onClick={() => {
             session.redo()
           }}
@@ -453,6 +515,34 @@ export function EditorScreen(props: EditorScreenProps) {
         <div className="editor-sheet" data-testid="sheet">
           {showPanel ? (
             <StickerPanel {...panel} />
+          ) : tool === 'lasso' ? (
+            <LassoSheet
+              isOpen={lasso.open !== null}
+              busy={lasso.open?.busy ?? false}
+              closing={lasso.closing}
+              hasRings={selection.rings.length > 0}
+              mode={lasso.mode}
+              onMode={lasso.setMode}
+              snapOn={lasso.snapOn}
+              onSnap={lasso.setSnapOn}
+              smoothing={lasso.smoothing}
+              onSmoothing={lasso.setSmoothing}
+              onFinish={lasso.finish}
+              onDiscard={lasso.discard}
+            />
+          ) : tool === 'brush' ? (
+            brush && (
+              <BrushSheet
+                mode={brushMode}
+                onMode={setBrushMode}
+                sizePx={brush.sizePx}
+                onSize={(px) => {
+                  if (photo) setBrushSize({ photoId: photo.id, px })
+                }}
+                hardness={hardness}
+                onHardness={setHardness}
+              />
+            )
           ) : tool === 'dots' ? (
             <DotsSheet
               hasRings={selection.rings.length > 0}
