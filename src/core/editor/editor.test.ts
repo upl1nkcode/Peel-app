@@ -9,6 +9,8 @@ import {
   checkerColourAt,
   displayScale,
   isCrisp,
+  MAX_PHOTO_DIVISOR,
+  photoDivisor,
   LOUPE_DIAMETER_PX,
   LOUPE_MAGNIFY,
   LOUPE_MAX_CSS_PER_IMAGE_PX,
@@ -152,5 +154,27 @@ describe('100% after a double-tap (spec 0009 final review I-2)', () => {
     expect(displayScale(vp, view)).toBe(1)
     expect(previewScale(vp, view)).toBe(1)
     expect(isCrisp(displayScale(vp, view))).toBe(true)
+  })
+})
+
+describe('photo copy for small views (spec 0010 AC-20)', () => {
+  it('should_draw_from_the_smallest_copy_still_finer_than_the_screen', () => {
+    expect(photoDivisor(2)).toBe(1)
+    expect(photoDivisor(1)).toBe(1)
+    expect(photoDivisor(0.6)).toBe(1)
+    expect(photoDivisor(0.5)).toBe(2)
+    expect(photoDivisor(0.26)).toBe(2)
+    expect(photoDivisor(0.25)).toBe(4)
+    expect(photoDivisor(0.22)).toBe(4)
+    expect(photoDivisor(0.001)).toBe(MAX_PHOTO_DIVISOR)
+    expect(photoDivisor(0)).toBe(MAX_PHOTO_DIVISOR)
+    expect(photoDivisor(Number.NaN)).toBe(1)
+    // Above 1 the full photo is used, which is all there is.
+    for (let k = 0.02; k <= 1; k += 0.0137) {
+      const d = photoDivisor(k)
+      // Never coarser than the screen; the next copy down would be.
+      expect(1 / d).toBeGreaterThanOrEqual(k)
+      if (d < MAX_PHOTO_DIVISOR) expect(1 / (2 * d)).toBeLessThan(k)
+    }
   })
 })

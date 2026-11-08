@@ -5,8 +5,12 @@ import type { EditorTool } from './EditorCanvas'
 /** The Auto tool's options sheet (spec 0009 AC-23). */
 export const AUTO_HINT = 'Tap to add · Hold to remove · Slide to aim'
 
-const TOOLS: readonly EditorTool[] = ['auto', 'view']
-const TOOL_LABELS: Record<EditorTool, string> = { auto: 'Auto', view: 'View' }
+const TOOLS: readonly EditorTool[] = ['auto', 'dots', 'view']
+const TOOL_LABELS: Record<EditorTool, string> = {
+  auto: 'Auto',
+  dots: 'Dots',
+  view: 'View',
+}
 
 export interface ToolbarProps {
   tool: EditorTool
@@ -14,7 +18,7 @@ export interface ToolbarProps {
   onTool: (tool: EditorTool) => void
 }
 
-/** The bottom toolbar: one button per tool that exists (spec 0009 AC-21 to AC-23). */
+/** The bottom toolbar: Auto · Dots · View (spec 0009 AC-21 to AC-23, spec 0010 AC-18). */
 export function Toolbar({ tool, disabled, onTool }: ToolbarProps) {
   return (
     <nav className="editor-tools" aria-label="Tools">
@@ -36,7 +40,8 @@ export function Toolbar({ tool, disabled, onTool }: ToolbarProps) {
 }
 
 export interface ToolSheetProps {
-  tool: EditorTool
+  /** The Dots tool has its own sheet (DotsSheet). */
+  tool: Exclude<EditorTool, 'dots'>
   viewMode: ViewMode
   onViewMode: (mode: ViewMode) => void
 }

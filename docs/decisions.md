@@ -125,3 +125,22 @@ Anything not listed here is out of scope for v1 (YAGNI). See plan §13.
 - **The editor follows the system's light or dark setting**; the canvas backgrounds are the same in both, so colours are judged the same way.
 - **Drawing a frame takes under 8 ms in desktop Chromium** for a 12 MP photo at 100% (median of 30 panning frames, measured in the page with `performance.measure('peel-frame')`): about 1.5 ms in Overlay and 0.1 ms in the other views on a laptop.
 - **Screenshot baselines are made on CI Linux, Pixel 8 project only** (fonts and rasterising differ between systems), stored without a platform suffix under `e2e/__screenshots__/`. A missing baseline is written by the CI run and uploaded as the `screenshots` artifact; download it with `gh run download`, check the images by eye, and commit them. The status strip is hidden in screenshots because its text depends on the model download, which those tests block.
+
+
+## Dots tool decisions (spec 0010)
+
+The product owner skipped the questions (2026-11-08), so decisions 1–10 are Claude's calls, listed in the spec for checking.
+
+- **Moved dots keep Auto's soft edge:** the model alpha still refines the 8 px band around the new outline; outside it the dots win. The alternative (switch to the image-only edge on the first dot edit) loses hair detail everywhere.
+- **Double-tap on a dot deletes it** when both taps land on the same dot; a double-tap anywhere else toggles 100% and fit.
+- **Box-select is a one-finger drag on empty space** (a drag that starts on the line, not on a dot, also boxes); there is no Select mode. Two fingers pan, as in every tool.
+- **A tap selects that dot only; a box replaces the selection; a tap on empty space clears it.** Any change from outside the Dots tool (undo, redo, an Auto result, reset to auto, a new or re-opened photo) clears the selection.
+- **Fine mode is on by default**: after the finger stays within 2 px for 300 ms mid-drag, the dots move ¼ as far as the finger and the loupe's ring turns the accent colour. A still finger sends no events, so a timer checks the hold, and a hold followed by a big move still engages, where the dots were shown.
+- **The density slider springs back to the middle**, and each slide is computed from the rings as they were when the finger went down, off the main thread. One computation runs at a time: each result is shown as it arrives and the newest position is computed next. Only the release position's own result is committed; it is dropped if anything else changed the selection meanwhile, and a slide cut short (another tool, the Stickers panel, a new photo) is dropped. A finger lifting off the slider still ends the slide.
+- **The density slider changes every ring at once**, as one undo step (a `restore`); a release that changes nothing records nothing.
+- **A starting shape is added as another `add` ring**: 60% of the visible part of the photo, centred, a rectangle of 4 corners or an ellipse of 8 smooth dots exactly on it.
+- **The outline is drawn as a thin line only in the Dots tool**: 1 CSS px white over a 1 px dark outline, at any zoom. Dots are 8 px (selected 12 px, accent), circles for smooth and squares for corners.
+- **The toolbar is Auto · Dots · View**; Lasso and Brush come with story #74.
+- **Dots are drawn as two paths** (plain, then selected on top), each filled then outlined, so 2,000 dots cost two calls, not 4,000. Where dots overlap, outlines show over neighbours.
+- **Below 50% the photo is drawn from a scaled copy** (1/2, 1/4 … 1/64 of its size, the smallest still at least as fine as the screen), made once per photo and size. Display only: renders and saves use the full photo. Before it, a 2,000-dot drag on a 12 MP photo at 2× zoom took 8 ms a frame in Overlay, almost all of it filtering the whole photo down; now about 0.6 ms panning and 0.9 ms dragging in desktop Chromium (AC-20, measured with every dot on screen).
+- **The status strip can cover the top of the photo on a short canvas** (desktop at 1280 × 720): with Auto unavailable, "Use Lasso" sits over it and takes taps there. Spec 0009 decided the strip's place; noted here for story #74.

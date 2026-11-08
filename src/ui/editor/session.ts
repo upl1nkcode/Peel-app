@@ -3,7 +3,7 @@ import { createHistory } from '../../core/history/history'
 import type { AlphaMask, RgbaImage } from '../../core/mask'
 import type { Tap } from '../../core/segmentation'
 import { emptySelection } from '../../core/selection/model'
-import type { Selection } from '../../core/selection/types'
+import type { Command, Selection } from '../../core/selection/types'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { createAutoCutout, type AutoState } from '../../services/segmentation'
 import type { Cancelled } from '../../services/workerClient'
@@ -25,6 +25,11 @@ export interface Renderer {
     imageId: string,
     selection: Selection,
     modelAlpha?: AlphaMask,
+  ): Promise<FromRenderWorker | Cancelled>
+  /** Every ring re-simplified to `tolerancePx` (spec 0010 AC-15), off the main thread. */
+  resimplify(
+    selection: Selection,
+    tolerancePx: number,
   ): Promise<FromRenderWorker | Cancelled>
 }
 
@@ -221,6 +226,16 @@ export function createSession(deps: SessionDeps) {
       if (!history.canRedo) return
       history.redo()
       syncSelection()
+    },
+    /**
+     * Applies one edit as one undo step (spec 0010) and returns the new
+     * selection. An edit keeps the model alpha of the selection it edits
+     * (decision 1). A command that throws changes nothing.
+     */
+    edit(command: Command): Selection {
+      history.execute(command)
+      syncSelection()
+      return history.current
     },
     /** Makes the latest Auto result the selection, as one undoable step (AC-20). */
     resetToAuto() {

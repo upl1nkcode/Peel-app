@@ -8,6 +8,8 @@ export interface LoupeProps {
   below: boolean
   /** The photo point under the crosshair (test hook). */
   aim: Point
+  /** Fine mode is on: the ring turns the accent colour (spec 0010 AC-6). */
+  fine: boolean
   canvasRef: (el: HTMLCanvasElement | null) => void
 }
 
@@ -17,7 +19,7 @@ const R = LOUPE_DIAMETER_PX / 2
  * The magnifier shown while aiming (spec 0009 AC-13 to AC-15). The editor
  * canvas draws into it; this only places it.
  */
-export function Loupe({ center, below, aim, canvasRef }: LoupeProps) {
+export function Loupe({ center, below, aim, fine, canvasRef }: LoupeProps) {
   return (
     <canvas
       ref={canvasRef}
@@ -25,6 +27,7 @@ export function Loupe({ center, below, aim, canvasRef }: LoupeProps) {
       data-testid="loupe"
       data-below={below ? 'true' : 'false'}
       data-aim={`${aim.x.toFixed(4)},${aim.y.toFixed(4)}`}
+      data-fine={fine ? 'true' : 'false'}
       aria-hidden="true"
       style={{
         left: center.x - R,

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ViewMode } from '../../core/editor'
+import {
+  densityTolerance,
+  sameRings,
+  startingShape,
+  type ViewMode,
+} from '../../core/editor'
 import { emptySelection } from '../../core/selection/model'
-import type { Selection } from '../../core/selection/types'
+import type { Command, NodeRef, Selection } from '../../core/selection/types'
 import {
   statusLines,
   USE_LASSO_LABEL,
@@ -13,7 +18,12 @@ import type { StickerRecord } from '../../core/backup'
 import { parseSelection } from '../../core/selection/serialize'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { inflateModelAlpha } from '../../services/sticker'
-import { EditorCanvas, type EditorTool } from './EditorCanvas'
+import { DotsSheet } from './DotsSheet'
+import {
+  EditorCanvas,
+  type EditorCanvasHandle,
+  type EditorTool,
+} from './EditorCanvas'
 import { StickerPanel } from './StickerPanel'
 import { copyMask, createSession, type Photo, type Renderer } from './session'
 import { Toolbar, ToolSheet } from './Toolbar'
@@ -25,6 +35,20 @@ export type { Renderer }
 /** Shown when a re-opened photo decodes at another size (spec 0008 AC-9). */
 export const DIFFERENT_SIZE =
   'This photo opened at a different size here; the outline may be off.'
+
+const NO_REFS: readonly NodeRef[] = []
+
+/** A slide of the density slider, from finger down until its commit (AC-15). */
+interface DensityDrag {
+  /** The selection when the finger went down; every result is computed from it. */
+  start: Selection
+  /** The newest slider position. */
+  want: number
+  /** The finger has lifted; `want` is the release position. */
+  released: boolean
+  /** A computation is running. */
+  busy: boolean
+}
 
 export interface EditorScreenProps {
   engines: { fast: SegmentationEngine; precise: SegmentationEngine }
@@ -42,7 +66,7 @@ export interface EditorScreenProps {
 /**
  * The editor (spec 0009). Top to bottom: a top bar (Photo, Stickers), the
  * canvas with the status strip over it, the action row (Undo, Redo, Reset
- * to auto, Compare), the options sheet, and the toolbar (Auto, View). The
+ * to auto, Compare), the options sheet, and the toolbar (Auto, Dots, View). The
  * canvas shows the cutout against the chosen view, at screen resolution
  * below 100% and at full resolution above.
  */
@@ -65,6 +89,23 @@ export function EditorScreen(props: EditorScreenProps) {
   const [session] = useState(() =>
     createSession({ ...props, onState: setState, onSelection: setSelection }),
   )
+  const canvasRef = useRef<EditorCanvasHandle>(null)
+  /**
+   * The selected dots and the selection they belong to. Any other selection
+   * means a change from outside the Dots tool, which clears them (spec 0010
+   * AC-13).
+   */
+  const [dots, setDots] = useState<{
+    selection: Selection
+    refs: readonly NodeRef[]
+  } | null>(null)
+  const selectedDots = dots?.selection === selection ? dots.refs : NO_REFS
+  /** Fine mode for dot drags, on by default (spec 0010 decision 5). */
+  const [fine, setFine] = useState(true)
+  /** The density slider's drag (AC-15, AC-16). */
+  const density = useRef<DensityDrag | null>(null)
+  /** The newest density result, shown until the slider is let go. */
+  const [densityPreview, setDensityPreview] = useState<Selection | null>(null)
 
   // Only the canvas moves; the page itself never scrolls (AC-21).
   useEffect(() => {
@@ -106,7 +147,73 @@ export function EditorScreen(props: EditorScreenProps) {
       return
     }
     setPhotoError(null)
+    setDots(null)
+    dropDensity()
     setPhoto(next)
+  }
+
+  /** One dot edit as one undo step, then the dots to select (spec 0010). */
+  const edit = (command: Command, selectAfter: readonly NodeRef[]) => {
+    // Refs from the canvas point into the density preview; drop them.
+    if (density.current) return
+    const next = session.edit(command)
+    setDots({ selection: next, refs: [...selectAfter] })
+  }
+
+  const addShape = (kind: 'rectangle' | 'ellipse') => {
+    const visible = canvasRef.current?.visiblePhotoRect()
+    if (!visible || density.current) return
+    edit({ type: 'addRing', nodes: startingShape(kind, visible) }, [])
+  }
+
+  /** Ends a slide without committing it: the real selection shows again. */
+  const dropDensity = () => {
+    density.current = null
+    setDensityPreview(null)
+  }
+
+  /**
+   * Computes the start's rings at the slider's newest position, off the main
+   * thread, one computation at a time (AC-15, final review I-2). Each result
+   * is shown as it arrives, then the newest position is computed next; the
+   * release position's own result becomes one undo step, unless it changes
+   * nothing or something else changed the selection meanwhile (AC-16,
+   * Review Focus 3).
+   */
+  const computeDensity = (d: DensityDrag) => {
+    if (d.busy || density.current !== d) return
+    const s = d.want
+    const tolerancePx = densityTolerance(s)
+    const renderer = session.renderer
+    if (tolerancePx === null || !renderer) {
+      setDensityPreview(null)
+      if (d.released) dropDensity()
+      return
+    }
+    d.busy = true
+    void renderer.resimplify(d.start, tolerancePx).then((res) => {
+      d.busy = false
+      if (density.current !== d) return
+      const result = res.type === 'resimplified' ? res.selection : null
+      if (!d.released) {
+        if (result) setDensityPreview(result)
+        if (d.want !== s) computeDensity(d)
+        return
+      }
+      // Released at another position: compute that one.
+      if (d.want !== s) {
+        computeDensity(d)
+        return
+      }
+      dropDensity()
+      if (
+        result &&
+        session.snapshot()?.selection === d.start &&
+        !sameRings(d.start, result)
+      ) {
+        edit({ type: 'restore', selection: result }, [])
+      }
+    })
   }
 
   const loadSaved = async (record: StickerRecord): Promise<LoadedPhoto> => {
@@ -164,6 +271,8 @@ export function EditorScreen(props: EditorScreenProps) {
           : saved
       const shown = await session.reopen(record, loaded, alpha, restore)
       setPhotoError(null)
+      setDots(null)
+      dropDensity()
       setPhoto(shown)
       return sameSize ? null : DIFFERENT_SIZE
     },
@@ -179,6 +288,8 @@ export function EditorScreen(props: EditorScreenProps) {
     fileRef.current?.click()
   }
   const chooseTool = (next: EditorTool) => {
+    // The sheet goes, so its slider never sees the finger lift (I-3).
+    dropDensity()
     if (next === tool && !stickersOpen) {
       setSheetOpen((open) => !open)
     } else {
@@ -206,6 +317,7 @@ export function EditorScreen(props: EditorScreenProps) {
             type="button"
             aria-expanded={stickersOpen}
             onClick={() => {
+              dropDensity()
               setStickersOpen((open) => !open)
             }}
           >
@@ -236,13 +348,21 @@ export function EditorScreen(props: EditorScreenProps) {
               source: photo.source,
             }
           }
-          selection={selection}
+          ref={canvasRef}
+          selection={densityPreview ?? selection}
           renderMask={renderMask}
           viewMode={viewMode}
           comparing={comparing}
           tool={tool}
           onIntent={(intent) => {
             session.tap({ imagePt: intent.imagePt, mode: intent.type })
+          }}
+          selectedDots={densityPreview ? NO_REFS : selectedDots}
+          fine={fine}
+          onEdit={edit}
+          onSelectDots={(refs) => {
+            if (density.current) return
+            setDots({ selection, refs: [...refs] })
           }}
           {...(props.now && { now: props.now })}
         />
@@ -333,6 +453,45 @@ export function EditorScreen(props: EditorScreenProps) {
         <div className="editor-sheet" data-testid="sheet">
           {showPanel ? (
             <StickerPanel {...panel} />
+          ) : tool === 'dots' ? (
+            <DotsSheet
+              hasRings={selection.rings.length > 0}
+              fine={fine}
+              onFine={setFine}
+              onShape={addShape}
+              canNudge={selectedDots.length > 0}
+              onNudge={(dx, dy) => {
+                edit(
+                  {
+                    type: 'nudge',
+                    refs: selectedDots,
+                    delta: { x: dx, y: dy },
+                  },
+                  selectedDots,
+                )
+              }}
+              onDensityStart={() => {
+                density.current = {
+                  start: selection,
+                  want: 0,
+                  released: false,
+                  busy: false,
+                }
+              }}
+              onDensity={(s) => {
+                const d = density.current
+                if (!d) return
+                d.want = s
+                computeDensity(d)
+              }}
+              onDensityEnd={(s) => {
+                const d = density.current
+                if (!d) return
+                d.want = s
+                d.released = true
+                computeDensity(d)
+              }}
+            />
           ) : (
             <ToolSheet
               tool={tool}

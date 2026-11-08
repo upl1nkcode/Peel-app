@@ -107,4 +107,16 @@ describe('worker client', () => {
     expect((await preview).type).toBe('rendered')
     expect((await full).type).toBe('rendered')
   })
+
+  it('should_send_resimplify_from_the_client (spec 0010 AC-15)', async () => {
+    const { port, sent, reply } = fakePort()
+    const render = renderWorkerClient(port)
+    const job = render.resimplify(selection, 2)
+    expect(sent[0]).toEqual({
+      message: { type: 'resimplify', selection, tolerancePx: 2, jobId: 1 },
+      transfer: [],
+    })
+    reply({ type: 'resimplified', jobId: 1, selection })
+    expect(await job).toEqual({ type: 'resimplified', jobId: 1, selection })
+  })
 })

@@ -107,6 +107,10 @@ export function renderWorkerClient(port: Port) {
         modelAlpha ? [modelAlpha.data.buffer] : [],
       )
     },
+    /** Every ring re-simplified to `tolerancePx` (spec 0010 AC-15); newest wins. */
+    resimplify(selection: Selection, tolerancePx: number) {
+      return client.request({ type: 'resimplify', selection, tolerancePx }, [])
+    },
   }
 }
 

@@ -33,8 +33,19 @@ export type ToRenderWorker =
       selection: Selection
       modelAlpha?: AlphaMask
     }
+  /**
+   * Every ring re-simplified to `tolerancePx` (spec 0010 AC-15), off the
+   * main thread. Needs no image; newest-wins like `render`.
+   */
+  | {
+      type: 'resimplify'
+      jobId: number
+      selection: Selection
+      tolerancePx: number
+    }
 export type FromRenderWorker =
   | { type: 'rendered'; jobId: number; mask: AlphaMask }
+  | { type: 'resimplified'; jobId: number; selection: Selection }
   | { type: 'cancelled'; jobId: number }
   | { type: 'error'; jobId: number; message: string }
 

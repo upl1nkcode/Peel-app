@@ -1,13 +1,18 @@
 import { expect, test } from '@playwright/test'
 import { VIEW_LABELS, VIEW_MODES } from '../src/core/editor'
-import { generatedJpeg, nextFrame, seedAndOpen } from './helpers/editor'
+import {
+  generatedJpeg,
+  imageToClient,
+  nextFrame,
+  seedAndOpen,
+} from './helpers/editor'
 
 // The PWA's service worker would fetch the models itself, past page.route,
 // so seedAndOpen's block leaked on CI WebKit (PR #138). Block it here.
 test.use({ serviceWorkers: 'block' })
 
 /**
- * Screenshot baselines (spec 0009 AC-12, AC-25). Fonts and rasterising
+ * Screenshot baselines (spec 0009 AC-12, AC-25; spec 0010 AC-19). Fonts and rasterising
  * differ between systems, so baselines are made and checked on CI Linux,
  * in the Pixel 8 project only.
  */
@@ -69,6 +74,36 @@ test('should_match_the_editor_layout (AC-25)', async ({ page }) => {
       expect(fits.scrollWidth).toBeLessThanOrEqual(fits.innerWidth)
       await expect(page).toHaveScreenshot(
         `layout-${String(size.width)}-${colorScheme}.png`,
+        SHOT,
+      )
+    }
+  }
+})
+
+test('should_match_the_dots_tool (spec 0010 AC-19)', async ({ page }) => {
+  for (const size of [
+    { width: 375, height: 812 },
+    { width: 430, height: 932 },
+  ]) {
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.setViewportSize(size)
+      await page.emulateMedia({ colorScheme })
+      await seedAndOpen(page)
+      const canvas = page.getByTestId('canvas')
+      await page.getByRole('button', { name: 'Dots' }).click()
+      // One dot selected, so both dot looks and the enabled nudge pad show.
+      const dot = await imageToClient(page, { x: 110, y: 70 })
+      await page.mouse.click(dot.x, dot.y)
+      await expect(canvas).toHaveAttribute('data-selected-count', '1')
+      await nextFrame(page)
+      const fits = await page.evaluate(() => ({
+        scrollWidth: (document.scrollingElement ?? document.documentElement)
+          .scrollWidth,
+        innerWidth: window.innerWidth,
+      }))
+      expect(fits.scrollWidth).toBeLessThanOrEqual(fits.innerWidth)
+      await expect(page).toHaveScreenshot(
+        `dots-${String(size.width)}-${colorScheme}.png`,
         SHOT,
       )
     }

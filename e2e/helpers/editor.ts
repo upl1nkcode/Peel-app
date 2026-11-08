@@ -5,6 +5,7 @@ import { backupEntries, type StickerRecord } from '../../src/core/backup'
 import type { Rgb } from '../../src/core/editor'
 import { encodePng, storedDeflate } from '../../src/core/png'
 import { serializeSelection } from '../../src/core/selection/serialize'
+import type { Ring } from '../../src/core/selection/types'
 import { writeZip } from '../../src/core/zip'
 
 /** The seed sticker's photo: 120×80, four coloured quadrants. */
@@ -18,15 +19,20 @@ export interface SeedOptions {
   photo: Uint8Array
   imageSize: { width: number; height: number }
   rect: { x0: number; y0: number; x1: number; y1: number }
+  /** The selection's rings, in place of the rectangle (spec 0010). */
+  rings?: Ring[]
+}
+
+const SEED: SeedOptions = {
+  photo: new Uint8Array(SEED_PHOTO),
+  imageSize: { width: 120, height: 80 },
+  rect: SEED_RECT,
 }
 
 export async function seedRecord(
-  opts: SeedOptions = {
-    photo: new Uint8Array(SEED_PHOTO),
-    imageSize: { width: 120, height: 80 },
-    rect: SEED_RECT,
-  },
+  options: Partial<SeedOptions> = {},
 ): Promise<StickerRecord> {
+  const opts = { ...SEED, ...options }
   const { imageSize } = opts
   const { x0, y0, x1, y1 } = opts.rect
   const rect = [
@@ -35,6 +41,7 @@ export async function seedRecord(
     { x: x1, y: y1 },
     { x: x0, y: y1 },
   ].map((p) => ({ ...p, kind: 'corner' as const }))
+  const rings: Ring[] = opts.rings ?? [{ op: 'add', nodes: rect }]
   const png = (v: number) =>
     encodePng(
       { width: 4, height: 4, data: new Uint8Array(64).fill(v) },
@@ -47,7 +54,7 @@ export async function seedRecord(
     imageSize,
     photo: { bytes: opts.photo, type: 'image/jpeg' },
     selection: serializeSelection(
-      { rings: [{ op: 'add', nodes: rect }], strokes: [], feather: 0 },
+      { rings, strokes: [], feather: 0 },
       imageSize,
     ),
     sticker: await png(200),
@@ -55,7 +62,7 @@ export async function seedRecord(
   }
 }
 
-export async function seedBackup(opts?: SeedOptions): Promise<Buffer> {
+export async function seedBackup(opts?: Partial<SeedOptions>): Promise<Buffer> {
   const entries = backupEntries([await seedRecord(opts)], new Date(2026, 10, 2))
   return Buffer.concat(writeZip(entries, new Date(2026, 10, 2)))
 }
@@ -114,7 +121,7 @@ export const MODEL_URL = /\/(engine|models)\//
  * downloads blocked, and waits for its mask. (Offline would also stop the
  * render worker's script from loading.)
  */
-export async function seedAndOpen(page: Page, opts?: SeedOptions) {
+export async function seedAndOpen(page: Page, opts?: Partial<SeedOptions>) {
   await page.route(MODEL_URL, (route) => route.abort())
   await page.goto('/')
   await importFile(page, await seedBackup(opts))
