@@ -1071,7 +1071,7 @@ describe('EditorScreen lasso tool (spec 0011)', () => {
         one,
       )
     })
-    expect(canvas).toHaveAttribute('data-lasso', 'paused')
+    await paused(canvas)
     expect(button('Undo')).toBeEnabled()
     expect(button('Redo')).toBeDisabled()
     fireEvent.click(button('Undo'))
@@ -1198,6 +1198,46 @@ describe('EditorScreen lasso tool (spec 0011)', () => {
         { x: 80, y: 40 },
       ],
       tolerancePx: 0.5,
+    })
+  })
+
+  it('should_keep_the_section_drawn_while_it_snaps (AC-11, final review)', async () => {
+    const snaps = deferredSnap()
+    const { canvas } = await lassoTool()
+    fireEvent.click(snapSwitch())
+    trace(canvas, TOP)
+    await waitFor(() => {
+      expect(canvas).toHaveAttribute('data-lasso', 'busy')
+    })
+    // The finger's line stays on screen until the snapped one replaces it.
+    const raw = Number(canvas.getAttribute('data-lasso-points'))
+    expect(raw).toBeGreaterThanOrEqual(3)
+    snaps.at(-1)?.settle({
+      type: 'snapped',
+      jobId: 1,
+      path: [
+        { x: 20, y: 11 },
+        { x: 80, y: 11 },
+      ],
+    })
+    await paused(canvas)
+    expect(canvas).toHaveAttribute('data-lasso-points', '2')
+  })
+
+  it('should_add_when_there_is_nothing_to_subtract_from (AC-14, final review)', async () => {
+    const { canvas } = await lassoTool()
+    fireEvent.click(button('Dots'))
+    fireEvent.click(button('Rectangle'))
+    fireEvent.click(button('Lasso'))
+    fireEvent.click(radio('Subtract'))
+    fireEvent.click(button('Undo'))
+    await waitFor(() => {
+      expect(radio('Subtract')).toBeDisabled()
+    })
+    expect(radio('Add')).toHaveAttribute('aria-checked', 'true')
+    trace(canvas, SQUARE)
+    await waitFor(() => {
+      expect(lastRendered()?.rings.map((r) => r.op)).toEqual(['add'])
     })
   })
 

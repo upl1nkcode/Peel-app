@@ -101,14 +101,19 @@ describe('session edits (spec 0010)', () => {
     expect(s.snapshot()?.selection).toBe(before)
   })
 
-  it('should_give_each_photo_to_the_snapper (spec 0011 AC-11)', async () => {
+  it('should_give_the_photo_to_the_snapper_only_when_snapping (spec 0011 AC-11, final review)', async () => {
     const rendered: RgbaImage[] = []
     const snapped: [string, RgbaImage][] = []
+    const snaps: string[] = []
+    let created = 0
     const snapper: Snapper = {
       setImage: (id, image) => {
         snapped.push([id, image])
       },
-      snap: () => Promise.resolve({ type: 'cancelled' as const }),
+      snap: (id) => {
+        snaps.push(id)
+        return Promise.resolve({ type: 'cancelled' as const })
+      },
     }
     const s = createSession({
       engines: {
@@ -122,13 +127,26 @@ describe('session edits (spec 0010)', () => {
           rendered.push(image)
         },
       }),
-      createSnapper: () => snapper,
+      createSnapper: () => {
+        created++
+        return snapper
+      },
       loadPhoto: () => Promise.resolve(loaded()),
       onState: () => undefined,
       onSelection: () => undefined,
     })
     const photo = await s.pick(new File([], 'a.png'))
-    expect(s.snapper).toBe(snapper)
+    // Snap is off by default: no worker and no copy of the photo yet.
+    expect(created).toBe(0)
+    expect(snapped).toEqual([])
+    const finger = [
+      { x: 1, y: 1 },
+      { x: 5, y: 1 },
+    ]
+    await s.snap(finger, 6)
+    await s.snap(finger, 6)
+    expect(created).toBe(1)
+    expect(snaps).toEqual([photo.id, photo.id])
     expect(snapped).toHaveLength(1)
     const [id, image] = snapped[0] as [string, RgbaImage]
     expect(id).toBe(photo.id)
@@ -136,5 +154,10 @@ describe('session edits (spec 0010)', () => {
     expect(image.data).toEqual(PHOTO.data)
     expect(image.data).not.toBe(PHOTO.data)
     expect(image.data).not.toBe(rendered[0]?.data)
+    // The next photo is sent when it is first snapped.
+    const next = await s.pick(new File([], 'b.png'))
+    expect(snapped).toHaveLength(1)
+    await s.snap(finger, 6)
+    expect(snapped.map(([id]) => id)).toEqual([photo.id, next.id])
   })
 })

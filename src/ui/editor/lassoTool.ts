@@ -29,6 +29,8 @@ export interface OpenLasso {
   sections: readonly LassoSection[]
   /** A section is being snapped or the ring fitted: the handle waits (Review Focus 5). */
   busy: boolean
+  /** The finger's line of the section being snapped, drawn until it arrives. */
+  pending?: readonly Point[] | null
 }
 
 export type LassoState = 'none' | 'drawing' | 'paused' | 'busy'
@@ -91,7 +93,9 @@ export function createLassoTool(ctx: ToolContext<LassoInputs>) {
 
   const open = (): OpenLasso | null => {
     const l = ctx.inputs()?.lasso
-    return l && l.sections.length > 0 ? l : null
+    return l && (l.sections.length > 0 || (l.pending?.length ?? 0) > 0)
+      ? l
+      : null
   }
   const endOf = (l: OpenLasso): Point | null =>
     l.sections.at(-1)?.points.at(-1) ?? null
@@ -247,16 +251,19 @@ export function createLassoTool(ctx: ToolContext<LassoInputs>) {
     },
 
     points(): number {
+      const l = open()
       let n = drag ? drag.lasso.points().length : 0
-      for (const s of open()?.sections ?? []) n += s.points.length
-      return n
+      for (const s of l?.sections ?? []) n += s.points.length
+      return n + (l?.pending?.length ?? 0)
     },
 
     layer(accent: string): LassoLayer | null {
       const p = ctx.inputs()
       if (p?.tool !== 'lasso') return null
+      const l = open()
       const path: Point[] = []
-      for (const s of open()?.sections ?? []) path.push(...s.points)
+      for (const s of l?.sections ?? []) path.push(...s.points)
+      path.push(...(l?.pending ?? []))
       let trail: Point[] | null = null
       if (drag) {
         const pts = drag.lasso.points()
@@ -266,7 +273,8 @@ export function createLassoTool(ctx: ToolContext<LassoInputs>) {
         } else path.push(...pts)
       }
       if (path.length === 0 && !trail) return null
-      return { path, trail, paused: !drag && open() !== null, accent }
+      // No end handle while it can't be dragged (Review Focus 5).
+      return { path, trail, paused: !drag && l !== null && !l.busy, accent }
     },
   }
 }

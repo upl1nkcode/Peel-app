@@ -23,9 +23,13 @@ export type LassoMode = 'add' | 'subtract'
 /** What the lasso needs of the editor session. */
 export interface LassoSession {
   readonly renderer: Pick<Renderer, 'fitRing'> | null
-  readonly snapper: Snapper | null
   readonly photoId: string | null
-  edit(command: Command): Selection
+  snap: (
+    finger: Point[],
+    reachPx: number,
+  ) => Promise<Awaited<ReturnType<Snapper['snap']>> | null>
+  snapshot: () => { selection: Selection } | null
+  edit: (command: Command) => Selection
 }
 
 export interface LassoController {
@@ -33,6 +37,7 @@ export interface LassoController {
   open: OpenLasso | null
   /** The ring is being made (the "Making dots…" hint, AC-24). */
   closing: boolean
+  /** Add, unless Subtract is chosen and there is something to cut (AC-14). */
   mode: LassoMode
   setMode: (mode: LassoMode) => void
   snapOn: boolean
@@ -58,9 +63,11 @@ export interface LassoController {
  */
 export function useLasso(
   session: LassoSession,
-  opts: { onFinished: () => void },
+  opts: { onFinished: () => void; hasRings: boolean },
 ): LassoController {
   const [sections, setSections] = useState<readonly LassoSection[]>([])
+  /** The finger's line of a section being snapped, shown meanwhile. */
+  const [pending, setPending] = useState<readonly Point[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [closing, setClosing] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -93,8 +100,11 @@ export function useLasso(
   const reset = () => {
     generation.current++
     put([])
+    setPending(null)
     work(false)
   }
+  /** Subtract only cuts from rings that exist (final review). */
+  const ringsNow = () => (session.snapshot()?.selection.rings.length ?? 0) > 0
 
   /** Turns the sections into a ring (AC-15), or keeps them open (AC-10). */
   async function close(all: readonly LassoSection[]) {
@@ -113,7 +123,10 @@ export function useLasso(
     if (res.type === 'fitted') {
       try {
         session.edit({
-          type: latest.current.mode === 'add' ? 'addRing' : 'subtractRing',
+          type:
+            latest.current.mode === 'subtract' && ringsNow()
+              ? 'subtractRing'
+              : 'addRing',
           nodes: res.nodes,
         })
       } catch {
@@ -139,12 +152,10 @@ export function useLasso(
       snapped: false,
       tolerancePx: sectionTolerance(d.k, false),
     }
-    const snapper = session.snapper
-    const photoId = session.photoId
-    if (!latest.current.snapOn || !snapper || !photoId) return raw
-    let res: Awaited<ReturnType<Snapper['snap']>> | null
+    if (!latest.current.snapOn) return raw
+    let res: Awaited<ReturnType<LassoSession['snap']>>
     try {
-      res = await snapper.snap(photoId, d.points, snapReachPx(d.k))
+      res = await session.snap(d.points, snapReachPx(d.k))
     } catch {
       res = null
     }
@@ -163,21 +174,23 @@ export function useLasso(
     const gen = generation.current
     const prevEnd = live.current.sections.at(-1)?.points.at(-1) ?? null
     work(true)
+    setPending(d.points)
     const section = await finalLine(d, prevEnd)
     if (gen !== generation.current) return
     const all = [...live.current.sections, section]
     put(all)
+    setPending(null)
     if (d.closes) await close(all)
     else work(false)
   }
 
   const open: OpenLasso | null =
-    sections.length > 0 || busy ? { sections, busy } : null
+    sections.length > 0 || busy ? { sections, busy, pending } : null
 
   return {
     open,
     closing,
-    mode,
+    mode: mode === 'subtract' && opts.hasRings ? 'subtract' : 'add',
     setMode,
     snapOn,
     setSnapOn,
@@ -207,11 +220,8 @@ export function useLasso(
       reset()
     },
     liveSnap: async (finger, reachPx) => {
-      const snapper = session.snapper
-      const photoId = session.photoId
-      if (!snapper || !photoId) return null
-      const res = await snapper.snap(photoId, finger, reachPx)
-      return res.type === 'snapped' ? res.path : null
+      const res = await session.snap(finger, reachPx)
+      return res?.type === 'snapped' ? res.path : null
     },
   }
 }

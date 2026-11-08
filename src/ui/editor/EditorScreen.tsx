@@ -129,6 +129,7 @@ export function EditorScreen(props: EditorScreenProps) {
       setSheetOpen(true)
       setStickersOpen(false)
     },
+    hasRings: selection.rings.length > 0,
   })
   /** The brush (spec 0011 AC-18, AC-19): mode and hardness stay; the size is per photo. */
   const [brushMode, setBrushMode] = useState<BrushSettings['mode']>('erase')

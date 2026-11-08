@@ -103,6 +103,8 @@ export function createSession(deps: SessionDeps) {
   const history = createHistory(emptySelection())
   let renderer: Renderer | null = null
   let snapper: Snapper | null = null
+  /** The photo the snapper has; it is sent on the first snap (final review). */
+  let snapperPhoto: string | null = null
   let started = false
   let photos = 0
   let photo: Photo | null = null
@@ -159,8 +161,6 @@ export function createSession(deps: SessionDeps) {
     } else {
       renderer.setImage(id, copyImage(image))
     }
-    snapper ??= deps.createSnapper?.() ?? null
-    snapper?.setImage(id, copyImage(image))
     if (!started) {
       started = true
       void auto.start()
@@ -181,9 +181,23 @@ export function createSession(deps: SessionDeps) {
     get photoId() {
       return photo?.id ?? null
     },
-    /** Null when the app gives no live-wire worker (spec 0011 AC-11). */
-    get snapper() {
-      return snapper
+    /**
+     * Snaps a lasso path on the photo on screen (spec 0011 AC-11). The worker
+     * and its copy of the photo are made on the first snap, since Snap is off
+     * by default; null without a photo or a live-wire worker.
+     */
+    snap(
+      finger: Point[],
+      reachPx: number,
+    ): Promise<FromLiveWireWorker | Cancelled | null> {
+      if (!photo) return Promise.resolve(null)
+      snapper ??= deps.createSnapper?.() ?? null
+      if (!snapper) return Promise.resolve(null)
+      if (snapperPhoto !== photo.id) {
+        snapper.setImage(photo.id, copyImage(photo.image))
+        snapperPhoto = photo.id
+      }
+      return snapper.snap(photo.id, finger, reachPx)
     },
     /** What a save stores, as it is now (spec 0008 Review Focus 1). */
     snapshot(): SaveSnapshot | null {
