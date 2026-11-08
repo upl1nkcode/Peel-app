@@ -1,6 +1,6 @@
 # 0011 — I can trace the exact shape with my finger and touch up with a brush
 
-- **Status:** Draft
+- **Status:** Approved
 - **Issues:** story #74; tasks #75 (lasso drawing with live path and loupe), #76 (pause and continue across zoom and pan), #77 (magnetic toggle), #78 (add and subtract), #79 (convert a finished lasso to dots), #80 (erase and restore brush)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §3.3 (Lasso), §3.4 (Brush), §3.6 (precision aids), §7 (phone-first UI), Phase 8. Builds on:
   - spec 0002: lasso recording, smoothing, curves;
