@@ -248,3 +248,81 @@ export function sameRings(a: Selection, b: Selection): boolean {
     })
   })
 }
+
+/** Fine mode engages after the finger holds this still… (AC-6) */
+export const FINE_STILL_PX = 2
+/** …for this long. */
+export const FINE_HOLD_MS = 300
+/** In fine mode the dots move this fraction of the finger's movement. */
+export const FINE_FACTOR = 0.25
+
+/** A dot drag in progress: plain data, advanced by `dragTo` (AC-3, AC-6). */
+export interface DotDrag {
+  readonly start: readonly Point[]
+  readonly finger: Point
+  /** CSS px per image px when the drag started. */
+  readonly scale: number
+  readonly fineEnabled: boolean
+  /** Where and when the finger last moved more than 2 px. */
+  readonly still: { pt: Point; t: number }
+  /** Once fine mode is on: the finger and the dots at that moment. */
+  readonly engaged: { finger: Point; dots: readonly Point[] } | null
+}
+
+export function startDrag(
+  nodes: readonly Point[],
+  fingerCanvasPt: Point,
+  t: number,
+  vp: Viewport,
+  view: View,
+  fineEnabled: boolean,
+): DotDrag {
+  return {
+    start: nodes.map(({ x, y }) => ({ x, y })),
+    finger: fingerCanvasPt,
+    scale: viewScale(vp, view),
+    fineEnabled,
+    still: { pt: fingerCanvasPt, t },
+    engaged: null,
+  }
+}
+
+const moved = (dots: readonly Point[], dx: number, dy: number): Point[] =>
+  dots.map((p) => ({ x: p.x + dx, y: p.y + dy }))
+
+/**
+ * The dots' positions for the finger at `fingerCanvasPt` at time `t` (ms).
+ * They move by the finger's movement since it went down, in image px, so the
+ * press slop isn't lost (AC-3). With fine mode allowed, once the finger has
+ * stayed within 2 px for 300 ms, they move a quarter as far from there on
+ * (AC-6). Positions are never rounded (AC-7).
+ */
+export function dragTo(
+  drag: DotDrag,
+  fingerCanvasPt: Point,
+  t: number,
+): { drag: DotDrag; positions: Point[]; fine: boolean } {
+  let next = drag
+  if (dist(fingerCanvasPt, drag.still.pt) > FINE_STILL_PX) {
+    next = { ...next, still: { pt: fingerCanvasPt, t } }
+  }
+  if (next.engaged) {
+    const k = FINE_FACTOR / next.scale
+    const positions = moved(
+      next.engaged.dots,
+      (fingerCanvasPt.x - next.engaged.finger.x) * k,
+      (fingerCanvasPt.y - next.engaged.finger.y) * k,
+    )
+    return { drag: next, positions, fine: true }
+  }
+  const positions = moved(
+    next.start,
+    (fingerCanvasPt.x - next.finger.x) / next.scale,
+    (fingerCanvasPt.y - next.finger.y) / next.scale,
+  )
+  if (next.fineEnabled && t - next.still.t >= FINE_HOLD_MS) {
+    next = { ...next, engaged: { finger: fingerCanvasPt, dots: positions } }
+    return { drag: next, positions, fine: true }
+  }
+  return { drag: next, positions, fine: false }
+}

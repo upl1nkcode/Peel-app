@@ -7,10 +7,12 @@ import { emptySelection } from '../selection/model'
 import type { Ring, Selection } from '../selection/types'
 import {
   densityTolerance,
+  dragTo,
   hitDots,
   nodesInBox,
   refsAfterDelete,
   sameRings,
+  startDrag,
   startingShape,
   visiblePhotoRect,
 } from './dots'
@@ -236,5 +238,93 @@ describe('sameRings', () => {
     ;(kinded.rings[0]?.nodes[2] as Node).kind = 'smooth'
     expect(sameRings(a, kinded)).toBe(false)
     expect(sameRings(a, withRings(square, square))).toBe(false)
+  })
+})
+
+describe('dot drags', () => {
+  const dots = [
+    { x: 100, y: 100 },
+    { x: 140, y: 90 },
+  ]
+  const f0 = { x: 200, y: 150 }
+
+  it('should_follow_the_finger_from_where_it_went_down (AC-3)', () => {
+    const drag = startDrag(dots, f0, 0, vp, fit, true)
+    // 10 px of the 14 are inside the press slop: they still count.
+    const { positions, fine } = dragTo(drag, { x: 210, y: 154 }, 16)
+    expect(fine).toBe(false)
+    expect(positions).toEqual([
+      { x: 120, y: 108 },
+      { x: 160, y: 98 },
+    ])
+  })
+
+  it('should_follow_at_16x (AC-3, #66)', () => {
+    const zoomed: View = { zoom: 16, center: { x: 100, y: 100 } }
+    const drag = startDrag(dots, f0, 0, vp, zoomed, true)
+    expect(dragTo(drag, { x: 216, y: 150 }, 16).positions[0]).toEqual({
+      x: 102,
+      y: 100,
+    })
+  })
+
+  /** Feeds finger points at times; returns each step's result. */
+  const run = (fineEnabled: boolean, steps: [number, number, number][]) => {
+    let drag = startDrag(dots, f0, 0, vp, fit, fineEnabled)
+    return steps.map(([x, y, t]) => {
+      const r = dragTo(drag, { x, y }, t)
+      drag = r.drag
+      return r
+    })
+  }
+
+  it('should_go_quarter_speed_after_holding_still (AC-6)', () => {
+    const r = run(true, [
+      [230, 150, 50],
+      [231, 150, 100],
+      [230.5, 151, 200],
+      [231, 151, 350],
+      [239, 151, 400],
+    ])
+    expect(r.map((s) => s.fine)).toEqual([false, false, false, true, true])
+    // At the engage point the dot is where the finger put it…
+    expect(r[3]?.positions[0]).toEqual({ x: 162, y: 102 })
+    // …then 8 canvas px (16 image px) move it a quarter: 4 image px.
+    expect(r[4]?.positions[0]).toEqual({ x: 166, y: 102 })
+
+    // A move of more than 2 px restarts the wait.
+    const late = run(true, [
+      [230, 150, 50],
+      [231, 150, 100],
+      [234, 150, 200],
+      [234.5, 150, 400],
+      [234, 150.5, 500],
+    ])
+    expect(late.map((s) => s.fine)).toEqual([false, false, false, false, true])
+  })
+
+  it('should_stay_one_to_one_with_fine_off (AC-6)', () => {
+    const r = run(false, [
+      [230, 150, 50],
+      [231, 150, 100],
+      [230.5, 151, 200],
+      [231, 151, 350],
+      [239, 151, 400],
+    ])
+    expect(r.every((s) => !s.fine)).toBe(true)
+    expect(r[4]?.positions[0]).toEqual({ x: 178, y: 102 })
+  })
+
+  it('should_keep_off_photo_positions_unrounded (AC-7, Review Focus 4)', () => {
+    const near = [{ x: 5.25, y: 3.5 }]
+    const drag = startDrag(near, f0, 0, vp, fit, true)
+    const to = { x: 186.7, y: 141.1 }
+    const [p] = dragTo(drag, to, 16).positions
+    expect(p).toEqual({
+      x: 5.25 + (to.x - f0.x) / 0.5,
+      y: 3.5 + (to.y - f0.y) / 0.5,
+    })
+    expect(p?.x).toBeLessThan(0)
+    expect(Number.isInteger(p?.x)).toBe(false)
   })
 })
