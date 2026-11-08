@@ -177,6 +177,10 @@ export function createSession(deps: SessionDeps) {
     get renderer() {
       return renderer
     },
+    /** The photo on screen, or null before the first (spec 0011). */
+    get photoId() {
+      return photo?.id ?? null
+    },
     /** Null when the app gives no live-wire worker (spec 0011 AC-11). */
     get snapper() {
       return snapper

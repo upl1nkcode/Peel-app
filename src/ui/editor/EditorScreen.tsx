@@ -19,6 +19,7 @@ import { parseSelection } from '../../core/selection/serialize'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { inflateModelAlpha } from '../../services/sticker'
 import { DotsSheet } from './DotsSheet'
+import { LassoSheet } from './LassoSheet'
 import {
   EditorCanvas,
   type EditorCanvasHandle,
@@ -33,6 +34,7 @@ import {
   type Snapper,
 } from './session'
 import { Toolbar, ToolSheet } from './Toolbar'
+import { useLasso } from './useLasso'
 import { useStickers, type StickerDeps, type StickerHost } from './useStickers'
 import './EditorScreen.css'
 
@@ -74,7 +76,8 @@ export interface EditorScreenProps {
 /**
  * The editor (spec 0009). Top to bottom: a top bar (Photo, Stickers), the
  * canvas with the status strip over it, the action row (Undo, Redo, Reset
- * to auto, Compare), the options sheet, and the toolbar (Auto, Dots, View). The
+ * to auto, Compare), the options sheet, and the toolbar (Auto, Lasso, Dots,
+ * Brush, View). The
  * canvas shows the cutout against the chosen view, at screen resolution
  * below 100% and at full resolution above.
  */
@@ -114,6 +117,18 @@ export function EditorScreen(props: EditorScreenProps) {
   const density = useRef<DensityDrag | null>(null)
   /** The newest density result, shown until the slider is let go. */
   const [densityPreview, setDensityPreview] = useState<Selection | null>(null)
+  /** The open lasso and its options (spec 0011). A closed ring opens Dots (AC-16). */
+  const lasso = useLasso(session, {
+    onFinished: () => {
+      dropDensity()
+      setDots(null)
+      setTool('dots')
+      setSheetOpen(true)
+      setStickersOpen(false)
+    },
+  })
+  /** Undo and Redo work on the open lasso's sections (AC-8). */
+  const lassoUndo = tool === 'lasso' && lasso.open !== null
 
   // Only the canvas moves; the page itself never scrolls (AC-21).
   useEffect(() => {
@@ -157,6 +172,7 @@ export function EditorScreen(props: EditorScreenProps) {
     setPhotoError(null)
     setDots(null)
     dropDensity()
+    lasso.drop()
     setPhoto(next)
   }
 
@@ -281,13 +297,17 @@ export function EditorScreen(props: EditorScreenProps) {
       setPhotoError(null)
       setDots(null)
       dropDensity()
+      lasso.drop()
       setPhoto(shown)
       return sameSize ? null : DIFFERENT_SIZE
     },
   }
   const panel = useStickers(props.stickers, host, photo?.id ?? null, selection)
 
-  const lines = state ? statusLines(state) : []
+  const lines = [
+    ...(state ? statusLines(state) : []),
+    ...(lasso.notice ? [lasso.notice] : []),
+  ]
   const release = () => {
     setComparing(false)
   }
@@ -372,6 +392,10 @@ export function EditorScreen(props: EditorScreenProps) {
             if (density.current) return
             setDots({ selection, refs: [...refs] })
           }}
+          lasso={lasso.open}
+          snap={lasso.liveSnap}
+          snapOn={lasso.snapOn}
+          onLassoSection={lasso.addSection}
           {...(props.now && { now: props.now })}
         />
         {!photo && (
@@ -390,11 +414,12 @@ export function EditorScreen(props: EditorScreenProps) {
           {lines.map((line) => (
             <p key={line}>{line}</p>
           ))}
-          {state?.unavailable && (
+          {state?.unavailable && tool === 'auto' && (
             <button
               type="button"
               onClick={() => {
                 session.useLasso()
+                chooseTool('lasso')
               }}
             >
               {USE_LASSO_LABEL}
@@ -405,16 +430,17 @@ export function EditorScreen(props: EditorScreenProps) {
       <div className="editor-actions">
         <button
           type="button"
-          disabled={!session.canUndo}
+          disabled={lassoUndo ? lasso.open?.busy : !session.canUndo}
           onClick={() => {
-            session.undo()
+            if (lassoUndo) lasso.undoSection()
+            else session.undo()
           }}
         >
           Undo
         </button>
         <button
           type="button"
-          disabled={!session.canRedo}
+          disabled={lassoUndo || !session.canRedo}
           onClick={() => {
             session.redo()
           }}
@@ -461,7 +487,22 @@ export function EditorScreen(props: EditorScreenProps) {
         <div className="editor-sheet" data-testid="sheet">
           {showPanel ? (
             <StickerPanel {...panel} />
-          ) : tool === 'dots' ? (
+          ) : tool === 'lasso' ? (
+            <LassoSheet
+              isOpen={lasso.open !== null}
+              busy={lasso.open?.busy ?? false}
+              closing={lasso.closing}
+              hasRings={selection.rings.length > 0}
+              mode={lasso.mode}
+              onMode={lasso.setMode}
+              snapOn={lasso.snapOn}
+              onSnap={lasso.setSnapOn}
+              smoothing={lasso.smoothing}
+              onSmoothing={lasso.setSmoothing}
+              onFinish={lasso.finish}
+              onDiscard={lasso.discard}
+            />
+          ) : tool === 'brush' ? null : tool === 'dots' ? (
             <DotsSheet
               hasRings={selection.rings.length > 0}
               fine={fine}

@@ -189,6 +189,11 @@
   max-width: 10rem;
 }
 
+/* The Lasso sheet's Add | Subtract sits inside a row (spec 0011 AC-24). */
+.editor-modes {
+  padding-top: 0;
+}
+
 /* The Dots sheet (spec 0010 AC-18): rows of 44 px controls. */
 .editor-row {
   display: flex;

@@ -2,6 +2,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RgbaImage } from '../../core/mask'
 import type { Tap } from '../../core/segmentation'
+import { snapReachPx } from '../../core/editor'
+import type { Point } from '../../core/geometry/types'
+import { fitRing as realFitRing } from '../../core/selection/density'
 import type { Selection } from '../../core/selection/types'
 import {
   createFakeEngine,
@@ -10,6 +13,7 @@ import {
 } from '../../services/segmentation'
 import { PhotoUnreadableError } from '../../services/photo'
 import { EditorScreen, type Renderer } from './EditorScreen'
+import type { Snapper } from './session'
 
 const PHOTO: RgbaImage = {
   width: 100,
@@ -42,6 +46,33 @@ const cancelled: Renderer['resimplify'] = () =>
   Promise.resolve({ type: 'cancelled' as const })
 let resimplify: Renderer['resimplify'] = cancelled
 
+/** Every fitRing request, and what the fake renderer does with it (spec 0011). */
+let fitCalls: { path: Point[]; tolerancePx: number }[] = []
+const fitNow: Renderer['fitRing'] = (path, tolerancePx) => {
+  try {
+    return Promise.resolve({
+      type: 'fitted' as const,
+      jobId: 1,
+      nodes: realFitRing(path, tolerancePx),
+    })
+  } catch (e) {
+    return Promise.resolve({
+      type: 'error' as const,
+      jobId: 1,
+      message: String(e),
+    })
+  }
+}
+let fitRing: Renderer['fitRing'] = fitNow
+
+/** What the fake snapper does; by default every snap is cancelled. */
+let snap: Snapper['snap'] = () =>
+  Promise.resolve({ type: 'cancelled' as const, jobId: 0 })
+const fakeSnapper = (): Snapper => ({
+  setImage: () => undefined,
+  snap: (id, finger, reachPx) => snap(id, finger, reachPx),
+})
+
 /** Every selection the preview was asked to render, in order. */
 let rendered: Selection[] = []
 const lastRendered = () => rendered.at(-1)
@@ -51,7 +82,10 @@ const fakeRenderer = (): Renderer => ({
   setModelAlpha: () => undefined,
   renderFull: () => Promise.resolve({ type: 'cancelled' as const }),
   resimplify: (selection, tolerancePx) => resimplify(selection, tolerancePx),
-  fitRing: () => Promise.resolve({ type: 'cancelled' as const }),
+  fitRing: (path, tolerancePx) => {
+    fitCalls.push({ path, tolerancePx })
+    return fitRing(path, tolerancePx)
+  },
   render: (_id, selection, scale) => {
     rendered.push(selection)
     return Promise.resolve({
@@ -78,6 +112,7 @@ function mount(
       {...(supported && { supported })}
       missingBytes={() => Promise.resolve(0)}
       createRenderer={fakeRenderer}
+      createSnapper={fakeSnapper}
       loadPhoto={(file) => Promise.resolve(loaded(file))}
       now={() => clock.t}
     />,
@@ -133,6 +168,9 @@ const press = (
 beforeEach(() => {
   rendered = []
   resimplify = cancelled
+  fitCalls = []
+  fitRing = fitNow
+  snap = () => Promise.resolve({ type: 'cancelled' as const, jobId: 0 })
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
 })
 
@@ -551,12 +589,7 @@ describe('EditorScreen dots tool (spec 0010)', () => {
       screen
         .getByRole('navigation', { name: 'Tools' })
         .querySelectorAll('button'),
-    ).toHaveLength(3)
-    expect(
-      [...screen.getByRole('navigation', { name: 'Tools' }).children].map(
-        (b) => b.textContent,
-      ),
-    ).toEqual(['Auto', 'Dots', 'View'])
+    ).toHaveLength(5)
     expect(button('Dots')).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(button('Rectangle'))
     const sheet = screen.getByTestId('sheet')
@@ -825,5 +858,413 @@ describe('EditorScreen dots tool (spec 0010)', () => {
     await waitFor(() => {
       expect(dotCount(canvas)).toBe('4')
     })
+  })
+})
+
+describe('EditorScreen lasso tool (spec 0011)', () => {
+  // As in the dots tests: 2 CSS px per image px, so screen (sx, sy) is
+  // image ((sx − 10) / 2, (sy − 20) / 2). This square is image
+  // (20,10)–(80,40) and lifts near its start, so it closes.
+  const SQUARE: Point[] = [
+    { x: 50, y: 40 },
+    { x: 110, y: 40 },
+    { x: 170, y: 40 },
+    { x: 170, y: 70 },
+    { x: 170, y: 100 },
+    { x: 110, y: 100 },
+    { x: 50, y: 100 },
+    { x: 50, y: 70 },
+    { x: 55, y: 45 },
+  ]
+  /** Open: image (20,10) to (80,10). */
+  const TOP: Point[] = [
+    { x: 50, y: 40 },
+    { x: 110, y: 40 },
+    { x: 170, y: 40 },
+  ]
+  /** Open, from TOP's end: image (80,10) to (80,40). */
+  const RIGHT: Point[] = [
+    { x: 170, y: 40 },
+    { x: 170, y: 70 },
+    { x: 170, y: 100 },
+  ]
+  const LASSO_HINT = 'Trace around it with one finger · Lift to pause'
+  const OPEN_HINT = 'Drag the end dot to go on · End at the start to close'
+  const hint = () =>
+    screen.getByTestId('sheet').querySelector('.editor-hint')?.textContent
+  const radio = (name: string) => screen.getByRole('radio', { name })
+  const snapSwitch = () => screen.getByRole('switch', { name: 'Snap to edges' })
+
+  function trace(canvas: HTMLElement, pts: readonly Point[]) {
+    const [first, ...rest] = pts
+    if (!first) return
+    const at = (p: Point) => ({ clientX: p.x, clientY: p.y, pointerId: 1 })
+    fireEvent.pointerDown(canvas, at(first))
+    for (const p of rest) fireEvent.pointerMove(canvas, at(p))
+    fireEvent.pointerUp(canvas, at(pts.at(-1) ?? first))
+  }
+
+  async function lassoTool() {
+    const clock = { t: 0 }
+    const { fast, precise } = fastOnly()
+    const canvas = await pick(fast, precise, clock)
+    fireEvent.click(button('Lasso'))
+    return { canvas, clock }
+  }
+
+  /** fitRing waits until the test resolves it, then fits for real. */
+  function deferredFit() {
+    const calls: { resolve: () => void }[] = []
+    fitRing = (path, tolerancePx) =>
+      new Promise((resolve) => {
+        calls.push({
+          resolve: () => {
+            void fitNow(path, tolerancePx).then(resolve)
+          },
+        })
+      })
+    return calls
+  }
+
+  /** Every snap waits until the test settles it. */
+  function deferredSnap() {
+    const calls: {
+      finger: Point[]
+      reachPx: number
+      settle: (r: Awaited<ReturnType<Snapper['snap']>>) => void
+    }[] = []
+    snap = (_id, finger, reachPx) =>
+      new Promise((settle) => {
+        calls.push({ finger, reachPx, settle })
+      })
+    return calls
+  }
+
+  async function paused(canvas: HTMLElement) {
+    await waitFor(() => {
+      expect(canvas).toHaveAttribute('data-lasso', 'paused')
+    })
+  }
+
+  it('should_show_five_tools (AC-23)', async () => {
+    await lassoTool()
+    expect(
+      [...screen.getByRole('navigation', { name: 'Tools' }).children].map(
+        (b) => b.textContent,
+      ),
+    ).toEqual(['Auto', 'Lasso', 'Dots', 'Brush', 'View'])
+    expect(button('Lasso')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('should_open_lasso_from_use_lasso_only_in_auto (AC-23)', async () => {
+    await pick(
+      createFakeEngine({ name: 'fast', failLoad: 'unsupported' }),
+      createFakeEngine({ name: 'precise', failLoad: 'unsupported' }),
+      { t: 0 },
+    )
+    await screen.findByText("Auto cutout doesn't work in this browser.")
+    const useLasso = () => screen.queryByRole('button', { name: 'Use Lasso' })
+    fireEvent.click(button('Dots'))
+    expect(useLasso()).toBeNull()
+    fireEvent.click(button('Auto'))
+    fireEvent.click(useLasso() as HTMLElement)
+    expect(button('Lasso')).toHaveAttribute('aria-pressed', 'true')
+    expect(useLasso()).toBeNull()
+  })
+
+  it('should_show_the_lasso_hints_and_controls (AC-24)', async () => {
+    const { canvas } = await lassoTool()
+    const sheet = screen.getByTestId('sheet')
+    expect(hint()).toBe(LASSO_HINT)
+    // Top to bottom: Add | Subtract and Snap, Smoothing, Finish and Discard.
+    expect(
+      [...sheet.querySelectorAll('button, input')].map(
+        (c) => c.getAttribute('aria-label') ?? c.textContent,
+      ),
+    ).toEqual([
+      'Add',
+      'Subtract',
+      'Snap to edges',
+      'Smoothing',
+      'Finish',
+      'Discard',
+    ])
+    expect(radio('Add')).toHaveAttribute('aria-checked', 'true')
+    expect(radio('Subtract')).toBeDisabled()
+    expect(snapSwitch()).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByRole('slider', { name: 'Smoothing' })).toHaveValue('1')
+    expect(sheet.textContent).toContain('Raw')
+    expect(sheet.textContent).toContain('Smooth')
+    expect(button('Finish')).toBeDisabled()
+    expect(button('Discard')).toBeDisabled()
+    trace(canvas, TOP)
+    await paused(canvas)
+    expect(hint()).toBe(OPEN_HINT)
+    expect(button('Finish')).toBeEnabled()
+    expect(button('Discard')).toBeEnabled()
+  })
+
+  it('should_add_a_closed_lasso_as_one_step_and_open_dots (AC-14, AC-15, AC-16)', async () => {
+    const fits = deferredFit()
+    const { canvas } = await lassoTool()
+    trace(canvas, SQUARE)
+    await waitFor(() => {
+      expect(fitCalls).toHaveLength(1)
+    })
+    const call = fitCalls[0] as { path: Point[]; tolerancePx: number }
+    // min(8, max(0.25, 1 / k)) with k = 2.
+    expect(call.tolerancePx).toBe(0.5)
+    expect(call.path[0]).toEqual({ x: 20, y: 10 })
+    // Smoothing 1 cuts the corner the finger went round.
+    expect(call.path).not.toContainEqual({ x: 80, y: 10 })
+    expect(canvas).toHaveAttribute('data-lasso', 'busy')
+    expect(hint()).toBe('Making dots…')
+    fits[0]?.resolve()
+    await waitFor(() => {
+      expect(button('Dots')).toHaveAttribute('aria-pressed', 'true')
+    })
+    await waitFor(() => {
+      expect(lastRendered()?.rings).toEqual([
+        { op: 'add', nodes: realFitRing(call.path, 0.5) },
+      ])
+    })
+    expect(canvas).toHaveAttribute('data-selected-count', '0')
+    expect(canvas).toHaveAttribute('data-lasso', 'none')
+    fireEvent.click(button('Undo'))
+    await waitFor(() => {
+      expect(lastRendered()?.rings).toHaveLength(0)
+    })
+    expect(button('Undo')).toBeDisabled()
+  })
+
+  it('should_subtract_a_ring (AC-14)', async () => {
+    const { canvas } = await lassoTool()
+    fireEvent.click(button('Dots'))
+    fireEvent.click(button('Rectangle'))
+    fireEvent.click(button('Lasso'))
+    fireEvent.click(radio('Subtract'))
+    expect(radio('Subtract')).toHaveAttribute('aria-checked', 'true')
+    // Image (35,18)–(65,32), inside the rectangle.
+    trace(canvas, [
+      { x: 80, y: 56 },
+      { x: 140, y: 56 },
+      { x: 140, y: 84 },
+      { x: 80, y: 84 },
+      { x: 83, y: 59 },
+    ])
+    await waitFor(() => {
+      expect(lastRendered()?.rings.map((r) => r.op)).toEqual([
+        'add',
+        'subtract',
+      ])
+    })
+  })
+
+  it('should_undo_the_last_section_while_open (AC-8)', async () => {
+    const { canvas } = await lassoTool()
+    trace(canvas, TOP)
+    await paused(canvas)
+    const one = Number(canvas.getAttribute('data-lasso-points'))
+    trace(canvas, RIGHT)
+    await waitFor(() => {
+      expect(Number(canvas.getAttribute('data-lasso-points'))).toBeGreaterThan(
+        one,
+      )
+    })
+    expect(canvas).toHaveAttribute('data-lasso', 'paused')
+    expect(button('Undo')).toBeEnabled()
+    expect(button('Redo')).toBeDisabled()
+    fireEvent.click(button('Undo'))
+    expect(canvas).toHaveAttribute('data-lasso-points', String(one))
+    expect(button('Redo')).toBeDisabled()
+    fireEvent.click(button('Undo'))
+    expect(canvas).toHaveAttribute('data-lasso', 'none')
+    // No step was added for the sections.
+    expect(button('Undo')).toBeDisabled()
+    expect(button('Redo')).toBeDisabled()
+  })
+
+  it('should_finish_and_discard (AC-9)', async () => {
+    const { canvas } = await lassoTool()
+    trace(canvas, TOP)
+    await paused(canvas)
+    trace(canvas, RIGHT)
+    await waitFor(() => {
+      expect(canvas).toHaveAttribute('data-lasso', 'paused')
+      expect(Number(canvas.getAttribute('data-lasso-points'))).toBeGreaterThan(
+        3,
+      )
+    })
+    fireEvent.click(button('Finish'))
+    await waitFor(() => {
+      expect(button('Dots')).toHaveAttribute('aria-pressed', 'true')
+    })
+    const call = fitCalls[0] as { path: Point[]; tolerancePx: number }
+    expect(call.path[0]).toEqual({ x: 20, y: 10 })
+    expect(call.path.at(-1)).toEqual({ x: 80, y: 40 })
+    await waitFor(() => {
+      expect(lastRendered()?.rings).toEqual([
+        { op: 'add', nodes: realFitRing(call.path, call.tolerancePx) },
+      ])
+    })
+
+    fireEvent.click(button('Lasso'))
+    trace(canvas, TOP)
+    await paused(canvas)
+    fireEvent.click(button('Discard'))
+    expect(canvas).toHaveAttribute('data-lasso', 'none')
+    expect(fitCalls).toHaveLength(1)
+    fireEvent.click(button('Undo'))
+    await waitFor(() => {
+      expect(lastRendered()?.rings).toHaveLength(0)
+    })
+    expect(button('Undo')).toBeDisabled()
+  })
+
+  it('should_keep_an_invalid_lasso_open (AC-10)', async () => {
+    const { canvas } = await lassoTool()
+    // Out and back along one line: it closes but encloses nothing.
+    trace(canvas, [
+      { x: 50, y: 40 },
+      { x: 100, y: 40 },
+      { x: 150, y: 40 },
+      { x: 55, y: 40 },
+    ])
+    expect(
+      await screen.findByText('Draw around the area to cut out'),
+    ).toBeInTheDocument()
+    await paused(canvas)
+    expect(fitCalls).toEqual([])
+    // The next lasso action clears it.
+    fireEvent.click(button('Discard'))
+    expect(screen.queryByText('Draw around the area to cut out')).toBeNull()
+  })
+
+  it('should_snap_each_section_on_lift (AC-11)', async () => {
+    const snaps = deferredSnap()
+    const { canvas } = await lassoTool()
+    fireEvent.click(snapSwitch())
+    expect(snapSwitch()).toHaveAttribute('aria-checked', 'true')
+    trace(canvas, TOP)
+    await waitFor(() => {
+      expect(canvas).toHaveAttribute('data-lasso', 'busy')
+    })
+    const first = snaps.at(-1)
+    expect(first?.reachPx).toBeCloseTo(snapReachPx(2), 9)
+    expect(first?.finger[0]).toEqual({ x: 20, y: 10 })
+    expect(first?.finger.at(-1)).toEqual({ x: 80, y: 10 })
+    first?.settle({
+      type: 'snapped',
+      jobId: 1,
+      path: [
+        { x: 20, y: 11 },
+        { x: 50, y: 11 },
+        { x: 80, y: 11 },
+      ],
+    })
+    await paused(canvas)
+    expect(canvas).toHaveAttribute('data-lasso-points', '3')
+
+    // The snapped end is image (80, 11): screen (170, 42).
+    trace(canvas, [
+      { x: 170, y: 42 },
+      { x: 170, y: 70 },
+      { x: 170, y: 100 },
+    ])
+    await waitFor(() => {
+      expect(canvas).toHaveAttribute('data-lasso', 'busy')
+    })
+    snaps.at(-1)?.settle({
+      type: 'snapped',
+      jobId: 2,
+      path: [
+        { x: 81, y: 12 },
+        { x: 80, y: 25 },
+        { x: 80, y: 40 },
+      ],
+    })
+    await paused(canvas)
+    fireEvent.click(button('Finish'))
+    await waitFor(() => {
+      expect(fitCalls).toHaveLength(1)
+    })
+    // Snapped lines aren't smoothed; the second starts at the first's end.
+    expect(fitCalls[0]).toEqual({
+      path: [
+        { x: 20, y: 11 },
+        { x: 50, y: 11 },
+        { x: 80, y: 11 },
+        { x: 80, y: 25 },
+        { x: 80, y: 40 },
+      ],
+      tolerancePx: 0.5,
+    })
+  })
+
+  it('should_keep_the_finger_line_when_snapping_fails (AC-13)', async () => {
+    const snaps = deferredSnap()
+    const { canvas } = await lassoTool()
+    fireEvent.click(snapSwitch())
+    trace(canvas, [...TOP, { x: 170, y: 100 }])
+    await waitFor(() => {
+      expect(canvas).toHaveAttribute('data-lasso', 'busy')
+    })
+    snaps.at(-1)?.settle({ type: 'error', jobId: 1, message: 'no edges' })
+    expect(
+      await screen.findByText("Couldn't snap to edges here, kept your line"),
+    ).toBeInTheDocument()
+    await paused(canvas)
+    fireEvent.click(button('Finish'))
+    await waitFor(() => {
+      expect(fitCalls).toHaveLength(1)
+    })
+    expect(fitCalls[0]?.path[0]).toEqual({ x: 20, y: 10 })
+    expect(fitCalls[0]?.path.at(-1)).toEqual({ x: 80, y: 40 })
+  })
+
+  it('should_add_to_the_newest_selection (Review Focus 1)', async () => {
+    const fits = deferredFit()
+    const { canvas, clock } = await lassoTool()
+    trace(canvas, SQUARE)
+    await waitFor(() => {
+      expect(fitCalls).toHaveLength(1)
+    })
+    fireEvent.click(button('Auto'))
+    press(canvas, clock, { x: 110, y: 70 }, 100)
+    await waitFor(() => {
+      expect(lastRendered()?.rings.length).toBeGreaterThan(0)
+    })
+    const autoRings = lastRendered()?.rings ?? []
+    fits[0]?.resolve()
+    await waitFor(() => {
+      expect(lastRendered()?.rings).toHaveLength(autoRings.length + 1)
+    })
+    fireEvent.click(button('Undo'))
+    await waitFor(() => {
+      expect(lastRendered()?.rings).toEqual(autoRings)
+    })
+  })
+
+  it('should_drop_the_lasso_on_a_new_photo (AC-8, Decision 8)', async () => {
+    const fits = deferredFit()
+    const { canvas } = await lassoTool()
+    trace(canvas, TOP)
+    await paused(canvas)
+    fireEvent.click(button('View'))
+    fireEvent.click(button('Lasso'))
+    expect(canvas).toHaveAttribute('data-lasso', 'paused')
+    trace(canvas, RIGHT)
+    await paused(canvas)
+    fireEvent.click(button('Finish'))
+    await waitFor(() => {
+      expect(fitCalls).toHaveLength(1)
+    })
+    const next = await choose()
+    expect(next).toHaveAttribute('data-lasso', 'none')
+    fits[0]?.resolve()
+    await new Promise((done) => setTimeout(done, 50))
+    expect(lastRendered()?.rings).toHaveLength(0)
+    expect(button('Undo')).toBeDisabled()
+    expect(button('Lasso')).toHaveAttribute('aria-pressed', 'true')
   })
 })
