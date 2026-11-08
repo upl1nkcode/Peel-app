@@ -218,3 +218,75 @@ test('should_draw_a_dots_frame_under_8_ms (spec 0010 AC-20)', async ({
   console.log(`dots, dragging: median frame ${dragging.toFixed(2)} ms`)
   expect(dragging, 'dragging median frame (ms)').toBeLessThan(8)
 })
+
+test('should_draw_lasso_and_brush_frames_under_8_ms (spec 0011 AC-26)', async ({
+  page,
+}) => {
+  await page.goto('/')
+  const photo = await generatedJpeg(page, SIZE.width, SIZE.height)
+  const mid = { x: SIZE.width / 2, y: SIZE.height / 2 }
+  const nodes = Array.from({ length: 2000 }, (_, i) => {
+    const a = (i / 2000) * 2 * Math.PI
+    return {
+      x: mid.x + 1400 * Math.cos(a),
+      y: mid.y + 1000 * Math.sin(a),
+      kind: 'smooth' as const,
+    }
+  })
+  await seedAndOpen(page, {
+    photo,
+    imageSize: SIZE,
+    rings: [{ op: 'add', nodes }],
+  })
+  const canvas = page.getByTestId('canvas')
+  await page.getByRole('button', { name: 'Lasso', exact: true }).click()
+  const box = await canvas.boundingBox()
+  if (!box) throw new Error('no canvas')
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+  const maxR = Math.min(box.width, box.height) / 2 - 10
+
+  // A spiral out from the centre, one CSS px a step: an open lasso of about
+  // 5,000 points, which ends far from its start so it doesn't close.
+  const spiral: { x: number; y: number }[] = []
+  let a = 0
+  let r = 20
+  const turns = 5_000 / (Math.PI * (20 + maxR))
+  const grow = (maxR - 20) / (turns * 2 * Math.PI)
+  while (spiral.length < 5_030) {
+    spiral.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) })
+    const da = 1 / Math.max(r, 1)
+    a += da
+    r = Math.min(maxR, r + grow * da)
+  }
+  const first = spiral[0] ?? { x: cx, y: cy }
+  await page.mouse.move(first.x, first.y)
+  await page.mouse.down()
+  for (const p of spiral.slice(1, 5_000)) await page.mouse.move(p.x, p.y)
+  expect(
+    Number(await canvas.getAttribute('data-lasso-points')),
+  ).toBeGreaterThan(4_000)
+  const tracing = await medianFrame(page, async () => {
+    for (const p of spiral.slice(5_000)) {
+      await page.mouse.move(p.x, p.y)
+      await nextFrame(page)
+    }
+  })
+  await page.mouse.up()
+  console.log(`lasso, tracing: median frame ${tracing.toFixed(2)} ms`)
+  expect(tracing, 'tracing median frame (ms)').toBeLessThan(8)
+
+  await page.getByRole('button', { name: 'Brush' }).click()
+  const brushing = await medianFrame(page, async () => {
+    await page.mouse.move(cx, cy)
+    await page.mouse.down()
+    for (let i = 1; i <= 30; i++) {
+      await page.mouse.move(cx - i * 4, cy + i * 2)
+      await nextFrame(page)
+    }
+    await expect(page.getByTestId('loupe')).toBeVisible()
+    await page.mouse.up()
+  })
+  console.log(`brush: median frame ${brushing.toFixed(2)} ms`)
+  expect(brushing, 'brushing median frame (ms)').toBeLessThan(8)
+})
