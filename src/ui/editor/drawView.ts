@@ -1,4 +1,4 @@
-import { fitScale, viewScale } from '../../core/coords/transform'
+import { fitScale, imageToCanvas, viewScale } from '../../core/coords/transform'
 import type { View, Viewport } from '../../core/coords/types'
 import {
   CHECKER_DARK,
@@ -12,8 +12,10 @@ import {
   type Rgb,
   type ViewMode,
 } from '../../core/editor'
+import { toBezierSegments } from '../../core/geometry/bezier'
 import type { Point } from '../../core/geometry/types'
 import type { AlphaMask } from '../../core/mask'
+import type { NodeRef, Selection } from '../../core/selection/types'
 
 /** What one frame shows (spec 0009 AC-8, AC-11, AC-18). */
 export interface Frame {
@@ -148,7 +150,7 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame): void {
  */
 export function drawLoupe(
   ctx: CanvasRenderingContext2D,
-  f: Frame & { aim: Point },
+  f: Frame & { aim: Point; dots?: DotsLayer },
 ): void {
   const d = LOUPE_DIAMETER_PX
   const vp: Viewport = {
@@ -157,11 +159,9 @@ export function drawLoupe(
     dpr: f.vp.dpr,
   }
   const scale = loupeScale(viewScale(f.vp, f.view))
-  drawFrame(ctx, {
-    ...f,
-    vp,
-    view: { zoom: scale / fitScale(vp), center: f.aim },
-  })
+  const view = { zoom: scale / fitScale(vp), center: f.aim }
+  drawFrame(ctx, { ...f, vp, view })
+  if (f.dots) drawDots(ctx, { vp, view }, f.dots)
   const size = ctx.canvas.width
   const line = Math.max(1, Math.round(f.vp.dpr))
   const c = Math.floor(size / 2) - Math.floor(line / 2)
@@ -174,4 +174,118 @@ export function drawLoupe(
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(c, 0, line, size)
   ctx.fillRect(0, c, size, line)
+}
+
+/** The Dots tool's layer (spec 0010 AC-1, AC-11). */
+export interface DotsLayer {
+  selection: Selection
+  selected: readonly NodeRef[]
+  /** A box being drawn, in canvas CSS px. */
+  box: { a: Point; b: Point } | null
+  /** The accent colour, for selected dots and the box. */
+  accent: string
+}
+
+/** Dots drawn this many CSS px across; selected ones larger (AC-1). */
+export const DOT_PX = 8
+export const DOT_SELECTED_PX = 12
+const DOT_OUTLINE_PX = 1.5
+const LINE_DARK = '#111114'
+
+const curvePaths = new WeakMap<Selection, Path2D>()
+
+/** One path of every ring's curves, in image px, cached per selection. */
+function curvePath(sel: Selection): Path2D {
+  const cached = curvePaths.get(sel)
+  if (cached) return cached
+  const path = new Path2D()
+  for (const ring of sel.rings) {
+    const segs = toBezierSegments(ring.nodes, true)
+    const start = segs[0]
+    if (!start) continue
+    path.moveTo(start.p0.x, start.p0.y)
+    for (const s of segs) {
+      path.bezierCurveTo(s.c1.x, s.c1.y, s.c2.x, s.c2.y, s.p3.x, s.p3.y)
+    }
+    path.closePath()
+  }
+  curvePaths.set(sel, path)
+  return path
+}
+
+/**
+ * The outline as a 1 px white line with a 1 px dark outline, then every dot
+ * on top: smooth dots as circles, corners as squares, white with a dark
+ * outline, selected ones larger in the accent colour (spec 0010 AC-1). Sizes
+ * are CSS px at any zoom. Then the box being drawn, if any (AC-11).
+ */
+export function drawDots(
+  ctx: CanvasRenderingContext2D,
+  f: { vp: Viewport; view: View },
+  layer: DotsLayer,
+): void {
+  const { vp, view } = f
+  const dpr = vp.dpr
+  const k = displayScale(vp, view)
+  ctx.save()
+  ctx.globalAlpha = 1
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.setTransform(
+    k,
+    0,
+    0,
+    k,
+    (vp.canvas.width * dpr) / 2 - view.center.x * k,
+    (vp.canvas.height * dpr) / 2 - view.center.y * k,
+  )
+  const path = curvePath(layer.selection)
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = LINE_DARK
+  ctx.lineWidth = (3 * dpr) / k
+  ctx.stroke(path)
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = dpr / k
+  ctx.stroke(path)
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  const selected = new Set(
+    layer.selected.map((r) => `${String(r.ring)}:${String(r.node)}`),
+  )
+  const w = vp.canvas.width * dpr
+  const h = vp.canvas.height * dpr
+  const margin = DOT_SELECTED_PX * dpr
+  ctx.lineWidth = DOT_OUTLINE_PX * dpr
+  ctx.strokeStyle = LINE_DARK
+  layer.selection.rings.forEach((ring, r) => {
+    ring.nodes.forEach((n, i) => {
+      const c = imageToCanvas(vp, view, n)
+      const x = c.x * dpr
+      const y = c.y * dpr
+      if (x < -margin || y < -margin || x > w + margin || y > h + margin) return
+      const on = selected.has(`${String(r)}:${String(i)}`)
+      const half = ((on ? DOT_SELECTED_PX : DOT_PX) * dpr) / 2
+      ctx.fillStyle = on ? layer.accent : '#ffffff'
+      ctx.beginPath()
+      if (n.kind === 'corner') ctx.rect(x - half, y - half, half * 2, half * 2)
+      else ctx.arc(x, y, half, 0, 2 * Math.PI)
+      ctx.fill()
+      ctx.stroke()
+    })
+  })
+
+  if (layer.box) {
+    const { a, b } = layer.box
+    const x = Math.min(a.x, b.x) * dpr
+    const y = Math.min(a.y, b.y) * dpr
+    const bw = Math.abs(a.x - b.x) * dpr
+    const bh = Math.abs(a.y - b.y) * dpr
+    ctx.globalAlpha = 0.15
+    ctx.fillStyle = layer.accent
+    ctx.fillRect(x, y, bw, bh)
+    ctx.globalAlpha = 1
+    ctx.strokeStyle = layer.accent
+    ctx.lineWidth = dpr
+    ctx.strokeRect(x, y, bw, bh)
+  }
+  ctx.restore()
 }

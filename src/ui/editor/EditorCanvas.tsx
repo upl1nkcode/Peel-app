@@ -70,6 +70,12 @@ export function EditorCanvas(props: EditorCanvasProps) {
           snap.center ? `${fixed(snap.center.x)},${fixed(snap.center.y)}` : ''
         }
         data-view={props.viewMode}
+        data-tool={props.tool}
+        data-dot-count={props.selection.rings.reduce(
+          (n, r) => n + r.nodes.length,
+          0,
+        )}
+        data-selected-count={props.selectedDots?.length ?? 0}
         data-comparing={props.comparing ? 'true' : 'false'}
         data-image-size={
           photo ? `${String(photo.width)}x${String(photo.height)}` : undefined

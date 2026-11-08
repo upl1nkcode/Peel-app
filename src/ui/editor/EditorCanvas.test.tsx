@@ -2,7 +2,8 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AlphaMask } from '../../core/mask'
 import { emptySelection } from '../../core/selection/model'
-import type { Selection } from '../../core/selection/types'
+import type { Point } from '../../core/geometry/types'
+import type { Command, NodeRef, Selection } from '../../core/selection/types'
 import { EditorCanvas, type EditorCanvasProps } from './EditorCanvas'
 
 /** The canvas's CSS size; tests change it to resize. */
@@ -446,5 +447,253 @@ describe('loupe', () => {
     fireEvent.pointerMove(canvas, at(215, 100))
     expect(centre()).toEqual({ x: 215, y: 190 })
     expect(loupe()?.getAttribute('data-below')).toBe('true')
+  })
+})
+
+describe('dots tool (spec 0010)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // At fit (0.1 CSS px per image px) the square's dots are at canvas
+  // (100,100), (300,100), (300,200) and (100,200).
+  const corner = (x: number, y: number) => ({ x, y, kind: 'corner' as const })
+  const square = (): Selection => ({
+    rings: [
+      {
+        op: 'add',
+        nodes: [
+          corner(1000, 1000),
+          corner(3000, 1000),
+          corner(3000, 2000),
+          corner(1000, 2000),
+        ],
+      },
+    ],
+    strokes: [],
+    feather: 0,
+  })
+
+  function dots(over: Partial<EditorCanvasProps> = {}) {
+    const edits: { command: Command; selectAfter: readonly NodeRef[] }[] = []
+    const selects: (readonly NodeRef[])[] = []
+    const s = setup({
+      tool: 'dots',
+      selection: square(),
+      selectedDots: [],
+      fine: true,
+      onEdit: (command, selectAfter) => edits.push({ command, selectAfter }),
+      onSelectDots: (refs) => selects.push(refs),
+      ...over,
+    })
+    return { ...s, edits, selects }
+  }
+  const drag = (canvas: HTMLElement, from: Point, ...to: Point[]) => {
+    fireEvent.pointerDown(canvas, at(from.x, from.y))
+    for (const p of to) fireEvent.pointerMove(canvas, at(p.x, p.y))
+  }
+  const lift = (canvas: HTMLElement, p: Point) => {
+    fireEvent.pointerUp(canvas, at(p.x, p.y))
+  }
+  const loupe = () => screen.queryByTestId('loupe')
+
+  it('should_drag_a_dot_into_one_move (AC-3, AC-4)', async () => {
+    const { canvas, edits, selects } = dots()
+    await advance(20)
+    drag(canvas, { x: 100, y: 100 }, { x: 115, y: 100 }, { x: 130, y: 104 })
+    lift(canvas, { x: 130, y: 104 })
+    expect(selects).toEqual([[{ ring: 0, node: 0 }]])
+    expect(edits).toEqual([
+      {
+        command: {
+          type: 'moveNode',
+          ring: 0,
+          node: 0,
+          to: { x: 1300, y: 1040 },
+        },
+        selectAfter: [{ ring: 0, node: 0 }],
+      },
+    ])
+  })
+
+  it('should_put_the_dot_back_on_cancel (AC-4)', async () => {
+    const { canvas, edits } = dots()
+    await advance(20)
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 })
+    expect(loupe()).not.toBeNull()
+    fireEvent.pointerDown(canvas, at(250, 250, 2))
+    lift(canvas, { x: 130, y: 100 })
+    fireEvent.pointerUp(canvas, at(250, 250, 2))
+    expect(edits).toEqual([])
+    expect(loupe()).toBeNull()
+  })
+
+  it('should_show_fine_mode_on_the_loupe (AC-5, AC-6)', async () => {
+    const { canvas } = dots()
+    await advance(20)
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 })
+    expect(loupe()?.getAttribute('data-fine')).toBe('false')
+    await advance(300)
+    fireEvent.pointerMove(canvas, at(130.5, 100))
+    expect(loupe()?.getAttribute('data-fine')).toBe('true')
+    // The crosshair is on the dot, not the finger.
+    expect(loupe()?.getAttribute('data-aim')).toBe('1305.0000,1000.0000')
+  })
+
+  it('should_insert_on_an_edge_tap (AC-8)', async () => {
+    const { canvas, edits } = dots()
+    await advance(20)
+    fireEvent.pointerDown(canvas, at(200, 101))
+    lift(canvas, { x: 200, y: 101 })
+    expect(edits).toEqual([])
+    await advance(250)
+    expect(edits).toHaveLength(1)
+    const command = edits[0]?.command
+    expect(command).toMatchObject({ type: 'insertNode', ring: 0, afterNode: 0 })
+    if (command?.type !== 'insertNode') throw new Error('not an insert')
+    expect(command.point.x).toBeCloseTo(2000, 2)
+    expect(command.point.y).toBeCloseTo(1000, 2)
+    expect(edits[0]?.selectAfter).toEqual([{ ring: 0, node: 1 }])
+  })
+
+  it('should_delete_on_a_double_tap_on_a_dot (AC-9)', async () => {
+    const { canvas, edits } = dots({ selectedDots: [{ ring: 0, node: 3 }] })
+    await advance(20)
+    fireEvent.pointerDown(canvas, at(300, 100))
+    lift(canvas, { x: 300, y: 100 })
+    await advance(100)
+    fireEvent.pointerDown(canvas, at(302, 101))
+    lift(canvas, { x: 302, y: 101 })
+    await advance(300)
+    expect(edits).toEqual([
+      {
+        command: { type: 'deleteNode', ring: 0, node: 1 },
+        selectAfter: [{ ring: 0, node: 2 }],
+      },
+    ])
+    expect(canvas.getAttribute('data-zoom')).toBe('1.0000')
+
+    // A double-tap on empty space zooms and edits nothing.
+    fireEvent.pointerDown(canvas, at(200, 150))
+    lift(canvas, { x: 200, y: 150 })
+    await advance(100)
+    fireEvent.pointerDown(canvas, at(200, 150))
+    lift(canvas, { x: 200, y: 150 })
+    await advance(300)
+    expect(edits).toHaveLength(1)
+    expect(canvas.getAttribute('data-zoom')).not.toBe('1.0000')
+  })
+
+  it('should_toggle_kind_on_a_long_press (AC-10)', async () => {
+    const { canvas, edits } = dots()
+    await advance(20)
+    fireEvent.pointerDown(canvas, at(300, 200))
+    await advance(600)
+    lift(canvas, { x: 300, y: 200 })
+    expect(edits).toEqual([
+      {
+        command: { type: 'toggleKind', ring: 0, node: 2 },
+        selectAfter: [],
+      },
+    ])
+  })
+
+  it('should_select_by_tap_and_box (AC-11)', async () => {
+    const { canvas, selects, edits } = dots()
+    await advance(20)
+    fireEvent.pointerDown(canvas, at(101, 199))
+    lift(canvas, { x: 101, y: 199 })
+    await advance(300)
+    fireEvent.pointerDown(canvas, at(200, 150))
+    lift(canvas, { x: 200, y: 150 })
+    await advance(300)
+    drag(canvas, { x: 240, y: 60 }, { x: 280, y: 120 }, { x: 330, y: 230 })
+    lift(canvas, { x: 330, y: 230 })
+    expect(selects).toEqual([
+      [{ ring: 0, node: 3 }],
+      [],
+      [
+        { ring: 0, node: 1 },
+        { ring: 0, node: 2 },
+      ],
+    ])
+    expect(edits).toEqual([])
+  })
+
+  it('should_move_selected_dots_together (AC-12)', async () => {
+    const both = [
+      { ring: 0, node: 1 },
+      { ring: 0, node: 2 },
+    ]
+    const { canvas, edits, selects } = dots({ selectedDots: both })
+    await advance(20)
+    drag(canvas, { x: 300, y: 100 }, { x: 315, y: 100 }, { x: 320, y: 100 })
+    lift(canvas, { x: 320, y: 100 })
+    expect(selects).toEqual([])
+    expect(edits).toEqual([
+      {
+        command: { type: 'moveNodes', refs: both, delta: { x: 200, y: 0 } },
+        selectAfter: both,
+      },
+    ])
+  })
+
+  it('should_drop_a_drag_when_the_selection_changes (Review Focus 1)', async () => {
+    const { canvas, edits, rerender } = dots()
+    await advance(20)
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 })
+    rerender({ selection: square() })
+    expect(loupe()).toBeNull()
+    fireEvent.pointerMove(canvas, at(140, 100))
+    lift(canvas, { x: 140, y: 100 })
+    expect(edits).toEqual([])
+  })
+
+  it('should_do_nothing_without_rings (AC-2)', async () => {
+    const { canvas, edits, selects } = dots({ selection: emptySelection() })
+    await advance(20)
+    fireEvent.pointerDown(canvas, at(200, 150))
+    lift(canvas, { x: 200, y: 150 })
+    await advance(300)
+    drag(canvas, { x: 100, y: 100 }, { x: 150, y: 150 })
+    lift(canvas, { x: 150, y: 150 })
+    expect(edits).toEqual([])
+    expect(selects).toEqual([])
+  })
+
+  it('should_expose_dot_hooks (AC-1)', () => {
+    const { canvas, rerender } = dots({
+      selectedDots: [
+        { ring: 0, node: 0 },
+        { ring: 0, node: 2 },
+      ],
+    })
+    expect(canvas.getAttribute('data-tool')).toBe('dots')
+    expect(canvas.getAttribute('data-dot-count')).toBe('4')
+    expect(canvas.getAttribute('data-selected-count')).toBe('2')
+    rerender({ tool: 'view', selectedDots: [] })
+    expect(canvas.getAttribute('data-tool')).toBe('view')
+    expect(canvas.getAttribute('data-selected-count')).toBe('0')
+  })
+
+  it('should_render_one_preview_at_a_time (AC-21)', async () => {
+    const { canvas, calls } = dots()
+    await advance(20)
+    const first = calls.length
+    for (const c of calls) c.resolve(mask(c.scale))
+    await advance(20)
+    drag(canvas, { x: 100, y: 100 }, { x: 130, y: 100 })
+    expect(calls).toHaveLength(first + 1)
+    fireEvent.pointerMove(canvas, at(140, 100))
+    fireEvent.pointerMove(canvas, at(150, 100))
+    expect(calls).toHaveLength(first + 1)
+    const pending = calls[first]
+    pending?.resolve(mask(pending.scale))
+    await advance(20)
+    expect(calls).toHaveLength(first + 2)
+    expect(calls[first + 1]?.selection.rings[0]?.nodes[0]?.x).toBe(1500)
   })
 })

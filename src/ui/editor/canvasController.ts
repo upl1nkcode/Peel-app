@@ -9,9 +9,16 @@ import {
 } from '../../core/coords/view'
 import {
   displayScale,
+  dragTo,
+  hitDots,
   loupePlacement,
   needsFinerMask,
+  nodesInBox,
   previewScale,
+  refsAfterDelete,
+  startDrag,
+  type DotDrag,
+  type DotHit,
   type ViewMode,
 } from '../../core/editor'
 import type { Point } from '../../core/geometry/types'
@@ -22,8 +29,15 @@ import {
 } from '../../core/gestures/sequence'
 import type { GestureAction } from '../../core/gestures/types'
 import type { AlphaMask } from '../../core/mask'
-import type { Selection } from '../../core/selection/types'
-import { buildCutout, drawFrame, drawLoupe } from './drawView'
+import { applyCommand } from '../../core/selection/commands'
+import type { Command, NodeRef, Selection } from '../../core/selection/types'
+import {
+  buildCutout,
+  drawDots,
+  drawFrame,
+  drawLoupe,
+  type DotsLayer,
+} from './drawView'
 
 export interface CanvasPhoto {
   id: string
@@ -33,7 +47,7 @@ export interface CanvasPhoto {
   source: HTMLCanvasElement
 }
 
-export type EditorTool = 'auto' | 'view'
+export type EditorTool = 'auto' | 'dots' | 'view'
 
 export interface ToolIntent {
   type: 'add' | 'remove'
@@ -49,6 +63,14 @@ export interface CanvasInputs {
   comparing: boolean
   tool: EditorTool
   onIntent(intent: ToolIntent): void
+  /** The selected dots, against `selection` (spec 0010 AC-11). */
+  selectedDots?: readonly NodeRef[]
+  /** Fine mode allowed for dot drags (AC-6); on unless false. */
+  fine?: boolean
+  /** One dot edit, and the dots to select after it (spec 0010). */
+  onEdit?(command: Command, selectAfter: readonly NodeRef[]): void
+  /** A new dot selection, against the current `selection` (AC-11). */
+  onSelectDots?(refs: readonly NodeRef[]): void
   now?: () => number
 }
 
@@ -58,8 +80,11 @@ export interface CanvasSnapshot {
   displayScale: number | null
   maskScale: number | null
   center: Point | null
-  /** The loupe while aiming (AC-13, AC-14): where it sits and what it aims at. */
-  loupe: { center: Point; below: boolean; aim: Point } | null
+  /**
+   * The loupe while aiming or dragging a dot (AC-13, AC-14): where it sits,
+   * what it aims at, and whether fine mode is on (spec 0010 AC-5, AC-6).
+   */
+  loupe: { center: Point; below: boolean; aim: Point; fine: boolean } | null
 }
 
 export const EMPTY_SNAPSHOT: CanvasSnapshot = {
@@ -95,7 +120,17 @@ const sameSnapshot = (a: CanvasSnapshot, b: CanvasSnapshot) =>
   a.loupe?.center.y === b.loupe?.center.y &&
   a.loupe?.below === b.loupe?.below &&
   a.loupe?.aim.x === b.loupe?.aim.x &&
-  a.loupe?.aim.y === b.loupe?.aim.y
+  a.loupe?.aim.y === b.loupe?.aim.y &&
+  a.loupe?.fine === b.loupe?.fine
+
+const sameRef = (a: NodeRef) => (b: NodeRef) =>
+  a.ring === b.ring && a.node === b.node
+
+/** What a press went down on in the Dots tool, and the selection it was hit against. */
+interface DownHit {
+  hit: DotHit | null
+  sel: Selection
+}
 
 const FRAME_MARK = 'peel-frame-start'
 /** User-timing entries are cleared this often, so a long session doesn't pile them up. */
@@ -138,6 +173,31 @@ export function createCanvasController(
   let gesture: { view: View; points: readonly [Point, Point] } | null = null
   let tapTimer: number | null = null
   let wheelTimer: number | null = null
+  /** Dots tool: what each press went down on, by its down point. */
+  const downHits = new WeakMap<Point, DownHit>()
+  /** The last two presses' hits, for a double-tap on a dot (AC-9). */
+  let lastHits: [DownHit | null, DownHit | null] = [null, null]
+  /** The press in progress: its down point and time. */
+  let pressDown: { pt: Point; t: number } | null = null
+  /** A dot drag in progress (AC-3, AC-6, AC-12). */
+  let dotDrag: {
+    from: Selection
+    refs: NodeRef[]
+    /** Which of `refs` the finger is on (the loupe aims at it). */
+    held: number
+    starts: Point[]
+    drag: DotDrag
+    positions: Point[]
+  } | null = null
+  /** A box being drawn, in canvas px (AC-11). */
+  let box: { a: Point; b: Point } | null = null
+  /** The selection as the drag shows it, until the drag ends (AC-21). */
+  let preview: Selection | null = null
+  /** Every preview of the current drag, so their renders can be shown. */
+  let previews = new WeakSet<Selection>()
+  /** The loupe's aim when it isn't the finger (a dragged dot), and fine mode. */
+  let loupeAim: Point | null = null
+  let loupeFine = false
 
   const now = () => (p?.now ?? (() => performance.now()))()
 
@@ -162,7 +222,8 @@ export function createCanvasController(
         loupeAt && vp && view
           ? {
               ...loupePlacement(loupeAt, size),
-              aim: canvasToImage(vp, view, loupeAt),
+              aim: loupeAim ?? canvasToImage(vp, view, loupeAt),
+              fine: loupeFine,
             }
           : null,
     }
@@ -198,6 +259,8 @@ export function createCanvasController(
       mode: p.viewMode,
       comparing: p.comparing,
     })
+    const dots = dotsLayer()
+    if (dots) drawDots(ctx, { vp, view }, dots)
     const lctx = loupeAt && loupeCanvas?.getContext('2d')
     if (lctx && loupeAt) {
       drawLoupe(lctx, {
@@ -207,7 +270,8 @@ export function createCanvasController(
         cutout: held && cutout && cutout.width > 0 ? cutout : null,
         mode: p.viewMode,
         comparing: p.comparing,
-        aim: canvasToImage(vp, view, loupeAt),
+        aim: loupeAim ?? canvasToImage(vp, view, loupeAt),
+        ...(dots && { dots: { ...dots, box: null } }),
       })
     }
     performance.measure('peel-frame', FRAME_MARK)
@@ -218,7 +282,7 @@ export function createCanvasController(
   /** The best mask held or on its way for the current selection. */
   const bestScale = (): number | null => {
     if (!p) return null
-    const sel = p.selection
+    const sel = current()
     const scales = [
       held && held.selection === sel ? held.scale : null,
       pending && pending.selection === sel ? pending.scale : null,
@@ -232,13 +296,17 @@ export function createCanvasController(
     if (!vp || !view || !p?.photo) return
     const wanted = previewScale(vp, view)
     if (!force && !needsFinerMask(bestScale(), wanted)) return
+    if (preview) {
+      renderPreview()
+      return
+    }
     request(wanted)
   }
 
   function request(scale: number) {
     if (!p?.photo) return
     const inputs = p
-    const sel = inputs.selection
+    const sel = current()
     const id = inputs.photo?.id
     const mine = ++token
     pending = { selection: sel, scale, token: mine }
@@ -248,17 +316,197 @@ export function createCanvasController(
     inputs.renderMask(sel, scale).then(
       (mask) => {
         done()
-        if (!mask || id !== photoId || sel !== p?.selection) return
-        if (held?.selection === sel && held.scale > scale) return
-        const photo = p.photo
-        if (cutout && photo) buildCutout(cutout, photo.source, mask)
-        held = { selection: sel, scale }
-        schedule()
-        emit()
+        // A drag's older preview is still worth showing until the newest arrives.
+        const wanted =
+          sel === current() || (preview !== null && previews.has(sel))
+        if (mask && id === photoId && wanted && p) {
+          if (!(held?.selection === sel && held.scale > scale)) {
+            const photo = p.photo
+            if (cutout && photo) buildCutout(cutout, photo.source, mask)
+            held = { selection: sel, scale }
+            schedule()
+            emit()
+          }
+        }
+        renderPreview()
       },
       () => {
         done()
+        renderPreview()
       },
+    )
+  }
+
+  /** The selection on screen: a drag's preview, else the input. */
+  function current(): Selection {
+    return preview ?? (p as CanvasInputs).selection
+  }
+
+  /** Asks for the preview's render, one at a time (spec 0010 AC-21). */
+  function renderPreview() {
+    const vp = viewport()
+    if (!preview || pending || !vp || !view) return
+    if (held?.selection === preview) return
+    request(previewScale(vp, view))
+  }
+
+  function dotsLayer(): DotsLayer | null {
+    if (p?.tool !== 'dots') return null
+    const selection = current()
+    if (selection.rings.length === 0) return null
+    return {
+      selection,
+      selected: dotDrag ? dotDrag.refs : (p.selectedDots ?? []),
+      box,
+      accent: accentColour(),
+    }
+  }
+
+  function accentColour(): string {
+    const value =
+      canvas && typeof getComputedStyle === 'function'
+        ? getComputedStyle(canvas).getPropertyValue('--accent').trim()
+        : ''
+    return value || '#2459c9'
+  }
+
+  /** Drops a dot drag or box without editing (AC-4, Review Focus 1). */
+  function dropDots() {
+    const had = dotDrag !== null || box !== null
+    dotDrag = null
+    box = null
+    preview = null
+    previews = new WeakSet()
+    loupeAt = null
+    loupeAim = null
+    loupeFine = false
+    if (had) {
+      ensureMask(false)
+      schedule()
+      emit()
+    }
+  }
+
+  function dotHitAt(canvasPt: Point): DownHit | null {
+    const vp = viewport()
+    if (!p || !vp || !view) return null
+    const sel = p.selection
+    return { hit: hitDots(sel, canvasPt, vp, view), sel }
+  }
+
+  /** The press's hit, if it was hit against the selection still shown. */
+  const fresh = (d: DownHit | null | undefined): DotHit | null =>
+    d && p && d.sel === p.selection ? d.hit : null
+
+  function dotTap(down: DownHit | undefined) {
+    if (!p || !down || down.sel !== p.selection) return
+    if (p.selection.rings.length === 0) return
+    const hit = down.hit
+    if (!hit) p.onSelectDots?.([])
+    else if (hit.kind === 'node') p.onSelectDots?.([hit.ref])
+    else {
+      p.onEdit?.(
+        {
+          type: 'insertNode',
+          ring: hit.ring,
+          afterNode: hit.afterNode,
+          point: hit.imagePt,
+        },
+        [{ ring: hit.ring, node: hit.afterNode + 1 }],
+      )
+    }
+  }
+
+  function beginDots(canvasPt: Point) {
+    const vp = viewport()
+    if (!p || !vp || !view || !pressDown) return
+    const down = downHits.get(pressDown.pt)
+    if (!down || down.sel !== p.selection) return
+    if (p.selection.rings.length === 0) return
+    const hit = down.hit
+    if (hit?.kind !== 'node') {
+      box = { a: pressDown.pt, b: canvasPt }
+      schedule()
+      return
+    }
+    const selected = p.selectedDots ?? []
+    const inSelection = selected.some(sameRef(hit.ref))
+    const refs = inSelection ? [...selected] : [hit.ref]
+    if (!inSelection) p.onSelectDots?.([hit.ref])
+    const starts: Point[] = []
+    for (const r of refs) {
+      const n = p.selection.rings[r.ring]?.nodes[r.node]
+      if (!n) return
+      starts.push({ x: n.x, y: n.y })
+    }
+    dotDrag = {
+      from: p.selection,
+      refs,
+      held: refs.findIndex(sameRef(hit.ref)),
+      starts,
+      drag: startDrag(
+        starts,
+        pressDown.pt,
+        pressDown.t,
+        vp,
+        view,
+        p.fine ?? true,
+      ),
+      positions: starts,
+    }
+    moveDots(canvasPt)
+  }
+
+  function moveDots(canvasPt: Point) {
+    if (box) {
+      box = { ...box, b: canvasPt }
+      schedule()
+      return
+    }
+    if (!dotDrag) return
+    const r = dragTo(dotDrag.drag, canvasPt, now())
+    const first = dotDrag.starts[0] as Point
+    const moved = r.positions[0] as Point
+    dotDrag = { ...dotDrag, drag: r.drag, positions: r.positions }
+    preview = applyCommand(dotDrag.from, {
+      type: 'moveNodes',
+      refs: dotDrag.refs,
+      delta: { x: moved.x - first.x, y: moved.y - first.y },
+    })
+    previews.add(preview)
+    loupeAt = canvasPt
+    loupeAim = r.positions[dotDrag.held] ?? null
+    loupeFine = r.fine
+    renderPreview()
+    schedule()
+    emit()
+  }
+
+  function endDots(canvasPt: Point) {
+    const vp = viewport()
+    if (box) {
+      const b = box
+      box = null
+      schedule()
+      if (p && vp && view) {
+        p.onSelectDots?.(nodesInBox(p.selection, b.a, canvasPt, vp, view))
+      }
+      return
+    }
+    if (!dotDrag) return
+    moveDots(canvasPt)
+    const d = dotDrag
+    const first = d.starts[0] as Point
+    const moved = d.positions[0] as Point
+    const delta = { x: moved.x - first.x, y: moved.y - first.y }
+    dropDots()
+    if (delta.x === 0 && delta.y === 0) return
+    const only = d.refs.length === 1 ? d.refs[0] : undefined
+    p?.onEdit?.(
+      only
+        ? { type: 'moveNode', ring: only.ring, node: only.node, to: moved }
+        : { type: 'moveNodes', refs: d.refs, delta },
+      d.refs,
     )
   }
 
@@ -287,6 +535,14 @@ export function createCanvasController(
     machine.reset()
     sequencer.reset()
     gesture = null
+    dotDrag = null
+    box = null
+    preview = null
+    previews = new WeakSet()
+    pressDown = null
+    lastHits = [null, null]
+    loupeAim = null
+    loupeFine = false
     loupeAt = null
     if (tapTimer !== null) window.clearTimeout(tapTimer)
     tapTimer = null
@@ -364,32 +620,65 @@ export function createCanvasController(
     if (imagePt && p?.tool === 'auto') p.onIntent({ type, imagePt })
   }
 
+  /** A double-tap whose two presses hit the same dot deletes it (spec 0010 AC-9). */
+  function deleteDoubleTapped(): boolean {
+    if (p?.tool !== 'dots') return false
+    const a = fresh(lastHits[0])
+    const b = fresh(lastHits[1])
+    if (a?.kind !== 'node' || b?.kind !== 'node') return false
+    if (!sameRef(a.ref)(b.ref)) return false
+    p.onEdit?.(
+      { type: 'deleteNode', ring: a.ref.ring, node: a.ref.node },
+      refsAfterDelete(p.selection, p.selectedDots ?? [], a.ref),
+    )
+    return true
+  }
+
   function intents(list: readonly PressIntent[]) {
     const vp = viewport()
     for (const it of list) {
       switch (it.type) {
         case 'doubleTap':
+          if (deleteDoubleTapped()) break
           if (vp && view) {
             setView(toggleActualSize(vp, view, it.canvasPt))
             ensureMask(false)
           }
           break
         case 'tap':
-          act('add', downImagePts.get(it.canvasPt) ?? null)
+          if (p?.tool === 'dots') dotTap(downHits.get(it.canvasPt))
+          else act('add', downImagePts.get(it.canvasPt) ?? null)
           break
         case 'longPress':
-          act('remove', downImagePts.get(it.canvasPt) ?? null)
+          if (p?.tool === 'dots') {
+            const hit = fresh(downHits.get(it.canvasPt))
+            if (hit?.kind === 'node') {
+              p.onEdit?.(
+                { type: 'toggleKind', ring: hit.ref.ring, node: hit.ref.node },
+                p.selectedDots ?? [],
+              )
+            }
+          } else act('remove', downImagePts.get(it.canvasPt) ?? null)
           break
         case 'aimEnd':
+          if (p?.tool === 'dots') {
+            endDots(it.canvasPt)
+            break
+          }
           setLoupe(null)
           act('add', toImagePt(it.canvasPt))
           break
         case 'aimStart':
-        case 'aimMove':
           // Only tools that use drags aim; in View one finger pans (AC-13).
           if (p?.tool === 'auto') setLoupe(it.canvasPt)
+          else if (p?.tool === 'dots') beginDots(it.canvasPt)
+          break
+        case 'aimMove':
+          if (p?.tool === 'auto') setLoupe(it.canvasPt)
+          else if (p?.tool === 'dots') moveDots(it.canvasPt)
           break
         case 'cancel':
+          dropDots()
           setLoupe(null)
           break
       }
@@ -414,12 +703,19 @@ export function createCanvasController(
           gesture = null
           ensureMask(false)
           break
-        case 'toolStart':
+        case 'toolStart': {
           downImagePts.set(a.point, toImagePt(a.point))
+          pressDown = { pt: a.point, t: now() }
+          if (p?.tool === 'dots') {
+            const down = dotHitAt(a.point)
+            if (down) downHits.set(a.point, down)
+            lastHits = [lastHits[1], down]
+          }
           if (p?.tool === 'view' && view) {
             gesture = { view, points: [a.point, a.point] }
           }
           break
+        }
         case 'toolMove':
           if (p?.tool === 'view' && vp && gesture) {
             setView(
@@ -471,6 +767,15 @@ export function createCanvasController(
       p = next
       const photoChanged =
         (prev?.photo?.id ?? null) !== (next.photo?.id ?? null)
+      // A change under a dot drag or box drops it (Review Focus 1).
+      if (
+        (dotDrag || box) &&
+        (photoChanged ||
+          prev?.selection !== next.selection ||
+          next.tool !== 'dots')
+      ) {
+        dropDots()
+      }
       if (photoChanged) newPhoto(next.photo)
       if (
         photoChanged ||

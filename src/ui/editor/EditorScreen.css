@@ -99,6 +99,13 @@
     0 2px 8px rgb(0 0 0 / 0.5);
 }
 
+/* Fine mode (spec 0010 AC-6). */
+.editor-loupe[data-fine='true'] {
+  box-shadow:
+    0 0 0 3px var(--accent),
+    0 2px 8px rgb(0 0 0 / 0.5);
+}
+
 .editor-empty {
   position: absolute;
   inset: 0;

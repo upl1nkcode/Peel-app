@@ -6,7 +6,11 @@ import type { EditorTool } from './EditorCanvas'
 export const AUTO_HINT = 'Tap to add · Hold to remove · Slide to aim'
 
 const TOOLS: readonly EditorTool[] = ['auto', 'view']
-const TOOL_LABELS: Record<EditorTool, string> = { auto: 'Auto', view: 'View' }
+const TOOL_LABELS: Record<EditorTool, string> = {
+  auto: 'Auto',
+  dots: 'Dots',
+  view: 'View',
+}
 
 export interface ToolbarProps {
   tool: EditorTool
