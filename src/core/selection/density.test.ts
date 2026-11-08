@@ -400,7 +400,7 @@ describe('fitRing', () => {
         `path ${String(i)} at ${String(tol)} px`,
       ).toBe(0)
     }
-  })
+  }, 60_000) // 30 paths × two 0.05 px samplings: slower under coverage
 
   it('should_give_fewer_dots_than_points (AC-15)', () => {
     const rand = mulberry32(7)
