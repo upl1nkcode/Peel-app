@@ -38,9 +38,18 @@ import {
   buildCutout,
   drawDots,
   drawFrame,
+  drawLasso,
   drawLoupe,
   type DotsLayer,
 } from './drawView'
+import {
+  createLassoTool,
+  type DrawnSection,
+  type LassoState,
+  type OpenLasso,
+} from './lassoTool'
+
+export type { DrawnSection, OpenLasso } from './lassoTool'
 
 export interface CanvasPhoto {
   id: string
@@ -50,7 +59,7 @@ export interface CanvasPhoto {
   source: HTMLCanvasElement
 }
 
-export type EditorTool = 'auto' | 'dots' | 'view'
+export type EditorTool = 'auto' | 'lasso' | 'dots' | 'brush' | 'view'
 
 export interface ToolIntent {
   type: 'add' | 'remove'
@@ -74,6 +83,13 @@ export interface CanvasInputs {
   onEdit?(command: Command, selectAfter: readonly NodeRef[]): void
   /** A new dot selection, against the current `selection` (AC-11). */
   onSelectDots?(refs: readonly NodeRef[]): void
+  /** The open lasso (spec 0011); null or absent when there is none. */
+  lasso?: OpenLasso | null
+  /** Snaps the live trail (AC-11); null on failure or cancel. */
+  snap?(finger: Point[], reachPx: number): Promise<Point[] | null>
+  snapOn?: boolean
+  /** A lasso drag ended: lifted, or interrupted by a second finger (AC-1 to AC-7). */
+  onLassoSection?(section: DrawnSection): void
   now?: () => number
 }
 
@@ -88,6 +104,9 @@ export interface CanvasSnapshot {
    * what it aims at, and whether fine mode is on (spec 0010 AC-5, AC-6).
    */
   loupe: { center: Point; below: boolean; aim: Point; fine: boolean } | null
+  /** The lasso's state and its number of points (spec 0011 test hooks). */
+  lasso: LassoState
+  lassoPoints: number
 }
 
 export const EMPTY_SNAPSHOT: CanvasSnapshot = {
@@ -96,6 +115,8 @@ export const EMPTY_SNAPSHOT: CanvasSnapshot = {
   maskScale: null,
   center: null,
   loupe: null,
+  lasso: 'none',
+  lassoPoints: 0,
 }
 
 /** The pointer fields the controller reads (React's and the DOM's events both have them). */
@@ -124,7 +145,9 @@ const sameSnapshot = (a: CanvasSnapshot, b: CanvasSnapshot) =>
   a.loupe?.below === b.loupe?.below &&
   a.loupe?.aim.x === b.loupe?.aim.x &&
   a.loupe?.aim.y === b.loupe?.aim.y &&
-  a.loupe?.fine === b.loupe?.fine
+  a.loupe?.fine === b.loupe?.fine &&
+  a.lasso === b.lasso &&
+  a.lassoPoints === b.lassoPoints
 
 const sameRef = (a: NodeRef) => (b: NodeRef) =>
   a.ring === b.ring && a.node === b.node
@@ -216,6 +239,25 @@ export function createCanvasController(
     }
   }
 
+  const lassoTool = createLassoTool({
+    inputs: () => p,
+    viewport,
+    view: () => view,
+    schedule: () => {
+      schedule()
+    },
+    emit: () => {
+      emit()
+    },
+    setLoupe: (at, aim) => {
+      loupeAt = at
+      loupeAim = aim
+      loupeFine = false
+      schedule()
+      emit()
+    },
+  })
+
   function emit() {
     const vp = viewport()
     const next: CanvasSnapshot = {
@@ -231,6 +273,8 @@ export function createCanvasController(
               fine: loupeFine,
             }
           : null,
+      lasso: lassoTool.state(),
+      lassoPoints: lassoTool.points(),
     }
     if (sameSnapshot(next, snapshot)) return
     snapshot = next
@@ -266,6 +310,8 @@ export function createCanvasController(
     })
     const dots = dotsLayer()
     if (dots) drawDots(ctx, { vp, view }, dots)
+    const lasso = lassoTool.layer(accentColour())
+    if (lasso) drawLasso(ctx, { vp, view }, lasso)
     const lctx = loupeAt && loupeCanvas?.getContext('2d')
     if (lctx && loupeAt) {
       drawLoupe(lctx, {
@@ -277,6 +323,7 @@ export function createCanvasController(
         comparing: p.comparing,
         aim: loupeAim ?? canvasToImage(vp, view, loupeAt),
         ...(dots && { dots: { ...dots, box: null } }),
+        ...(lasso && { lasso }),
       })
     }
     performance.measure('peel-frame', FRAME_MARK)
@@ -356,9 +403,21 @@ export function createCanvasController(
   }
 
   function dotsLayer(): DotsLayer | null {
-    if (p?.tool !== 'dots') return null
+    if (!p) return null
+    const lasso = p.tool === 'lasso'
+    if (p.tool !== 'dots' && !lasso) return null
     const selection = current()
     if (selection.rings.length === 0) return null
+    // The Lasso tool shows the outline without dots (spec 0011 AC-2).
+    if (lasso) {
+      return {
+        selection,
+        selected: [],
+        box: null,
+        accent: accentColour(),
+        outlineOnly: true,
+      }
+    }
     return {
       selection,
       selected: dotDrag ? dotDrag.refs : (p.selectedDots ?? []),
@@ -569,6 +628,7 @@ export function createCanvasController(
   }
 
   function resetGestures() {
+    lassoTool.reset()
     clearFineTimer()
     machine.reset()
     sequencer.reset()
@@ -703,6 +763,10 @@ export function createCanvasController(
             endDots(it.canvasPt)
             break
           }
+          if (p?.tool === 'lasso') {
+            lassoTool.end(it.canvasPt)
+            break
+          }
           setLoupe(null)
           act('add', toImagePt(it.canvasPt))
           break
@@ -710,12 +774,15 @@ export function createCanvasController(
           // Only tools that use drags aim; in View one finger pans (AC-13).
           if (p?.tool === 'auto') setLoupe(it.canvasPt)
           else if (p?.tool === 'dots') beginDots(it.canvasPt)
+          else if (p?.tool === 'lasso') lassoTool.begin(it.canvasPt)
           break
         case 'aimMove':
           if (p?.tool === 'auto') setLoupe(it.canvasPt)
           else if (p?.tool === 'dots') moveDots(it.canvasPt)
+          else if (p?.tool === 'lasso') lassoTool.move(it.canvasPt)
           break
         case 'cancel':
+          lassoTool.cancel()
           dropDots()
           setLoupe(null)
           break
@@ -749,12 +816,14 @@ export function createCanvasController(
             if (down) downHits.set(a.point, down)
             lastHits = [lastHits[1], down]
           }
+          if (p?.tool === 'lasso') lassoTool.down(a.point)
           if (p?.tool === 'view' && view) {
             gesture = { view, points: [a.point, a.point] }
           }
           break
         }
         case 'toolMove':
+          if (p?.tool === 'lasso') lassoTool.moveRaw(a.point)
           if (p?.tool === 'view' && vp && gesture) {
             setView(
               applyTwoFingerGesture(vp, gesture.view, gesture.points, [
@@ -820,6 +889,10 @@ export function createCanvasController(
           next.tool !== 'dots')
       ) {
         dropDots()
+      }
+      // Switching tool mid-drag keeps the section so far (spec 0011 AC-7).
+      if (!photoChanged && prev?.tool === 'lasso' && next.tool !== 'lasso') {
+        lassoTool.cancel()
       }
       if (photoChanged) newPhoto(next.photo)
       if (

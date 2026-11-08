@@ -99,6 +99,8 @@ export function EditorCanvas({
           0,
         )}
         data-selected-count={props.selectedDots?.length ?? 0}
+        data-lasso={snap.lasso}
+        data-lasso-points={snap.lassoPoints}
         data-comparing={props.comparing ? 'true' : 'false'}
         data-image-size={
           photo ? `${String(photo.width)}x${String(photo.height)}` : undefined
@@ -112,7 +114,16 @@ export function EditorCanvas({
           ctl.pointerDown(e)
         }}
         onPointerMove={(e) => {
-          ctl.pointerMove(e)
+          // Every touch sample between frames, where the browser has them (spec 0011 AC-1).
+          const native = e.nativeEvent as PointerEvent & {
+            getCoalescedEvents?: () => PointerEvent[]
+          }
+          const all =
+            typeof native.getCoalescedEvents === 'function'
+              ? native.getCoalescedEvents()
+              : []
+          if (all.length > 1) for (const c of all) ctl.pointerMove(c)
+          else ctl.pointerMove(e)
         }}
         onPointerUp={(e) => {
           ctl.pointerUp(e)

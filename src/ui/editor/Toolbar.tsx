@@ -8,7 +8,9 @@ export const AUTO_HINT = 'Tap to add · Hold to remove · Slide to aim'
 const TOOLS: readonly EditorTool[] = ['auto', 'dots', 'view']
 const TOOL_LABELS: Record<EditorTool, string> = {
   auto: 'Auto',
+  lasso: 'Lasso',
   dots: 'Dots',
+  brush: 'Brush',
   view: 'View',
 }
 

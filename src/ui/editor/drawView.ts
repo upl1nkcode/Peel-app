@@ -17,6 +17,7 @@ import { toBezierSegments } from '../../core/geometry/bezier'
 import type { Point } from '../../core/geometry/types'
 import type { AlphaMask } from '../../core/mask'
 import type { NodeRef, Selection } from '../../core/selection/types'
+import type { LassoLayer } from './lassoTool'
 
 /** What one frame shows (spec 0009 AC-8, AC-11, AC-18). */
 export interface Frame {
@@ -184,7 +185,7 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame): void {
  */
 export function drawLoupe(
   ctx: CanvasRenderingContext2D,
-  f: Frame & { aim: Point; dots?: DotsLayer },
+  f: Frame & { aim: Point; dots?: DotsLayer; lasso?: LassoLayer },
 ): void {
   const d = LOUPE_DIAMETER_PX
   const vp: Viewport = {
@@ -196,6 +197,7 @@ export function drawLoupe(
   const view = { zoom: scale / fitScale(vp), center: f.aim }
   drawFrame(ctx, { ...f, vp, view })
   if (f.dots) drawDots(ctx, { vp, view }, f.dots)
+  if (f.lasso) drawLasso(ctx, { vp, view }, f.lasso)
   const size = ctx.canvas.width
   const line = Math.max(1, Math.round(f.vp.dpr))
   const c = Math.floor(size / 2) - Math.floor(line / 2)
@@ -218,6 +220,8 @@ export interface DotsLayer {
   box: { a: Point; b: Point } | null
   /** The accent colour, for selected dots and the box. */
   accent: string
+  /** Only the outline, no dots (the Lasso tool, spec 0011 AC-2). */
+  outlineOnly?: boolean
 }
 
 /** Dots drawn this many CSS px across; selected ones larger (AC-1). */
@@ -282,6 +286,10 @@ export function drawDots(
   ctx.strokeStyle = '#ffffff'
   ctx.lineWidth = dpr / k
   ctx.stroke(path)
+  if (layer.outlineOnly) {
+    ctx.restore()
+    return
+  }
 
   // Device px. Each group is one path, filled then outlined: two calls for
   // 2,000 dots instead of 4,000 (AC-20). Selected dots go on top.
@@ -335,6 +343,90 @@ export function drawDots(
     ctx.strokeStyle = layer.accent
     ctx.lineWidth = dpr
     ctx.strokeRect(x, y, bw, bh)
+  }
+  ctx.restore()
+}
+
+/** The lasso's start dot, end handle and trail (spec 0011 AC-2, AC-5, AC-11). */
+const LASSO_START_PX = 8
+const LASSO_HANDLE_PX = 20
+const LASSO_HANDLE_LINE_PX = 3
+
+/**
+ * The open lasso: the path as a 2 px white line over a 1 px dark outline, an
+ * 8 px white dot at its start, a 20 px accent ring at its end while paused,
+ * and the finger's raw trail as a thin line while snapping. Sizes are CSS px
+ * at any zoom.
+ */
+export function drawLasso(
+  ctx: CanvasRenderingContext2D,
+  f: { vp: Viewport; view: View },
+  layer: LassoLayer,
+): void {
+  const { vp, view } = f
+  const dpr = vp.dpr
+  const k = displayScale(vp, view)
+  const ox = (vp.canvas.width * dpr) / 2 - view.center.x * k
+  const oy = (vp.canvas.height * dpr) / 2 - view.center.y * k
+  const line = (pts: readonly Point[]): Path2D => {
+    const path = new Path2D()
+    pts.forEach((p, i) => {
+      if (i === 0) path.moveTo(p.x * k + ox, p.y * k + oy)
+      else path.lineTo(p.x * k + ox, p.y * k + oy)
+    })
+    return path
+  }
+  ctx.save()
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.globalAlpha = 1
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  if (layer.path.length > 1) {
+    const path = line(layer.path)
+    ctx.strokeStyle = LINE_DARK
+    ctx.lineWidth = 4 * dpr
+    ctx.stroke(path)
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 2 * dpr
+    ctx.stroke(path)
+  }
+  if (layer.trail && layer.trail.length > 1) {
+    ctx.globalAlpha = 0.6
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = dpr
+    ctx.stroke(line(layer.trail))
+    ctx.globalAlpha = 1
+  }
+  const start = layer.path[0] ?? layer.trail?.[0]
+  if (start) {
+    ctx.beginPath()
+    ctx.arc(
+      start.x * k + ox,
+      start.y * k + oy,
+      (LASSO_START_PX * dpr) / 2,
+      0,
+      2 * Math.PI,
+    )
+    ctx.fillStyle = '#ffffff'
+    ctx.fill()
+    ctx.lineWidth = DOT_OUTLINE_PX * dpr
+    ctx.strokeStyle = LINE_DARK
+    ctx.stroke()
+  }
+  const end = layer.path.at(-1)
+  if (layer.paused && end) {
+    ctx.beginPath()
+    ctx.arc(
+      end.x * k + ox,
+      end.y * k + oy,
+      ((LASSO_HANDLE_PX - LASSO_HANDLE_LINE_PX) * dpr) / 2,
+      0,
+      2 * Math.PI,
+    )
+    ctx.lineWidth = LASSO_HANDLE_LINE_PX * dpr
+    ctx.strokeStyle = layer.accent
+    ctx.stroke()
   }
   ctx.restore()
 }
