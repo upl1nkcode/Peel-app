@@ -248,7 +248,7 @@ describe('render worker handler', () => {
       const deferred: (() => void)[] = []
       const onMessage = newestWins(
         createRenderHandler(),
-        (reply) => posted.push(reply.message as FromRenderWorker),
+        (reply) => posted.push(reply.message),
         (f) => {
           deferred.push(f)
         },
