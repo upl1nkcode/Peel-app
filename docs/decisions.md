@@ -144,3 +144,20 @@ The product owner skipped the questions (2026-11-08), so decisions 1–10 are Cl
 - **Dots are drawn as two paths** (plain, then selected on top), each filled then outlined, so 2,000 dots cost two calls, not 4,000. Where dots overlap, outlines show over neighbours.
 - **Below 50% the photo is drawn from a scaled copy** (1/2, 1/4 … 1/64 of its size, the smallest still at least as fine as the screen), made once per photo and size. Display only: renders and saves use the full photo. Before it, a 2,000-dot drag on a 12 MP photo at 2× zoom took 8 ms a frame in Overlay, almost all of it filtering the whole photo down; now about 0.6 ms panning and 0.9 ms dragging in desktop Chromium (AC-20, measured with every dot on screen).
 - **The status strip can cover the top of the photo on a short canvas** (desktop at 1280 × 720): with Auto unavailable, "Use Lasso" sits over it and takes taps there. Spec 0009 decided the strip's place; noted here for story #74.
+
+## Lasso and brush decisions (spec 0011)
+
+The product owner skipped the questions (2026-11-08), so decisions 1–11 are Claude's calls, listed in the spec for checking. Numbers 1 and 4 matter most for accuracy.
+
+- **Lifting pauses the lasso; it closes near its start or with "Finish"**, which joins the end to the start with a straight line. A 20 px accent ring marks the end; only a drag from within 22 px of it continues, and the path carries on from the end exactly, keeping the finger's offset.
+- **While a lasso is open in the Lasso tool, Undo removes its last section** and Redo is disabled; sections are never undo steps. Only the closed ring is one (`addRing` or `subtractRing`), applied to whatever the selection is when the ring arrives, so an Auto result that lands meanwhile is kept.
+- **Dots follow the trace within 1 screen px at the zoom it was traced at**: min(8, max(0.25, 1/k)) image px, where k is CSS px per image px (not device px). Snapped sections use 0.5 px and aren't smoothed. A ring uses its finest section's tolerance, guaranteed both ways on the drawn curve.
+- **Turning a path into dots runs in the render worker** (`fitRing`): resample to 0.1 px, pick dots, repair until the two-way guarantee holds, then drop dots it doesn't need on a coarser copy of the path (the fine one took 0.8 s for 10,000 px), repairing again. About 0.24 s for a 10,000 px trace at 8 px in Node.
+- **Every lasso dot is smooth**; a long-press in Dots makes a corner.
+- **"Snap to edges" is off by default.** On, the live trail is snapped as it is drawn (one request at a time, always the newest trail), and each section is snapped again on lift; the end handle waits for it. A failed or cancelled snap keeps the finger's line and says so.
+- **"Discard" works while a snap or a fit is running** and drops its result; "Finish" and Undo wait for it.
+- **A closed lasso opens the Dots tool** with nothing selected. The open lasso survives switching tools; a new photo or sticker drops it, and a result for an older photo is ignored.
+- **Brush defaults: Erase, hardness 100%, and 40 CSS px at the zoom where Brush first opens on a photo** (for a photo picked while Brush is open, at fit). The size is then kept in image px; mode and hardness carry over to the next photo.
+- **A brush tap or a still press paints one dab; a second finger or a tool change drops the stroke.** Strokes aren't clamped to the photo (the mask clips them, spec 0004). While painting, the stroke shows as a translucent band (red for Erase, green for Restore) and the cutout previews it, one render at a time.
+- **The toolbar is Auto · Lasso · Dots · Brush · View.** "Use Lasso" shows only in Auto and opens the Lasso tool, which also fixes it covering the photo in other tools (story #65).
+- **Lasso and brush options aren't remembered after a reload.**
