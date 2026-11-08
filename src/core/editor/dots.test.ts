@@ -227,12 +227,12 @@ describe('refsAfterDelete', () => {
 describe('sameRings', () => {
   it('should_compare_rings (AC-16)', () => {
     const a = withRings(square)
-    const copy = structuredClone(a)
+    const copy = JSON.parse(JSON.stringify(a)) as Selection
     expect(sameRings(a, copy)).toBe(true)
-    const moved = structuredClone(a)
+    const moved = JSON.parse(JSON.stringify(a)) as Selection
     ;(moved.rings[0]?.nodes[2] as Node).x = 300.0001
     expect(sameRings(a, moved)).toBe(false)
-    const kinded = structuredClone(a)
+    const kinded = JSON.parse(JSON.stringify(a)) as Selection
     ;(kinded.rings[0]?.nodes[2] as Node).kind = 'smooth'
     expect(sameRings(a, kinded)).toBe(false)
     expect(sameRings(a, withRings(square, square))).toBe(false)
