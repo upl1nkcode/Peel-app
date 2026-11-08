@@ -499,20 +499,34 @@ describe('EditorScreen dots tool (spec 0010)', () => {
     })
   }
 
-  /** Each resimplify result keeps the first 3 dots of every ring, moved right by its call number. */
-  function deferredResimplify() {
+  /**
+   * Each resimplify result keeps the first 3 dots of every ring, moved right
+   * by its call number. With `cancelOlder`, a new request settles any
+   * unsettled older one as cancelled, as the real client does.
+   */
+  function deferredResimplify({ cancelOlder = false } = {}) {
     const calls: {
       selection: Selection
       tolerancePx: number
       resolve: () => void
     }[] = []
+    const cancels: (() => void)[] = []
     resimplify = (selection, tolerancePx) =>
       new Promise((resolve) => {
+        if (cancelOlder) for (const cancel of cancels.splice(0)) cancel()
         const n = calls.length + 1
+        let settled = false
+        cancels.push(() => {
+          if (settled) return
+          settled = true
+          resolve({ type: 'cancelled' })
+        })
         calls.push({
           selection,
           tolerancePx,
           resolve: () => {
+            if (settled) return
+            settled = true
             resolve({
               type: 'resimplified',
               jobId: n,
@@ -679,9 +693,7 @@ describe('EditorScreen dots tool (spec 0010)', () => {
     // A release at the middle records nothing.
     fireEvent.pointerDown(slider())
     fireEvent.change(slider(), { target: { value: '0.3' } })
-    await waitFor(() => {
-      expect(calls).toHaveLength(1)
-    })
+    expect(calls).toHaveLength(1)
     calls[0]?.resolve()
     await waitFor(() => {
       expect(dotCount(canvas)).toBe('3')
@@ -693,23 +705,24 @@ describe('EditorScreen dots tool (spec 0010)', () => {
       expect(dotCount(canvas)).toBe('4')
     })
 
-    // Two moves and a release: one step, from the rings at the start.
+    // Two moves and a release: one step, from the rings at the start. One
+    // computation runs at a time; the newest position is asked for next.
     fireEvent.pointerDown(slider())
     fireEvent.change(slider(), { target: { value: '-0.5' } })
     fireEvent.change(slider(), { target: { value: '-1' } })
     fireEvent.pointerUp(slider())
     expect(slider()).toHaveValue('0')
-    expect(calls.map((c) => c.tolerancePx)).toEqual([
-      0.5 * 0.02 ** 0.3,
-      2,
-      8,
-      8,
-    ])
+    expect(calls).toHaveLength(2)
+    calls[1]?.resolve()
+    await waitFor(() => {
+      expect(calls).toHaveLength(3)
+    })
+    expect(calls.map((c) => c.tolerancePx)).toEqual([0.5 * 0.02 ** 0.3, 2, 8])
     for (const c of calls) expect(c.selection.rings).toEqual([start])
-    for (const c of calls.slice(1)) c.resolve()
+    calls[2]?.resolve()
     await waitFor(() => {
       expect(lastRendered()?.rings[0]?.nodes).toEqual(
-        RECTANGLE.slice(0, 3).map((p) => ({ ...p, x: p.x + 4 })),
+        RECTANGLE.slice(0, 3).map((p) => ({ ...p, x: p.x + 3 })),
       )
     })
     expect(dotCount(canvas)).toBe('3')
@@ -725,7 +738,7 @@ describe('EditorScreen dots tool (spec 0010)', () => {
     expect(button('Undo')).toBeDisabled()
   })
 
-  it('should_commit_the_release_result_when_an_older_one_arrives_late (AC-16, Review Focus 3)', async () => {
+  it('should_commit_the_release_result_not_an_older_one (AC-16, Review Focus 3)', async () => {
     const calls = deferredResimplify()
     const { canvas } = await dotsTool()
     fireEvent.click(button('Rectangle'))
@@ -733,16 +746,79 @@ describe('EditorScreen dots tool (spec 0010)', () => {
     fireEvent.change(slider(), { target: { value: '0.5' } })
     fireEvent.change(slider(), { target: { value: '-0.5' } })
     fireEvent.pointerUp(slider())
-    expect(calls).toHaveLength(3)
-    // The release's own result arrives first; the older ones after it.
-    calls[2]?.resolve()
-    await waitFor(() => {
-      expect(lastRendered()?.rings[0]?.nodes[0]?.x).toBe(23)
-    })
+    // The older position's result arrives after the release: not committed.
     calls[0]?.resolve()
+    await waitFor(() => {
+      expect(calls).toHaveLength(2)
+    })
+    expect(calls[1]?.tolerancePx).toBe(2)
+    expect(dotCount(canvas)).toBe('4')
+    expect(button('Undo')).toBeEnabled()
     calls[1]?.resolve()
-    await new Promise((r) => setTimeout(r, 20))
-    expect(lastRendered()?.rings[0]?.nodes[0]?.x).toBe(23)
+    await waitFor(() => {
+      expect(lastRendered()?.rings[0]?.nodes[0]?.x).toBe(22)
+    })
+    expect(dotCount(canvas)).toBe('3')
+    fireEvent.click(button('Undo'))
+    await waitFor(() => {
+      expect(dotCount(canvas)).toBe('4')
+    })
+  })
+
+  it('should_show_density_previews_while_sliding (AC-15, final review I-2)', async () => {
+    // As the real client: a newer request cancels any older one.
+    const calls = deferredResimplify({ cancelOlder: true })
+    const { canvas } = await dotsTool()
+    fireEvent.click(button('Rectangle'))
+    fireEvent.pointerDown(slider())
+    fireEvent.change(slider(), { target: { value: '0.5' } })
+    fireEvent.change(slider(), { target: { value: '0.6' } })
+    fireEvent.change(slider(), { target: { value: '0.7' } })
+    // The first computation finishes while the finger is still sliding.
+    calls[0]?.resolve()
+    await waitFor(() => {
+      expect(dotCount(canvas)).toBe('3')
+    })
+    // The newest position is computed next.
+    await waitFor(() => {
+      expect(calls.at(-1)?.tolerancePx).toBe(0.5 * 0.02 ** 0.7)
+    })
+  })
+
+  it('should_drop_a_slide_interrupted_by_another_tool (final review I-3)', async () => {
+    const calls = deferredResimplify()
+    const { canvas } = await dotsTool()
+    fireEvent.click(button('Rectangle'))
+    fireEvent.pointerDown(slider())
+    fireEvent.change(slider(), { target: { value: '-0.5' } })
+    calls[0]?.resolve()
+    await waitFor(() => {
+      expect(dotCount(canvas)).toBe('3')
+    })
+    // A second finger switches tool: the slider never sees its finger lift.
+    fireEvent.click(button('Auto'))
+    await waitFor(() => {
+      expect(dotCount(canvas)).toBe('4')
+    })
+    fireEvent.click(button('Dots'))
+    fireEvent.click(button('Ellipse'))
+    await waitFor(() => {
+      expect(dotCount(canvas)).toBe('12')
+    })
+  })
+
+  it('should_end_a_slide_released_off_the_slider (final review I-3)', async () => {
+    const calls = deferredResimplify()
+    const { canvas } = await dotsTool()
+    fireEvent.click(button('Rectangle'))
+    fireEvent.pointerDown(slider())
+    fireEvent.change(slider(), { target: { value: '-0.5' } })
+    fireEvent.pointerUp(document.body)
+    expect(slider()).toHaveValue('0')
+    calls[0]?.resolve()
+    await waitFor(() => {
+      expect(lastRendered()?.rings[0]?.nodes[0]?.x).toBe(21)
+    })
     expect(dotCount(canvas)).toBe('3')
     fireEvent.click(button('Undo'))
     await waitFor(() => {

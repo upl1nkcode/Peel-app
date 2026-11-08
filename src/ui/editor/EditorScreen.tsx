@@ -38,6 +38,18 @@ export const DIFFERENT_SIZE =
 
 const NO_REFS: readonly NodeRef[] = []
 
+/** A slide of the density slider, from finger down until its commit (AC-15). */
+interface DensityDrag {
+  /** The selection when the finger went down; every result is computed from it. */
+  start: Selection
+  /** The newest slider position. */
+  want: number
+  /** The finger has lifted; `want` is the release position. */
+  released: boolean
+  /** A computation is running. */
+  busy: boolean
+}
+
 export interface EditorScreenProps {
   engines: { fast: SegmentationEngine; precise: SegmentationEngine }
   missingBytes(files: readonly ModelFile[]): Promise<number>
@@ -90,8 +102,8 @@ export function EditorScreen(props: EditorScreenProps) {
   const selectedDots = dots?.selection === selection ? dots.refs : NO_REFS
   /** Fine mode for dot drags, on by default (spec 0010 decision 5). */
   const [fine, setFine] = useState(true)
-  /** The density slider's drag: its start and its latest request (AC-15). */
-  const density = useRef<{ start: Selection; seq: number } | null>(null)
+  /** The density slider's drag (AC-15, AC-16). */
+  const density = useRef<DensityDrag | null>(null)
   /** The newest density result, shown until the slider is let go. */
   const [densityPreview, setDensityPreview] = useState<Selection | null>(null)
 
@@ -136,6 +148,7 @@ export function EditorScreen(props: EditorScreenProps) {
     }
     setPhotoError(null)
     setDots(null)
+    dropDensity()
     setPhoto(next)
   }
 
@@ -153,32 +166,46 @@ export function EditorScreen(props: EditorScreenProps) {
     edit({ type: 'addRing', nodes: startingShape(kind, visible) }, [])
   }
 
+  /** Ends a slide without committing it: the real selection shows again. */
+  const dropDensity = () => {
+    density.current = null
+    setDensityPreview(null)
+  }
+
   /**
-   * Asks for the start's rings at slider position `s`, off the main thread
-   * (AC-15). Only the newest request's result counts; on release it becomes
-   * one undo step, unless it changes nothing (AC-16, Review Focus 3).
+   * Computes the start's rings at the slider's newest position, off the main
+   * thread, one computation at a time (AC-15, final review I-2). Each result
+   * is shown as it arrives, then the newest position is computed next; the
+   * release position's own result becomes one undo step, unless it changes
+   * nothing or something else changed the selection meanwhile (AC-16,
+   * Review Focus 3).
    */
-  const resimplify = (s: number, release: boolean) => {
-    const d = density.current
-    if (!d) return
-    const seq = ++d.seq
+  const computeDensity = (d: DensityDrag) => {
+    if (d.busy || density.current !== d) return
+    const s = d.want
     const tolerancePx = densityTolerance(s)
     const renderer = session.renderer
     if (tolerancePx === null || !renderer) {
       setDensityPreview(null)
-      if (release) density.current = null
+      if (d.released) dropDensity()
       return
     }
+    d.busy = true
     void renderer.resimplify(d.start, tolerancePx).then((res) => {
-      if (density.current !== d || d.seq !== seq) return
+      d.busy = false
+      if (density.current !== d) return
       const result = res.type === 'resimplified' ? res.selection : null
-      if (!release) {
+      if (!d.released) {
         if (result) setDensityPreview(result)
+        if (d.want !== s) computeDensity(d)
         return
       }
-      density.current = null
-      setDensityPreview(null)
-      // Nothing else may have changed the selection meanwhile.
+      // Released at another position: compute that one.
+      if (d.want !== s) {
+        computeDensity(d)
+        return
+      }
+      dropDensity()
       if (
         result &&
         session.snapshot()?.selection === d.start &&
@@ -245,6 +272,7 @@ export function EditorScreen(props: EditorScreenProps) {
       const shown = await session.reopen(record, loaded, alpha, restore)
       setPhotoError(null)
       setDots(null)
+      dropDensity()
       setPhoto(shown)
       return sameSize ? null : DIFFERENT_SIZE
     },
@@ -260,6 +288,8 @@ export function EditorScreen(props: EditorScreenProps) {
     fileRef.current?.click()
   }
   const chooseTool = (next: EditorTool) => {
+    // The sheet goes, so its slider never sees the finger lift (I-3).
+    dropDensity()
     if (next === tool && !stickersOpen) {
       setSheetOpen((open) => !open)
     } else {
@@ -287,6 +317,7 @@ export function EditorScreen(props: EditorScreenProps) {
             type="button"
             aria-expanded={stickersOpen}
             onClick={() => {
+              dropDensity()
               setStickersOpen((open) => !open)
             }}
           >
@@ -440,13 +471,25 @@ export function EditorScreen(props: EditorScreenProps) {
                 )
               }}
               onDensityStart={() => {
-                density.current = { start: selection, seq: 0 }
+                density.current = {
+                  start: selection,
+                  want: 0,
+                  released: false,
+                  busy: false,
+                }
               }}
               onDensity={(s) => {
-                resimplify(s, false)
+                const d = density.current
+                if (!d) return
+                d.want = s
+                computeDensity(d)
               }}
               onDensityEnd={(s) => {
-                resimplify(s, true)
+                const d = density.current
+                if (!d) return
+                d.want = s
+                d.released = true
+                computeDensity(d)
               }}
             />
           ) : (

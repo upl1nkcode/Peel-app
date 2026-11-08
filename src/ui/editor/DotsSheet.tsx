@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 /** The Dots tool's hint (spec 0010 AC-18). */
 export const DOTS_HINT =
@@ -38,18 +38,38 @@ export function DotsSheet(props: DotsSheetProps) {
   const [value, setValue] = useState(0)
   /** The slider is held, and where it is (read when it is let go). */
   const held = useRef<number | null>(null)
+  /** Stops listening for the finger lifting anywhere. */
+  const detach = useRef<(() => void) | null>(null)
+  useEffect(
+    () => () => {
+      detach.current?.()
+    },
+    [],
+  )
 
-  const start = () => {
-    if (held.current !== null) return
-    held.current = 0
-    props.onDensityStart()
-  }
   const end = () => {
     const s = held.current
     if (s === null) return
     held.current = null
+    detach.current?.()
+    detach.current = null
     setValue(0)
     props.onDensityEnd(s)
+  }
+  const start = () => {
+    if (held.current !== null) return
+    held.current = 0
+    // A finger or mouse may lift off the slider (final review I-3).
+    const lifted = () => {
+      end()
+    }
+    window.addEventListener('pointerup', lifted)
+    window.addEventListener('pointercancel', lifted)
+    detach.current = () => {
+      window.removeEventListener('pointerup', lifted)
+      window.removeEventListener('pointercancel', lifted)
+    }
+    props.onDensityStart()
   }
 
   return (
