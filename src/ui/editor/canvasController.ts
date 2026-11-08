@@ -17,8 +17,10 @@ import {
   previewScale,
   refsAfterDelete,
   startDrag,
+  visiblePhotoRect,
   type DotDrag,
   type DotHit,
+  type Rect,
   type ViewMode,
 } from '../../core/editor'
 import type { Point } from '../../core/geometry/types'
@@ -762,6 +764,13 @@ export function createCanvasController(
   }
 
   return {
+    /** The part of the photo on screen, in image px (spec 0010 AC-17). */
+    visibleRect(): Rect | null {
+      measure()
+      const vp = viewport()
+      return vp && view ? visiblePhotoRect(vp, view) : null
+    },
+
     setInputs(next: CanvasInputs) {
       const prev = p
       p = next

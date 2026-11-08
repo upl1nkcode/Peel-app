@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useState,
+  type Ref,
+} from 'react'
+import type { Rect } from '../../core/editor'
 import {
   createCanvasController,
   EMPTY_SNAPSHOT,
@@ -10,6 +17,12 @@ import { Loupe } from './Loupe'
 export type { CanvasPhoto, EditorTool, ToolIntent } from './canvasController'
 export type EditorCanvasProps = CanvasInputs
 
+/** What the screen can ask the canvas (spec 0010 AC-17). */
+export interface EditorCanvasHandle {
+  /** The part of the photo on screen, in image px; null before it is laid out. */
+  visiblePhotoRect(): Rect | null
+}
+
 const fixed = (n: number | null | undefined) =>
   n === null || n === undefined ? '' : n.toFixed(4)
 
@@ -18,9 +31,19 @@ const fixed = (n: number | null | undefined) =>
  * zoomable, drawn against the chosen view. Hidden beside it: the full-size
  * `photo` and the `cutout` (photo × mask at the mask's size), for tests.
  */
-export function EditorCanvas(props: EditorCanvasProps) {
+export function EditorCanvas({
+  ref,
+  ...props
+}: EditorCanvasProps & { ref?: Ref<EditorCanvasHandle> }) {
   const [snap, setSnap] = useState<CanvasSnapshot>(EMPTY_SNAPSHOT)
   const [ctl] = useState(() => createCanvasController(setSnap))
+  useImperativeHandle(
+    ref,
+    () => ({
+      visiblePhotoRect: () => ctl.visibleRect(),
+    }),
+    [ctl],
+  )
   const canvasRef = useCallback(
     (el: HTMLCanvasElement | null) => {
       ctl.attachCanvas(el)

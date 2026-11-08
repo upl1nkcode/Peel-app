@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ViewMode } from '../../core/editor'
+import {
+  densityTolerance,
+  sameRings,
+  startingShape,
+  type ViewMode,
+} from '../../core/editor'
 import { emptySelection } from '../../core/selection/model'
-import type { Selection } from '../../core/selection/types'
+import type { Command, NodeRef, Selection } from '../../core/selection/types'
 import {
   statusLines,
   USE_LASSO_LABEL,
@@ -13,7 +18,12 @@ import type { StickerRecord } from '../../core/backup'
 import { parseSelection } from '../../core/selection/serialize'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { inflateModelAlpha } from '../../services/sticker'
-import { EditorCanvas, type EditorTool } from './EditorCanvas'
+import { DotsSheet } from './DotsSheet'
+import {
+  EditorCanvas,
+  type EditorCanvasHandle,
+  type EditorTool,
+} from './EditorCanvas'
 import { StickerPanel } from './StickerPanel'
 import { copyMask, createSession, type Photo, type Renderer } from './session'
 import { Toolbar, ToolSheet } from './Toolbar'
@@ -25,6 +35,8 @@ export type { Renderer }
 /** Shown when a re-opened photo decodes at another size (spec 0008 AC-9). */
 export const DIFFERENT_SIZE =
   'This photo opened at a different size here; the outline may be off.'
+
+const NO_REFS: readonly NodeRef[] = []
 
 export interface EditorScreenProps {
   engines: { fast: SegmentationEngine; precise: SegmentationEngine }
@@ -42,7 +54,7 @@ export interface EditorScreenProps {
 /**
  * The editor (spec 0009). Top to bottom: a top bar (Photo, Stickers), the
  * canvas with the status strip over it, the action row (Undo, Redo, Reset
- * to auto, Compare), the options sheet, and the toolbar (Auto, View). The
+ * to auto, Compare), the options sheet, and the toolbar (Auto, Dots, View). The
  * canvas shows the cutout against the chosen view, at screen resolution
  * below 100% and at full resolution above.
  */
@@ -65,6 +77,23 @@ export function EditorScreen(props: EditorScreenProps) {
   const [session] = useState(() =>
     createSession({ ...props, onState: setState, onSelection: setSelection }),
   )
+  const canvasRef = useRef<EditorCanvasHandle>(null)
+  /**
+   * The selected dots and the selection they belong to. Any other selection
+   * means a change from outside the Dots tool, which clears them (spec 0010
+   * AC-13).
+   */
+  const [dots, setDots] = useState<{
+    selection: Selection
+    refs: readonly NodeRef[]
+  } | null>(null)
+  const selectedDots = dots?.selection === selection ? dots.refs : NO_REFS
+  /** Fine mode for dot drags, on by default (spec 0010 decision 5). */
+  const [fine, setFine] = useState(true)
+  /** The density slider's drag: its start and its latest request (AC-15). */
+  const density = useRef<{ start: Selection; seq: number } | null>(null)
+  /** The newest density result, shown until the slider is let go. */
+  const [densityPreview, setDensityPreview] = useState<Selection | null>(null)
 
   // Only the canvas moves; the page itself never scrolls (AC-21).
   useEffect(() => {
@@ -106,7 +135,58 @@ export function EditorScreen(props: EditorScreenProps) {
       return
     }
     setPhotoError(null)
+    setDots(null)
     setPhoto(next)
+  }
+
+  /** One dot edit as one undo step, then the dots to select (spec 0010). */
+  const edit = (command: Command, selectAfter: readonly NodeRef[]) => {
+    // Refs from the canvas point into the density preview; drop them.
+    if (density.current) return
+    const next = session.edit(command)
+    setDots({ selection: next, refs: [...selectAfter] })
+  }
+
+  const addShape = (kind: 'rectangle' | 'ellipse') => {
+    const visible = canvasRef.current?.visiblePhotoRect()
+    if (!visible || density.current) return
+    edit({ type: 'addRing', nodes: startingShape(kind, visible) }, [])
+  }
+
+  /**
+   * Asks for the start's rings at slider position `s`, off the main thread
+   * (AC-15). Only the newest request's result counts; on release it becomes
+   * one undo step, unless it changes nothing (AC-16, Review Focus 3).
+   */
+  const resimplify = (s: number, release: boolean) => {
+    const d = density.current
+    if (!d) return
+    const seq = ++d.seq
+    const tolerancePx = densityTolerance(s)
+    const renderer = session.renderer
+    if (tolerancePx === null || !renderer) {
+      setDensityPreview(null)
+      if (release) density.current = null
+      return
+    }
+    void renderer.resimplify(d.start, tolerancePx).then((res) => {
+      if (density.current !== d || d.seq !== seq) return
+      const result = res.type === 'resimplified' ? res.selection : null
+      if (!release) {
+        if (result) setDensityPreview(result)
+        return
+      }
+      density.current = null
+      setDensityPreview(null)
+      // Nothing else may have changed the selection meanwhile.
+      if (
+        result &&
+        session.snapshot()?.selection === d.start &&
+        !sameRings(d.start, result)
+      ) {
+        edit({ type: 'restore', selection: result }, [])
+      }
+    })
   }
 
   const loadSaved = async (record: StickerRecord): Promise<LoadedPhoto> => {
@@ -164,6 +244,7 @@ export function EditorScreen(props: EditorScreenProps) {
           : saved
       const shown = await session.reopen(record, loaded, alpha, restore)
       setPhotoError(null)
+      setDots(null)
       setPhoto(shown)
       return sameSize ? null : DIFFERENT_SIZE
     },
@@ -236,13 +317,21 @@ export function EditorScreen(props: EditorScreenProps) {
               source: photo.source,
             }
           }
-          selection={selection}
+          ref={canvasRef}
+          selection={densityPreview ?? selection}
           renderMask={renderMask}
           viewMode={viewMode}
           comparing={comparing}
           tool={tool}
           onIntent={(intent) => {
             session.tap({ imagePt: intent.imagePt, mode: intent.type })
+          }}
+          selectedDots={densityPreview ? NO_REFS : selectedDots}
+          fine={fine}
+          onEdit={edit}
+          onSelectDots={(refs) => {
+            if (density.current) return
+            setDots({ selection, refs: [...refs] })
           }}
           {...(props.now && { now: props.now })}
         />
@@ -333,6 +422,33 @@ export function EditorScreen(props: EditorScreenProps) {
         <div className="editor-sheet" data-testid="sheet">
           {showPanel ? (
             <StickerPanel {...panel} />
+          ) : tool === 'dots' ? (
+            <DotsSheet
+              hasRings={selection.rings.length > 0}
+              fine={fine}
+              onFine={setFine}
+              onShape={addShape}
+              canNudge={selectedDots.length > 0}
+              onNudge={(dx, dy) => {
+                edit(
+                  {
+                    type: 'nudge',
+                    refs: selectedDots,
+                    delta: { x: dx, y: dy },
+                  },
+                  selectedDots,
+                )
+              }}
+              onDensityStart={() => {
+                density.current = { start: selection, seq: 0 }
+              }}
+              onDensity={(s) => {
+                resimplify(s, false)
+              }}
+              onDensityEnd={(s) => {
+                resimplify(s, true)
+              }}
+            />
           ) : (
             <ToolSheet
               tool={tool}
