@@ -7,6 +7,9 @@ const THEME_COLOR = '#6d28d9'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // The WebP encoder finds its wasm next to its own script (new URL(…, import.meta.url));
+  // pre-bundling would move the script away from it in the dev server (spec 0012).
+  optimizeDeps: { exclude: ['@jsquash/webp'] },
   plugins: [
     react(),
     peelModels(),

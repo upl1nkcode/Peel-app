@@ -7,6 +7,8 @@ Every dependency and model is recorded here when it is added (rule in `CLAUDE.md
 | Package | Version | License | Type |
 |---|---|---|---|
 | @mediapipe/tasks-vision | 1.2.2 | Apache-2.0 | runtime (auto cutout engine; its wasm is loaded lazily, never in the initial bundle) |
+| @jsquash/webp | 1.5.0 | Apache-2.0 | runtime (WhatsApp-style WebP, spec 0012; libwebp in WebAssembly, loaded lazily, never in the initial bundle) |
+| wasm-feature-detect | 1.10.1 | Apache-2.0 | runtime (dependency of @jsquash/webp: picks its SIMD or plain wasm build) |
 | idb | 8.0.4 | ISC | runtime (small promise wrapper over IndexedDB for the sticker store, spec 0008; named in plan §5) |
 | react | 19.3.1 | MIT | runtime |
 | react-dom | 19.3.1 | MIT | runtime |
