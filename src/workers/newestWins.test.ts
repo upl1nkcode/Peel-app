@@ -56,4 +56,32 @@ describe('newestWins', () => {
     h.drain()
     expect(h.posted.at(-1)?.message).toEqual({ type: 'done', jobId: 5 })
   })
+
+  it('should_post_an_async_reply_when_it_settles (spec 0012 AC-9)', async () => {
+    const posted: Reply<Res>[] = []
+    let settle: (() => void) | undefined
+    const onMessage = newestWins<Req, Res>(
+      (req) =>
+        req.type === 'setImage'
+          ? undefined
+          : new Promise((resolve) => {
+              settle = () => {
+                resolve({
+                  message: { type: 'done', jobId: req.jobId },
+                  transfer: [],
+                })
+              }
+            }),
+      (reply) => posted.push(reply),
+      (f) => {
+        f()
+      },
+    )
+    onMessage({ type: 'render', jobId: 1 })
+    expect(posted).toEqual([])
+    settle?.()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(posted.map((r) => r.message)).toEqual([{ type: 'done', jobId: 1 }])
+  })
 })

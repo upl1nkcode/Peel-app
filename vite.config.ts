@@ -10,6 +10,9 @@ export default defineConfig({
   // The WebP encoder finds its wasm next to its own script (new URL(…, import.meta.url));
   // pre-bundling would move the script away from it in the dev server (spec 0012).
   optimizeDeps: { exclude: ['@jsquash/webp'] },
+  // Module workers (services/workers.ts), so a worker's dynamic import (the
+  // WebP encoder) becomes its own chunk instead of being inlined.
+  worker: { format: 'es' },
   plugins: [
     react(),
     peelModels(),
@@ -46,6 +49,9 @@ export default defineConfig({
           '*.{js,css,html,svg,png,webmanifest}',
           'assets/**/*.{js,css,html,svg,png,webmanifest}',
         ],
+        // The WebP encoder downloads when WhatsApp-style is first picked,
+        // not at install (spec 0012 Decision 1; offline caching is #89).
+        globIgnores: ['**/webp_enc*.js'],
         navigateFallback: 'index.html',
       },
     }),

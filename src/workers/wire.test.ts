@@ -59,4 +59,22 @@ describe('wireWorker', () => {
     })
     expect(posted.at(-1)?.message).toMatchObject({ type: 'snapped', jobId: 4 })
   })
+
+  it('should_post_an_error_when_an_async_job_rejects (spec 0012 AC-6)', async () => {
+    const { scope, posted } = fakeScope()
+    wireWorker<{ type: 'job'; jobId: number }, never>(
+      scope,
+      () => Promise.reject(new Error('boom')),
+      (f) => {
+        f()
+      },
+    )
+    scope.onmessage?.({ data: { type: 'job', jobId: 4 } })
+    await new Promise((done) => setTimeout(done, 0))
+    expect(posted.at(-1)?.message).toEqual({
+      type: 'error',
+      jobId: 4,
+      message: 'boom',
+    })
+  })
 })

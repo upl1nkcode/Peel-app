@@ -1,6 +1,7 @@
 import type { Point } from '../core/geometry/types'
 import type { AlphaMask, RgbaImage } from '../core/mask/types'
 import type { Selection } from '../core/selection/types'
+import type { FinishSettings } from '../core/sticker/specs'
 import type {
   FromLiveWireWorker,
   FromRenderWorker,
@@ -114,6 +115,24 @@ export function renderWorkerClient(port: Port) {
     /** A closed lasso path's dots (spec 0011 AC-15); newest wins. */
     fitRing(path: Point[], tolerancePx: number) {
       return client.request({ type: 'fitRing', path, tolerancePx }, [])
+    },
+    /** The output file (spec 0012); newest wins among `finish` jobs only. */
+    finish(imageId: string, selection: Selection, settings: FinishSettings) {
+      return client.request(
+        { type: 'finish', imageId, selection, settings },
+        [],
+      )
+    },
+    /** The Sticker-output preview shown for Original (spec 0012 AC-9); never cancels `finish`. */
+    finishPreview(
+      imageId: string,
+      selection: Selection,
+      settings: FinishSettings,
+    ) {
+      return client.request(
+        { type: 'finishPreview', imageId, selection, settings },
+        [],
+      )
     },
   }
 }

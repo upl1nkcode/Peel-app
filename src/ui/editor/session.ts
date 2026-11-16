@@ -5,6 +5,7 @@ import type { Tap } from '../../core/segmentation'
 import { emptySelection } from '../../core/selection/model'
 import type { Point } from '../../core/geometry/types'
 import type { Command, Selection } from '../../core/selection/types'
+import type { FinishSettings } from '../../core/sticker'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { createAutoCutout, type AutoState } from '../../services/segmentation'
 import type { Cancelled } from '../../services/workerClient'
@@ -39,6 +40,18 @@ export interface Renderer {
   fitRing(
     path: Point[],
     tolerancePx: number,
+  ): Promise<FromRenderWorker | Cancelled>
+  /** The output file at full resolution (spec 0012), made in the worker. */
+  finish(
+    imageId: string,
+    selection: Selection,
+    settings: FinishSettings,
+  ): Promise<FromRenderWorker | Cancelled>
+  /** The preview's file; its own newest-wins queue, so it never cancels `finish` (AC-9). */
+  finishPreview(
+    imageId: string,
+    selection: Selection,
+    settings: FinishSettings,
   ): Promise<FromRenderWorker | Cancelled>
 }
 

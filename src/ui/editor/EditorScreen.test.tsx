@@ -81,6 +81,8 @@ const fakeRenderer = (): Renderer => ({
   setImage: () => undefined,
   setModelAlpha: () => undefined,
   renderFull: () => Promise.resolve({ type: 'cancelled' as const }),
+  finish: () => Promise.resolve({ type: 'cancelled' as const }),
+  finishPreview: () => Promise.resolve({ type: 'cancelled' as const }),
   resimplify: (selection, tolerancePx) => resimplify(selection, tolerancePx),
   fitRing: (path, tolerancePx) => {
     fitCalls.push({ path, tolerancePx })

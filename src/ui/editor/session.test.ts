@@ -22,6 +22,8 @@ const renderer: Renderer = {
   renderFull: () => Promise.resolve({ type: 'cancelled' as const }),
   resimplify: () => Promise.resolve({ type: 'cancelled' as const }),
   fitRing: () => Promise.resolve({ type: 'cancelled' as const }),
+  finish: () => Promise.resolve({ type: 'cancelled' as const }),
+  finishPreview: () => Promise.resolve({ type: 'cancelled' as const }),
 }
 
 function session() {

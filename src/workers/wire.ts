@@ -1,5 +1,5 @@
 import { newestWins } from './newestWins'
-import type { Handler } from './protocol'
+import type { AsyncHandler } from './protocol'
 
 /** The part of a worker's global scope the wiring uses. */
 export interface WorkerScope {
@@ -21,7 +21,7 @@ interface ErrorReply {
  */
 export function wireWorker<Req extends { type: string; jobId?: number }, Res>(
   scope: WorkerScope,
-  handle: Handler<Req, Res>,
+  handle: AsyncHandler<Req, Res>,
   defer?: (f: () => void) => void,
 ): void {
   const errorReply = (jobId: number, e: unknown) => ({
@@ -32,9 +32,12 @@ export function wireWorker<Req extends { type: string; jobId?: number }, Res>(
     },
     transfer: [],
   })
-  const safe: Handler<Req, Res | ErrorReply> = (req) => {
+  const safe: AsyncHandler<Req, Res | ErrorReply> = (req) => {
     try {
-      return handle(req)
+      const reply = handle(req)
+      return reply instanceof Promise
+        ? reply.catch((e: unknown) => errorReply(req.jobId ?? -1, e))
+        : reply
     } catch (e) {
       return errorReply(req.jobId ?? -1, e)
     }

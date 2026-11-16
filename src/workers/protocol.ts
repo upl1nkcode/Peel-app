@@ -2,6 +2,7 @@ import type { Node, Point, Size } from '../core/geometry/types'
 import type { AlphaMask, RgbaImage } from '../core/mask/types'
 import type { Tap } from '../core/segmentation/types'
 import type { Selection } from '../core/selection/types'
+import type { FinishSettings } from '../core/sticker/specs'
 
 /** Worker messages (spec 0006 contract). */
 export type ToRenderWorker =
@@ -45,10 +46,33 @@ export type ToRenderWorker =
     }
   /** A closed lasso path's dots (spec 0011 AC-15, AC-27). */
   | { type: 'fitRing'; jobId: number; path: Point[]; tolerancePx: number }
+  /**
+   * The output file at full resolution (spec 0012 AC-1 to AC-5), made from
+   * the current image's cutout. `finishPreview` is the same job with its own
+   * type, so the preview and the file never cancel each other (AC-9).
+   */
+  | {
+      type: 'finish' | 'finishPreview'
+      jobId: number
+      imageId: string
+      selection: Selection
+      settings: FinishSettings
+    }
+export type FinishFailure = 'empty' | 'tooLarge' | 'encoderUnavailable'
 export type FromRenderWorker =
   | { type: 'rendered'; jobId: number; mask: AlphaMask }
   | { type: 'resimplified'; jobId: number; selection: Selection }
   | { type: 'fitted'; jobId: number; nodes: Node[] }
+  /** The file's bytes (buffer transferred) and its MIME type, as `mime`: `type` is the message's tag. */
+  | {
+      type: 'finished'
+      jobId: number
+      bytes: Uint8Array
+      mime: 'image/png' | 'image/webp'
+      width: number
+      height: number
+    }
+  | { type: 'finishFailed'; jobId: number; reason: FinishFailure }
   | { type: 'cancelled'; jobId: number }
   | { type: 'error'; jobId: number; message: string }
 
@@ -98,6 +122,11 @@ export interface Reply<M> {
 
 /** The handler a worker runs per message; `undefined` means no reply. */
 export type Handler<Req, Res> = (req: Req) => Reply<Res> | undefined
+
+/** A handler that may also reply later (spec 0012: encoding a file is async). */
+export type AsyncHandler<Req, Res> = (
+  req: Req,
+) => Reply<Res> | Promise<Reply<Res> | undefined> | undefined
 
 /** Thrown for a message outside the contract. */
 export function unknownMessage(msg: { type?: unknown }): Error {

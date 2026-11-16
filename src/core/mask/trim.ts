@@ -55,3 +55,15 @@ export function cropRgba(image: RgbaImage, bounds: Bounds): RgbaImage {
   }
   return { width, height, data }
 }
+
+/** Copies the integer rectangle `bounds` (max exclusive), which must lie inside the mask. */
+export function cropAlpha(mask: AlphaMask, bounds: Bounds): AlphaMask {
+  const width = bounds.maxX - bounds.minX
+  const height = bounds.maxY - bounds.minY
+  const data = new Uint8Array(width * height)
+  for (let y = 0; y < height; y++) {
+    const from = (bounds.minY + y) * mask.width + bounds.minX
+    data.set(mask.data.subarray(from, from + width), y * width)
+  }
+  return { width, height, data }
+}

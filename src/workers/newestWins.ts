@@ -1,4 +1,4 @@
-import type { Handler, Reply } from './protocol'
+import type { AsyncHandler, Reply } from './protocol'
 
 interface Cancelled {
   type: 'cancelled'
@@ -9,10 +9,11 @@ interface Cancelled {
  * Runs only the newest waiting job of each type (spec 0006 AC-25). Messages
  * without a `jobId` (setImage) run at once, in order. Jobs wait until the
  * deferred drain; then, per type in order of arrival, every older job posts
- * `cancelled` and the newest runs.
+ * `cancelled` and the newest runs. A reply that is a promise is posted when
+ * it settles (the caller turns rejections into replies, as `wireWorker` does).
  */
 export function newestWins<Req extends { type: string; jobId?: number }, Res>(
-  handle: Handler<Req, Res>,
+  handle: AsyncHandler<Req, Res>,
   post: (reply: Reply<Res | Cancelled>) => void,
   defer: (f: () => void) => void = (f) => {
     setTimeout(f, 0)
@@ -23,7 +24,11 @@ export function newestWins<Req extends { type: string; jobId?: number }, Res>(
 
   const run = (req: Req) => {
     const reply = handle(req)
-    if (reply) post(reply)
+    if (reply instanceof Promise) {
+      void reply.then((r) => {
+        if (r) post(r)
+      })
+    } else if (reply) post(reply)
   }
 
   const drain = () => {
