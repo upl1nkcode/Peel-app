@@ -134,9 +134,20 @@ export async function expectAim(page: Page, want: Pt): Promise<Pt> {
   const tol = 1 / (displayScale / dpr)
   const loupe = page.getByTestId('loupe')
   await expect(loupe).toBeVisible()
-  const [x, y] = ((await loupe.getAttribute('data-aim')) ?? '')
-    .split(',')
-    .map(Number)
+  const aim = async () => {
+    const [x, y] = ((await loupe.getAttribute('data-aim')) ?? '')
+      .split(',')
+      .map(Number)
+    return { x, y }
+  }
+  // The last touch move may not have drawn yet: wait for it to settle.
+  await expect
+    .poll(async () => {
+      const { x, y } = await aim()
+      return Math.max(Math.abs(x - want.x), Math.abs(y - want.y))
+    })
+    .toBeLessThan(tol)
+  const { x, y } = await aim()
   expect(Math.abs(x - want.x), `aim x ${String(x)}`).toBeLessThan(tol)
   expect(Math.abs(y - want.y), `aim y ${String(y)}`).toBeLessThan(tol)
   return { x, y }
