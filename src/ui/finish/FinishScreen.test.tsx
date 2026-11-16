@@ -314,6 +314,18 @@ describe('Finish screen (spec 0012)', () => {
     expect(lastFinish().selection.feather).toBe(0)
   })
 
+  it('should_apply_softness_when_the_drag_is_cancelled (AC-10)', async () => {
+    setup()
+    await cutPhoto()
+    await openFinish()
+    setSlider('Edge softness', 2)
+    // A drag the phone turns into a scroll ends in pointercancel, not pointerup.
+    fireEvent.pointerCancel(slider('Edge softness'))
+    await waitFor(() => {
+      expect(lastFinish().selection.feather).toBe(2)
+    })
+  })
+
   it('should_keep_settings_for_a_new_photo (AC-12)', async () => {
     const first = setup()
     await cutPhoto()

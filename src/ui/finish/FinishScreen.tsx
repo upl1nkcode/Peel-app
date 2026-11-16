@@ -187,6 +187,7 @@ export function FinishScreen(props: FinishScreenProps) {
               setDragFeather(Number(e.currentTarget.value))
             }}
             onPointerUp={commitFeather}
+            onPointerCancel={commitFeather}
             onKeyUp={commitFeather}
             onBlur={commitFeather}
           />
