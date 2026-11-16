@@ -8,7 +8,7 @@ const FAR = 1e20
  * on `f[start + i·stride]` for i < n.
  */
 function edt1d(
-  f: Float64Array,
+  f: Float32Array,
   start: number,
   stride: number,
   n: number,
@@ -61,7 +61,8 @@ export function addOutline(
   const pad = Math.ceil(widthPx) + 1
   const width = image.width + 2 * pad
   const height = image.height + 2 * pad
-  const dist = new Float64Array(width * height).fill(FAR)
+  // 4 bytes per pixel: squared distances near the subject are small integers, exact in float32 (Review Focus 2).
+  const dist = new Float32Array(width * height).fill(FAR)
   for (let y = 0; y < image.height; y++) {
     for (let x = 0; x < image.width; x++) {
       if ((image.data[(y * image.width + x) * 4 + 3] as number) >= 128) {
