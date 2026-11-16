@@ -1,6 +1,6 @@
 # 0012 — I can finish my sticker, get it out of the app, and add it to iPhone stickers
 
-- **Status:** Draft
+- **Status:** Approved
 - **Issues:** story #81; tasks #82 (Finish screen: outline, edge softness, padding), #83 (output specs and encoder), #84 (share, download and copy with feature detection), #85 (iPhone "Add to Stickers" guide)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §1 (what the web can do with stickers), §8 (output), Phase 9. Builds on:
   - spec 0004: mask rendering, feather, trim, outline and resize;
