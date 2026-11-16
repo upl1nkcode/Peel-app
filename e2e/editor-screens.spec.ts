@@ -174,3 +174,21 @@ test('should_match_the_brush_tool (spec 0011 AC-25)', async ({ page }) => {
     await expect(page.getByRole('slider', { name: 'Hardness' })).toBeVisible()
   })
 })
+
+test('should_match_the_finish_screen (spec 0012 AC-21)', async ({ page }) => {
+  const file = page.getByTestId('finish-file')
+  for (const outline of ['off', 'on'] as const) {
+    await eachScreen(page, `finish-${outline}`, async () => {
+      await page.getByRole('button', { name: 'Done' }).click()
+      await expect(file).toHaveText(/^PNG · \d+ × \d+ px/, { timeout: 20_000 })
+      if (outline === 'on') {
+        const before = await file.textContent()
+        await page.getByRole('switch', { name: 'Outline' }).check()
+        // White, 3%: the file grows by the outline.
+        await expect(file).not.toHaveText(before ?? '', { timeout: 20_000 })
+        await expect(file).toHaveText(/^PNG · \d+ × \d+ px/)
+      }
+      await expect(page.getByAltText('Sticker preview')).toBeVisible()
+    })
+  }
+})

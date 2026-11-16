@@ -96,12 +96,13 @@ describe('finishImage', () => {
 
   it('should_keep_the_full_size_for_original (AC-3)', () => {
     const rand = mulberry32(3)
-    const src = solid(3000, 2000, [0, 0, 0, 255])
+    // Over the 1024 px Sticker cap, small enough for the coverage run.
+    const src = solid(1500, 1000, [0, 0, 0, 255])
     for (let k = 0; k < src.data.length; k++) {
       if (k % 4 !== 3) src.data[k] = Math.floor(rand() * 256)
     }
     const out = finishImage(src, settings({ output: 'original' }))
-    expect([out.width, out.height]).toEqual([3000, 2000])
+    expect([out.width, out.height]).toEqual([1500, 1000])
     let firstDiff = -1
     for (let k = 0; k < src.data.length && firstDiff < 0; k++) {
       if (out.data[k] !== src.data[k]) firstDiff = k

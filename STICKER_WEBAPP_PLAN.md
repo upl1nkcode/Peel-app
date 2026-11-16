@@ -275,9 +275,9 @@ Each task: failing test → see it fail → minimal code → pass → refactor �
 - [ ] Undo/redo buttons and "reset to auto". *Tests.*
 
 ### Phase 9 — Finish, export, library, install
-- [ ] Finish: outline, softness, padding, output choice. *Screenshot tests.*
-- [ ] Export: Share (if `navigator.canShare({files})`), Download, Copy (if supported), Save. Unsupported hidden. *Tests.*
-- [ ] iPhone "Add to Stickers" guide; Android install button; iPhone install guide; update prompt. *Tests.*
+- [x] Finish: outline, softness, padding, output choice. *Screenshot tests.*
+- [x] Export: Share (if `navigator.canShare({files})`), Download, Copy (if supported), Save. Unsupported hidden. *Tests.*
+- [ ] iPhone "Add to Stickers" guide (done, spec 0012); Android install button; iPhone install guide; update prompt. *Tests.*
 - [ ] Library: grid, re-open and re-edit, delete, export all. *Tests.*
 
 ### Phase 10 — Accuracy & device verification
