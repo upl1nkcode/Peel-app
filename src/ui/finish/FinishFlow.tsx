@@ -1,6 +1,7 @@
 import type { Selection } from '../../core/selection/types'
 import type { FinishSettings } from '../../core/sticker'
 import type { Renderer } from '../editor/session'
+import { ExportActions } from './ExportActions'
 import { FinishScreen, type FinishScreenProps } from './FinishScreen'
 import { useFinishOutput } from './useFinishOutput'
 
@@ -36,7 +37,14 @@ export function FinishFlow(props: FinishFlowProps) {
       output={output}
       save={props.save}
       onBack={props.onBack}
-      actions={null}
+      actions={
+        <ExportActions
+          file={output.file}
+          preparing={output.preparing}
+          settings={props.settings}
+          selection={props.selection}
+        />
+      }
       guide={null}
     />
   )
