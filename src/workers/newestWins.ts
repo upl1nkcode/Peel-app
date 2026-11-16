@@ -10,7 +10,9 @@ interface Cancelled {
  * without a `jobId` (setImage) run at once, in order. Jobs wait until the
  * deferred drain; then, per type in order of arrival, every older job posts
  * `cancelled` and the newest runs. A reply that is a promise is posted when
- * it settles (the caller turns rejections into replies, as `wireWorker` does).
+ * it settles (the caller turns rejections into replies, as `wireWorker` does);
+ * until then its type is held, so two jobs of one type never run side by side
+ * (spec 0012: two 12 MP Originals at once could run a phone out of memory).
  */
 export function newestWins<Req extends { type: string; jobId?: number }, Res>(
   handle: AsyncHandler<Req, Res>,
@@ -20,21 +22,44 @@ export function newestWins<Req extends { type: string; jobId?: number }, Res>(
   },
 ): (req: Req) => void {
   const waiting = new Map<string, Req[]>()
+  const busy = new Set<string>()
   let scheduled = false
+
+  const schedule = () => {
+    if (scheduled || waiting.size === 0) return
+    scheduled = true
+    defer(drain)
+  }
 
   const run = (req: Req) => {
     const reply = handle(req)
     if (reply instanceof Promise) {
-      void reply.then((r) => {
-        if (r) post(r)
-      })
+      if (req.jobId === undefined) {
+        void reply.then((r) => {
+          if (r) post(r)
+        })
+        return
+      }
+      busy.add(req.type)
+      void reply
+        .then((r) => {
+          if (r) post(r)
+        })
+        .finally(() => {
+          busy.delete(req.type)
+          schedule()
+        })
     } else if (reply) post(reply)
   }
 
-  const drain = () => {
+  function drain() {
     scheduled = false
-    const jobs = [...waiting.values()]
-    waiting.clear()
+    const jobs: Req[][] = []
+    for (const [type, list] of waiting) {
+      if (busy.has(type)) continue
+      jobs.push(list)
+      waiting.delete(type)
+    }
     for (const list of jobs) {
       for (let k = 0; k < list.length - 1; k++) {
         post({
@@ -55,9 +80,6 @@ export function newestWins<Req extends { type: string; jobId?: number }, Res>(
     const list = waiting.get(req.type)
     if (list) list.push(req)
     else waiting.set(req.type, [req])
-    if (!scheduled) {
-      scheduled = true
-      defer(drain)
-    }
+    schedule()
   }
 }
