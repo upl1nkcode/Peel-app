@@ -157,3 +157,25 @@ test('should_go_back_with_everything_as_it_was (spec 0012 AC-8)', async ({
   expect((await canvasInfo(page)).displayScale).toBe(zoomed.displayScale)
   expect(await imageToClient(page, { x: 60, y: 40 })).toEqual(anchor)
 })
+
+test('should_retry_the_webp_encoder_once_back_online (spec 0012 AC-6)', async ({
+  page,
+}) => {
+  await openFinish(page)
+  // Offline the first time: libwebp's script and wasm can't be fetched
+  // (encode-*.js is precached, so the failure is inside the library).
+  const ENCODER = /\/assets\/webp_enc[^/]*$/
+  await page.route(ENCODER, (route) => route.abort('internetdisconnected'))
+  await page.getByRole('radio', { name: 'WhatsApp-style' }).check()
+  await expect(page.getByTestId('finish-file')).toHaveText(
+    "Couldn't load the WebP encoder. Connect to the internet and try again.",
+    { timeout: 20_000 },
+  )
+  // The other outputs still work.
+  await page.getByRole('radio', { name: 'Sticker' }).check()
+  await expectFile(page, /^PNG · 100 × 60 px/)
+  // Back online, choosing WhatsApp-style again retries.
+  await page.unroute(ENCODER)
+  await page.getByRole('radio', { name: 'WhatsApp-style' }).check()
+  await expectFile(page, /^WEBP · 512 × 512 px · \d+ KB$/)
+})
