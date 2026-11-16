@@ -163,3 +163,37 @@ describe('session edits (spec 0010)', () => {
     expect(snapped.map(([id]) => id)).toEqual([photo.id, next.id])
   })
 })
+
+describe('session finish settings (spec 0012)', () => {
+  const finish = {
+    output: 'whatsapp' as const,
+    outline: { on: true, widthPct: 4, color: 'black' as const },
+    paddingPct: 6,
+  }
+
+  it('should_carry_the_finish_in_the_snapshot (AC-11, AC-12)', async () => {
+    const s = session()
+    const shown = await s.reopen({ ...record, finish }, loaded(), null, square)
+    expect(shown.finish).toEqual(finish)
+    expect(shown.photo.image.width).toBe(100)
+    expect(s.snapshot()?.finish).toEqual(finish)
+    const changed = { ...finish, paddingPct: 9 }
+    s.setFinish(changed)
+    expect(s.snapshot()?.finish).toEqual(changed)
+    // A new photo keeps the current settings (Decision 8).
+    await s.pick(new File(['x'], 'p.png'))
+    expect(s.snapshot()?.finish).toEqual(changed)
+  })
+
+  it('should_reopen_an_old_sticker_with_the_defaults (AC-11, Review Focus 4)', async () => {
+    const s = session()
+    s.setFinish(finish)
+    const shown = await s.reopen(record, loaded(), null, square)
+    expect(shown.finish).toEqual({
+      output: 'sticker',
+      outline: { on: false, widthPct: 3, color: 'white' },
+      paddingPct: 0,
+    })
+    expect(s.snapshot()?.finish).toEqual(shown.finish)
+  })
+})

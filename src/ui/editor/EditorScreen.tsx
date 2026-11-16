@@ -7,6 +7,7 @@ import {
   type ViewMode,
 } from '../../core/editor'
 import { emptySelection } from '../../core/selection/model'
+import { DEFAULT_FINISH, type FinishSettings } from '../../core/sticker'
 import type { Command, NodeRef, Selection } from '../../core/selection/types'
 import {
   statusLines,
@@ -103,6 +104,12 @@ export function EditorScreen(props: EditorScreenProps) {
   const [session] = useState(() =>
     createSession({ ...props, onState: setState, onSelection: setSelection }),
   )
+  /** The Finish settings (spec 0012): kept for a new photo, gone on reload (Decision 8). */
+  const [finish, setFinishState] = useState<FinishSettings>(DEFAULT_FINISH)
+  const setFinish = (settings: FinishSettings) => {
+    session.setFinish(settings)
+    setFinishState(settings)
+  }
   const canvasRef = useRef<EditorCanvasHandle>(null)
   /**
    * The selected dots and the selection they belong to. Any other selection
@@ -318,7 +325,13 @@ export function EditorScreen(props: EditorScreenProps) {
               feather: saved.feather,
             }
           : saved
-      const shown = await session.reopen(record, loaded, alpha, restore)
+      const { photo: shown, finish: reopened } = await session.reopen(
+        record,
+        loaded,
+        alpha,
+        restore,
+      )
+      setFinish(reopened)
       setPhotoError(null)
       setDots(null)
       dropDensity()
@@ -328,7 +341,13 @@ export function EditorScreen(props: EditorScreenProps) {
       return sameSize ? null : DIFFERENT_SIZE
     },
   }
-  const panel = useStickers(props.stickers, host, photo?.id ?? null, selection)
+  const panel = useStickers(
+    props.stickers,
+    host,
+    photo?.id ?? null,
+    selection,
+    finish,
+  )
 
   const lines = [
     ...(state ? statusLines(state) : []),

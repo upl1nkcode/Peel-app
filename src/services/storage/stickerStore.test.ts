@@ -306,4 +306,18 @@ describe('sticker store', () => {
     const again = await store(factory)
     expect(await again.getMeta('persistRequested')).toBe(true)
   })
+
+  it('should_store_and_read_back_the_finish (spec 0012 AC-11)', async () => {
+    const s = await store(new IDBFactory())
+    const finish = {
+      output: 'original' as const,
+      outline: { on: true, widthPct: 2, color: 'white' as const },
+      paddingPct: 10,
+    }
+    const withFinish = { ...record('a', 2000), finish }
+    await s.save(withFinish)
+    expect(await s.get('a')).toEqual(withFinish)
+    await s.save(record('a', 3000))
+    expect(await s.get('a')).not.toHaveProperty('finish')
+  })
 })

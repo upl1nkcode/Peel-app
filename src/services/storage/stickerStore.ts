@@ -1,6 +1,7 @@
 import type { IDBPDatabase } from 'idb'
 import type { StickerRecord } from '../../core/backup'
 import type { Size } from '../../core/geometry/types'
+import { readFinish, type FinishSettings } from '../../core/sticker'
 import { MIGRATIONS, openDatabase, type Migration } from './db'
 import { isQuotaError, StorageFullError, StorageOutdatedError } from './errors'
 
@@ -38,6 +39,8 @@ interface StickerRow {
   selection: string
   modelAlphaSize?: Size
   thumbnail: ArrayBuffer
+  /** Spec 0012; the store is schemaless, so older rows simply lack it. */
+  finish?: FinishSettings
 }
 
 type FileKind = 'photo' | 'sticker' | 'modelAlpha'
@@ -133,6 +136,7 @@ export async function openStickerStore(
           ...(record.modelAlpha && {
             modelAlphaSize: copySize(record.modelAlpha),
           }),
+          ...(record.finish && { finish: readFinish(record.finish) }),
         }
         const file = (kind: FileKind, bytes: Uint8Array) =>
           files.put({ id: record.id, kind, bytes: toBuffer(bytes) })
@@ -184,6 +188,7 @@ export async function openStickerStore(
           sticker: new Uint8Array(sticker.bytes),
           thumbnail: new Uint8Array(row.thumbnail),
         }
+        if (row.finish !== undefined) record.finish = readFinish(row.finish)
         if (row.modelAlphaSize && modelAlpha) {
           record.modelAlpha = {
             ...copySize(row.modelAlphaSize),

@@ -4,6 +4,7 @@ import { EmptyMaskError, type AlphaMask, type RgbaImage } from '../../core/mask'
 import type { Deflate } from '../../core/png'
 import { serializeSelection } from '../../core/selection/serialize'
 import type { Selection } from '../../core/selection/types'
+import { sameFinish, type FinishSettings } from '../../core/sticker'
 import { ZipLimitError, type Inflate } from '../../core/zip'
 import { exportAll, importBackup, importMessage } from '../../services/backup'
 import { PhotoUnreadableError } from '../../services/photo'
@@ -44,6 +45,8 @@ export interface SaveSnapshot {
   /** The model alpha the selection's soft edge uses, if it is a model one. */
   modelAlpha: AlphaMask | null
   sticker: StickerRef | null
+  /** The Finish settings to save beside the sticker (spec 0012 AC-11). */
+  finish: FinishSettings
 }
 
 /** The screen's side of the panel. */
@@ -86,14 +89,16 @@ function messageFor(e: unknown): string {
 
 /**
  * The temporary panel's state and actions (spec 0008 AC-5 to AC-20). Without
- * `deps` there is no panel. `photoId` and `selection` are what the screen
- * shows, for the Save button.
+ * `deps` there is no panel. `photoId`, `selection` and `finish` are what the
+ * screen shows, for the Save button: changing any of them makes it "Save"
+ * again (spec 0012 AC-11).
  */
 export function useStickers(
   deps: StickerDeps | undefined,
   host: StickerHost,
   photoId: string | null,
   selection: Selection,
+  finish: FinishSettings,
 ): StickerPanelProps | null {
   const [store, setStore] = useState<StickerStore | null>(null)
   const [blocked, setBlocked] = useState<string | null>(null)
@@ -104,6 +109,7 @@ export function useStickers(
   const [savedAs, setSavedAs] = useState<{
     photoId: string
     selection: Selection
+    finish: FinishSettings
   } | null>(null)
   const hostRef = useRef(host)
   useEffect(() => {
@@ -180,7 +186,7 @@ export function useStickers(
     const snap = hostRef.current.snapshot()
     if (!snap) return
     run(async (s) => {
-      const { photo, selection: sel, modelAlpha, sticker } = snap
+      const { photo, selection: sel, modelAlpha, sticker, finish: fin } = snap
       const built = await buildSticker(
         { image: photo.image, selection: sel, modelAlpha },
         {
@@ -204,9 +210,10 @@ export function useStickers(
         sticker: built.sticker,
         thumbnail: built.thumbnail,
         ...(built.modelAlpha && { modelAlpha: built.modelAlpha }),
+        finish: fin,
       })
       hostRef.current.saved(photo.id, ref)
-      setSavedAs({ photoId: photo.id, selection: sel })
+      setSavedAs({ photoId: photo.id, selection: sel, finish: fin })
       await refresh(s)
       await requestPersistence(deps.storage, s)
       await showStatus()
@@ -219,7 +226,8 @@ export function useStickers(
     saved:
       savedAs !== null &&
       savedAs.photoId === photoId &&
-      savedAs.selection === selection,
+      savedAs.selection === selection &&
+      sameFinish(savedAs.finish, finish),
     disabled,
     status,
     message,
