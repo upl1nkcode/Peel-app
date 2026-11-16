@@ -404,4 +404,35 @@ describe('Finish screen (spec 0012)', () => {
     await openFinish()
     expect(await screen.findByText('Padding 10%')).toBeInTheDocument()
   })
+
+  it('should_open_the_guide_the_first_time (AC-18)', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 26_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Mobile/15E148 Safari/604.1',
+    )
+    setup()
+    await cutPhoto()
+    await openFinish()
+    const guide = () =>
+      screen.getByRole('button', { name: 'How to add to iPhone Stickers' })
+    expect(guide()).toHaveAttribute('aria-expanded', 'true')
+    // jsdom has no Web Share: the steps say Download.
+    expect(screen.getByText(/then tap/)).toHaveTextContent(
+      'Choose Sticker, then tap Download.',
+    )
+    fireEvent.click(button('Back'))
+    await openFinish()
+    expect(guide()).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('should_hide_the_guide_elsewhere (AC-18)', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36',
+    )
+    setup()
+    await cutPhoto()
+    await openFinish()
+    expect(
+      screen.queryByRole('button', { name: 'How to add to iPhone Stickers' }),
+    ).toBeNull()
+  })
 })

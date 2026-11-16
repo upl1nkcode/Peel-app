@@ -1,6 +1,10 @@
 import type { Selection } from '../../core/selection/types'
 import type { FinishSettings } from '../../core/sticker'
 import type { Renderer } from '../editor/session'
+import { useState } from 'react'
+import { canShareType } from '../../services/export'
+import { AddStickerGuide } from './AddStickerGuide'
+import { isAppleTouch } from './device'
 import { ExportActions } from './ExportActions'
 import { FinishScreen, type FinishScreenProps } from './FinishScreen'
 import { useFinishOutput } from './useFinishOutput'
@@ -14,6 +18,8 @@ export interface FinishFlowProps {
   onFeather: (px: number) => void
   save: FinishScreenProps['save']
   onBack: () => void
+  /** Open the iPhone guide: the first Finish screen of a session (AC-18). */
+  guideOpen: boolean
 }
 
 /**
@@ -22,6 +28,11 @@ export interface FinishFlowProps {
  * (Review Focus 5).
  */
 export function FinishFlow(props: FinishFlowProps) {
+  // The device and Share support don't change while the screen shows.
+  const [guide] = useState(() => ({
+    apple: isAppleTouch(navigator.userAgent, navigator.maxTouchPoints),
+    shareShown: canShareType(navigator, 'image/png'),
+  }))
   const output = useFinishOutput(
     props.renderer,
     props.photoId,
@@ -45,7 +56,14 @@ export function FinishFlow(props: FinishFlowProps) {
           selection={props.selection}
         />
       }
-      guide={null}
+      guide={
+        guide.apple ? (
+          <AddStickerGuide
+            shareShown={guide.shareShown}
+            initiallyOpen={props.guideOpen}
+          />
+        ) : null
+      }
     />
   )
 }

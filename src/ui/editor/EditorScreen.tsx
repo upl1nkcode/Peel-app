@@ -113,6 +113,9 @@ export function EditorScreen(props: EditorScreenProps) {
   }
   /** The Finish screen is open over the editor (spec 0012 AC-8). */
   const [finishing, setFinishing] = useState(false)
+  /** The iPhone guide opens on the first Finish screen of a session only (AC-18). */
+  const [guideSeen, setGuideSeen] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(false)
   const canvasRef = useRef<EditorCanvasHandle>(null)
   /**
    * The selected dots and the selection they belong to. Any other selection
@@ -397,6 +400,8 @@ export function EditorScreen(props: EditorScreenProps) {
             onClick={() => {
               dropDensity()
               setStickersOpen(false)
+              setGuideOpen(!guideSeen)
+              setGuideSeen(true)
               setFinishing(true)
             }}
           >
@@ -648,6 +653,7 @@ export function EditorScreen(props: EditorScreenProps) {
           onBack={() => {
             setFinishing(false)
           }}
+          guideOpen={guideOpen}
         />
       )}
     </>
