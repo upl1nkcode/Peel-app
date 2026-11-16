@@ -1300,7 +1300,10 @@ describe('EditorScreen lasso tool (spec 0011)', () => {
       expect(fitCalls).toHaveLength(1)
     })
     const next = await choose()
-    expect(next).toHaveAttribute('data-lasso', 'none')
+    // The canvas snapshot catches up in an effect after the photo changes.
+    await waitFor(() => {
+      expect(next).toHaveAttribute('data-lasso', 'none')
+    })
     fits[0]?.resolve()
     await new Promise((done) => setTimeout(done, 50))
     expect(lastRendered()?.rings).toHaveLength(0)
