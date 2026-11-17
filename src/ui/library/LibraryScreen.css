@@ -276,3 +276,135 @@
   background: var(--error-bg);
   color: var(--error-fg);
 }
+
+/* ⋯ menu (AC-13) */
+.menu-root {
+  position: relative;
+}
+
+.library .menu-button {
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  display: grid;
+  min-width: 240px;
+  max-width: calc(100vw - 32px);
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
+}
+
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: none;
+  color: var(--fg);
+  text-align: left;
+}
+
+.menu button:disabled {
+  color: var(--muted);
+}
+
+.menu button:not(:disabled):active {
+  background: var(--surface);
+}
+
+.menu-group {
+  display: grid;
+  margin: 4px 0;
+  padding: 4px 0;
+  border-block: 1px solid var(--border);
+}
+
+.menu-label {
+  margin: 4px 10px 2px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.menu-check {
+  width: 1em;
+  color: var(--accent);
+}
+
+.menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.menu-status {
+  margin: 4px 10px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* Install card (AC-17) and update bar (AC-22) */
+.install-card,
+.update-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 12px 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.install-card p,
+.update-bar p {
+  flex: 1;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.install-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.library .install-card-go,
+.library .update-bar button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0 14px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+}
+
+.library .install-card-close {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 1.25rem;
+}
+
+.guide-steps {
+  margin: 8px 0 12px;
+  padding-left: 1.25rem;
+  line-height: 1.5;
+}
+
+.guide-steps li + li {
+  margin-top: 6px;
+}
