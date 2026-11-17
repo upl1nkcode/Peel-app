@@ -17,8 +17,8 @@ export default defineConfig({
     react(),
     peelModels(),
     VitePWA({
-      // Silent auto-update for now; switch to 'prompt' with the update prompt UI (plan Phase 9).
-      registerType: 'autoUpdate',
+      // A new version waits until the Library's Reload (spec 0013 AC-22, AC-23).
+      registerType: 'prompt',
       includeAssets: ['favicon.svg', 'apple-touch-icon-180x180.png'],
       manifest: {
         name: 'Peel',
