@@ -1,6 +1,6 @@
 # 0013 — My stickers live in a library, the app installs easily, and it works offline
 
-- **Status:** Draft
+- **Status:** Approved
 - **Issues:** story #86; tasks #87 (library grid with re-open, re-edit and delete), #88 (install button on Android, install guide on iPhone), #89 (offline caching of app and models), #90 (update available prompt), #91 (English and Romanian translations)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md §1 (install, offline, storage caveat), §7 (screens), Phase 9. Builds on:
   - spec 0007: model download, checking and caching;
