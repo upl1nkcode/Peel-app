@@ -13,7 +13,12 @@ import {
   type StickerStore,
 } from '../storage'
 import { english } from '../../test/english'
-import { exportAll, importBackup, importMessage } from './index'
+import {
+  duplicateStickers,
+  exportAll,
+  importBackup,
+  importMessage,
+} from './index'
 
 const codecs = { inflate: browserInflate, inflateRaw: browserInflateRaw }
 const png = (n: number) =>
@@ -222,5 +227,67 @@ describe('backup', () => {
       'peel-stickers-2027-01-03.zip',
     )
     expect(await exportAll(await newStore(), when)).toBeNull()
+  })
+})
+
+describe('Library actions (spec 0013)', () => {
+  it('should_export_only_the_ticked_stickers (AC-10)', async () => {
+    const { store, records } = await filled()
+    const out = await exportAll(store, when, ['c', 'a'])
+    expect(out?.name).toBe('peel-stickers-2026-11-07.zip')
+    const b = await newStore()
+    const result = await importBackup(b, out?.blob as Blob, codecs)
+    expect(result).toEqual({ added: 2, existing: 0, damaged: 0 })
+    expect((await b.list()).map((s) => s.id).sort()).toEqual(['a', 'c'])
+    expect(await b.get('a')).toEqual(records[0])
+    expect(await b.get('c')).toEqual(records[2])
+    expect(await exportAll(store, when, ['gone'])).toBeNull()
+  })
+
+  it('should_duplicate_byte_for_byte_with_a_new_id (AC-9)', async () => {
+    const { store, records } = await filled()
+    const now = 5000
+    expect(await duplicateStickers(store, ['a', 'c'], now)).toBe(2)
+    const list = await store.list()
+    expect(list).toHaveLength(5)
+    const [first, second] = list
+    expect([first?.updatedAt, second?.updatedAt]).toEqual([now + 1, now])
+    const copyOfA = await store.get(first?.id ?? '')
+    const copyOfC = await store.get(second?.id ?? '')
+    for (const [copy, original] of [
+      [copyOfA, records[0]],
+      [copyOfC, records[2]],
+    ] as const) {
+      expect(copy?.id).not.toBe(original?.id)
+      expect(copy?.id).toMatch(/^[0-9a-f-]{36}$/)
+      expect(copy?.createdAt).toBe(copy?.updatedAt)
+      expect({ ...copy, id: '', createdAt: 0, updatedAt: 0 }).toEqual({
+        ...original,
+        id: '',
+        createdAt: 0,
+        updatedAt: 0,
+      })
+    }
+    expect(await store.get('a')).toEqual(records[0])
+  })
+
+  it('should_keep_copies_made_before_storage_fills (AC-9)', async () => {
+    const { store } = await filled()
+    let saves = 0
+    const full: StickerStore = {
+      ...store,
+      list: () => store.list(),
+      get: (id) => store.get(id),
+      save: (r) => {
+        saves++
+        return saves === 2
+          ? Promise.reject(new StorageFullError())
+          : store.save(r)
+      },
+    }
+    await expect(duplicateStickers(full, ['a', 'b'], 9000)).rejects.toThrow(
+      StorageFullError,
+    )
+    expect(await store.list()).toHaveLength(4)
   })
 })

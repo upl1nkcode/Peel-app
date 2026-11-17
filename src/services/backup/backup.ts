@@ -32,8 +32,8 @@ export function backupFileName(now: Date): string {
 const MIN_FILES_PER_STICKER = 4
 
 /**
- * Every saved sticker as one ZIP backup (spec 0008 AC-15), or `null` when
- * there are none. Throws `ZipLimitError` past plain ZIP's limits (AC-19).
+ * Every saved sticker as one ZIP backup (spec 0008 AC-15), or only those in
+ * `ids` (spec 0013 AC-10); `null` when there are none. Throws `ZipLimitError` past plain ZIP's limits (AC-19).
  *
  * One sticker is read at a time and its bytes go into a Blob before the
  * next is read; the file is a Blob of those Blobs (no copy). So memory holds
@@ -43,8 +43,13 @@ const MIN_FILES_PER_STICKER = 4
 export async function exportAll(
   store: StickerStore,
   now: Date,
+  ids?: readonly string[],
 ): Promise<{ name: string; blob: Blob } | null> {
-  const summaries = await store.list()
+  const wanted = ids && new Set(ids)
+  // With `ids`, only those, in list order (spec 0013 AC-10).
+  const summaries = (await store.list()).filter(
+    (s) => !wanted || wanted.has(s.id),
+  )
   if (summaries.length === 0) return null
   checkZipLimits(summaries.length * MIN_FILES_PER_STICKER + 1, 0)
   const writer = createZipWriter(now)
@@ -118,4 +123,31 @@ export function importMessage(result: ImportResult): Message[] {
     lines.push({ key: 'import.damaged', params: { count: result.damaged } })
   }
   return lines
+}
+
+/**
+ * Copies each sticker in `ids` as a new sticker: a new ID, created and updated
+ * now, everything else the same (spec 0013 AC-9). The copies keep the order
+ * of `ids` at the top of the list (the first is newest). Copies saved before
+ * a `StorageFullError` stay; the error is rethrown. Returns how many it saved.
+ */
+export async function duplicateStickers(
+  store: StickerStore,
+  ids: readonly string[],
+  now: number,
+): Promise<number> {
+  let saved = 0
+  for (const [i, id] of ids.entries()) {
+    const record = await store.get(id)
+    if (!record) continue
+    const at = now + (ids.length - 1 - i)
+    await store.save({
+      ...record,
+      id: crypto.randomUUID(),
+      createdAt: at,
+      updatedAt: at,
+    })
+    saved++
+  }
+  return saved
 }
