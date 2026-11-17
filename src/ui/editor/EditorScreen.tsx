@@ -7,6 +7,7 @@ import {
   type ViewMode,
 } from '../../core/editor'
 import { emptySelection } from '../../core/selection/model'
+import { DEFAULT_FINISH, type FinishSettings } from '../../core/sticker'
 import type { Command, NodeRef, Selection } from '../../core/selection/types'
 import {
   statusLines,
@@ -39,6 +40,7 @@ import {
 import { Toolbar, ToolSheet } from './Toolbar'
 import { useLasso } from './useLasso'
 import { useStickers, type StickerDeps, type StickerHost } from './useStickers'
+import { FinishFlow } from '../finish/FinishFlow'
 import './EditorScreen.css'
 
 export type { Renderer }
@@ -103,6 +105,17 @@ export function EditorScreen(props: EditorScreenProps) {
   const [session] = useState(() =>
     createSession({ ...props, onState: setState, onSelection: setSelection }),
   )
+  /** The Finish settings (spec 0012): kept for a new photo, gone on reload (Decision 8). */
+  const [finish, setFinishState] = useState<FinishSettings>(DEFAULT_FINISH)
+  const setFinish = (settings: FinishSettings) => {
+    session.setFinish(settings)
+    setFinishState(settings)
+  }
+  /** The Finish screen is open over the editor (spec 0012 AC-8). */
+  const [finishing, setFinishing] = useState(false)
+  /** The iPhone guide opens on the first Finish screen of a session only (AC-18). */
+  const [guideSeen, setGuideSeen] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(false)
   const canvasRef = useRef<EditorCanvasHandle>(null)
   /**
    * The selected dots and the selection they belong to. Any other selection
@@ -318,7 +331,13 @@ export function EditorScreen(props: EditorScreenProps) {
               feather: saved.feather,
             }
           : saved
-      const shown = await session.reopen(record, loaded, alpha, restore)
+      const { photo: shown, finish: reopened } = await session.reopen(
+        record,
+        loaded,
+        alpha,
+        restore,
+      )
+      setFinish(reopened)
       setPhotoError(null)
       setDots(null)
       dropDensity()
@@ -328,7 +347,13 @@ export function EditorScreen(props: EditorScreenProps) {
       return sameSize ? null : DIFFERENT_SIZE
     },
   }
-  const panel = useStickers(props.stickers, host, photo?.id ?? null, selection)
+  const panel = useStickers(
+    props.stickers,
+    host,
+    photo?.id ?? null,
+    selection,
+    finish,
+  )
 
   const lines = [
     ...(state ? statusLines(state) : []),
@@ -356,242 +381,281 @@ export function EditorScreen(props: EditorScreenProps) {
   const showPanel = stickersOpen && panel !== null
 
   return (
-    <section
-      className="editor"
-      data-testid="editor"
-      data-phase={state?.phase ?? 'idle'}
-      data-fallback={state?.fallbackTool ?? undefined}
-    >
-      <header className="editor-top">
-        <h1 className="editor-title">Peel</h1>
-        <button type="button" onClick={choosePhoto}>
-          Photo
-        </button>
-        {panel && (
+    <>
+      <section
+        className="editor"
+        data-testid="editor"
+        data-phase={state?.phase ?? 'idle'}
+        data-fallback={state?.fallbackTool ?? undefined}
+        inert={finishing}
+      >
+        <header className="editor-top">
+          <h1 className="editor-title">Peel</h1>
+          <button type="button" onClick={choosePhoto}>
+            Photo
+          </button>
           <button
             type="button"
-            aria-expanded={stickersOpen}
+            disabled={!photo || selection.rings.length === 0}
             onClick={() => {
               dropDensity()
-              setStickersOpen((open) => !open)
+              setStickersOpen(false)
+              setGuideOpen(!guideSeen)
+              setGuideSeen(true)
+              setFinishing(true)
             }}
           >
-            Stickers
+            Done
           </button>
-        )}
-        <input
-          ref={fileRef}
-          className="editor-file"
-          type="file"
-          accept="image/*"
-          aria-label="Pick a photo"
-          tabIndex={-1}
-          onChange={(e) => {
-            const file = e.currentTarget.files?.[0]
-            if (file) void pick(file)
-            e.currentTarget.value = ''
-          }}
-        />
-      </header>
-      <div className="editor-main">
-        <EditorCanvas
-          photo={
-            photo && {
-              id: photo.id,
-              width: photo.image.width,
-              height: photo.image.height,
-              source: photo.source,
-            }
-          }
-          ref={canvasRef}
-          selection={densityPreview ?? selection}
-          renderMask={renderMask}
-          viewMode={viewMode}
-          comparing={comparing}
-          tool={tool}
-          onIntent={(intent) => {
-            session.tap({ imagePt: intent.imagePt, mode: intent.type })
-          }}
-          selectedDots={densityPreview ? NO_REFS : selectedDots}
-          fine={fine}
-          onEdit={edit}
-          onSelectDots={(refs) => {
-            if (density.current) return
-            setDots({ selection, refs: [...refs] })
-          }}
-          lasso={lasso.open}
-          snap={lasso.liveSnap}
-          snapOn={lasso.snapOn}
-          onLassoSection={lasso.addSection}
-          brush={brush}
-          {...(props.now && { now: props.now })}
-        />
-        {!photo && (
-          <div className="editor-empty">
-            <button type="button" onClick={choosePhoto}>
-              Pick a photo
-            </button>
-          </div>
-        )}
-        <div className="editor-status" role="status" aria-live="polite">
-          {photoError && (
-            <p className="editor-error" role="alert">
-              {photoError}
-            </p>
-          )}
-          {lines.map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-          {state?.unavailable && tool === 'auto' && (
+          {panel && (
             <button
               type="button"
+              aria-expanded={stickersOpen}
               onClick={() => {
-                session.useLasso()
-                chooseTool('lasso')
+                dropDensity()
+                setStickersOpen((open) => !open)
               }}
             >
-              {USE_LASSO_LABEL}
+              Stickers
             </button>
           )}
+          <input
+            ref={fileRef}
+            className="editor-file"
+            type="file"
+            accept="image/*"
+            aria-label="Pick a photo"
+            tabIndex={-1}
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0]
+              if (file) void pick(file)
+              e.currentTarget.value = ''
+            }}
+          />
+        </header>
+        <div className="editor-main">
+          <EditorCanvas
+            photo={
+              photo && {
+                id: photo.id,
+                width: photo.image.width,
+                height: photo.image.height,
+                source: photo.source,
+              }
+            }
+            ref={canvasRef}
+            selection={densityPreview ?? selection}
+            renderMask={renderMask}
+            viewMode={viewMode}
+            comparing={comparing}
+            tool={tool}
+            onIntent={(intent) => {
+              session.tap({ imagePt: intent.imagePt, mode: intent.type })
+            }}
+            selectedDots={densityPreview ? NO_REFS : selectedDots}
+            fine={fine}
+            onEdit={edit}
+            onSelectDots={(refs) => {
+              if (density.current) return
+              setDots({ selection, refs: [...refs] })
+            }}
+            lasso={lasso.open}
+            snap={lasso.liveSnap}
+            snapOn={lasso.snapOn}
+            onLassoSection={lasso.addSection}
+            brush={brush}
+            {...(props.now && { now: props.now })}
+          />
+          {!photo && (
+            <div className="editor-empty">
+              <button type="button" onClick={choosePhoto}>
+                Pick a photo
+              </button>
+            </div>
+          )}
+          <div className="editor-status" role="status" aria-live="polite">
+            {photoError && (
+              <p className="editor-error" role="alert">
+                {photoError}
+              </p>
+            )}
+            {lines.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+            {state?.unavailable && tool === 'auto' && (
+              <button
+                type="button"
+                onClick={() => {
+                  session.useLasso()
+                  chooseTool('lasso')
+                }}
+              >
+                {USE_LASSO_LABEL}
+              </button>
+            )}
+          </div>
         </div>
-      </div>
-      <div className="editor-actions">
-        <button
-          type="button"
-          disabled={lassoUndo ? lasso.open?.busy : !session.canUndo}
-          onClick={() => {
-            if (lassoUndo) lasso.undoSection()
-            else session.undo()
-          }}
-        >
-          Undo
-        </button>
-        <button
-          type="button"
-          disabled={lassoUndo || !session.canRedo}
-          onClick={() => {
-            session.redo()
-          }}
-        >
-          Redo
-        </button>
-        {state?.hasAutoResult && (
+        <div className="editor-actions">
           <button
             type="button"
-            disabled={selection === state.autoResultSelection}
+            disabled={lassoUndo ? lasso.open?.busy : !session.canUndo}
             onClick={() => {
-              session.resetToAuto()
+              if (lassoUndo) lasso.undoSection()
+              else session.undo()
             }}
           >
-            Reset to auto
+            Undo
           </button>
-        )}
-        <button
-          type="button"
-          disabled={!photo}
-          onPointerDown={() => {
-            setComparing(true)
-          }}
-          onPointerUp={release}
-          onPointerCancel={release}
-          onPointerLeave={release}
-          onBlur={release}
-          onKeyDown={(e) => {
-            if (e.key !== ' ' && e.key !== 'Enter') return
-            e.preventDefault()
-            if (!e.repeat) setComparing(true)
-          }}
-          onKeyUp={(e) => {
-            if (e.key === ' ' || e.key === 'Enter') release()
-          }}
-          onContextMenu={(e) => {
-            e.preventDefault()
-          }}
-        >
-          Compare
-        </button>
-      </div>
-      {(showPanel || sheetOpen) && (
-        <div className="editor-sheet" data-testid="sheet">
-          {showPanel ? (
-            <StickerPanel {...panel} />
-          ) : tool === 'lasso' ? (
-            <LassoSheet
-              isOpen={lasso.open !== null}
-              busy={lasso.open?.busy ?? false}
-              closing={lasso.closing}
-              hasRings={selection.rings.length > 0}
-              mode={lasso.mode}
-              onMode={lasso.setMode}
-              snapOn={lasso.snapOn}
-              onSnap={lasso.setSnapOn}
-              smoothing={lasso.smoothing}
-              onSmoothing={lasso.setSmoothing}
-              onFinish={lasso.finish}
-              onDiscard={lasso.discard}
-            />
-          ) : tool === 'brush' ? (
-            brush && (
-              <BrushSheet
-                mode={brushMode}
-                onMode={setBrushMode}
-                sizePx={brush.sizePx}
-                onSize={(px) => {
-                  if (photo) setBrushSize({ photoId: photo.id, px })
-                }}
-                hardness={hardness}
-                onHardness={setHardness}
-              />
-            )
-          ) : tool === 'dots' ? (
-            <DotsSheet
-              hasRings={selection.rings.length > 0}
-              fine={fine}
-              onFine={setFine}
-              onShape={addShape}
-              canNudge={selectedDots.length > 0}
-              onNudge={(dx, dy) => {
-                edit(
-                  {
-                    type: 'nudge',
-                    refs: selectedDots,
-                    delta: { x: dx, y: dy },
-                  },
-                  selectedDots,
-                )
+          <button
+            type="button"
+            disabled={lassoUndo || !session.canRedo}
+            onClick={() => {
+              session.redo()
+            }}
+          >
+            Redo
+          </button>
+          {state?.hasAutoResult && (
+            <button
+              type="button"
+              disabled={selection === state.autoResultSelection}
+              onClick={() => {
+                session.resetToAuto()
               }}
-              onDensityStart={() => {
-                density.current = {
-                  start: selection,
-                  want: 0,
-                  released: false,
-                  busy: false,
-                }
-              }}
-              onDensity={(s) => {
-                const d = density.current
-                if (!d) return
-                d.want = s
-                computeDensity(d)
-              }}
-              onDensityEnd={(s) => {
-                const d = density.current
-                if (!d) return
-                d.want = s
-                d.released = true
-                computeDensity(d)
-              }}
-            />
-          ) : (
-            <ToolSheet
-              tool={tool}
-              viewMode={viewMode}
-              onViewMode={setViewMode}
-            />
+            >
+              Reset to auto
+            </button>
           )}
+          <button
+            type="button"
+            disabled={!photo}
+            onPointerDown={() => {
+              setComparing(true)
+            }}
+            onPointerUp={release}
+            onPointerCancel={release}
+            onPointerLeave={release}
+            onBlur={release}
+            onKeyDown={(e) => {
+              if (e.key !== ' ' && e.key !== 'Enter') return
+              e.preventDefault()
+              if (!e.repeat) setComparing(true)
+            }}
+            onKeyUp={(e) => {
+              if (e.key === ' ' || e.key === 'Enter') release()
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault()
+            }}
+          >
+            Compare
+          </button>
         </div>
+        {(showPanel || sheetOpen) && (
+          <div className="editor-sheet" data-testid="sheet">
+            {showPanel ? (
+              <StickerPanel {...panel} />
+            ) : tool === 'lasso' ? (
+              <LassoSheet
+                isOpen={lasso.open !== null}
+                busy={lasso.open?.busy ?? false}
+                closing={lasso.closing}
+                hasRings={selection.rings.length > 0}
+                mode={lasso.mode}
+                onMode={lasso.setMode}
+                snapOn={lasso.snapOn}
+                onSnap={lasso.setSnapOn}
+                smoothing={lasso.smoothing}
+                onSmoothing={lasso.setSmoothing}
+                onFinish={lasso.finish}
+                onDiscard={lasso.discard}
+              />
+            ) : tool === 'brush' ? (
+              brush && (
+                <BrushSheet
+                  mode={brushMode}
+                  onMode={setBrushMode}
+                  sizePx={brush.sizePx}
+                  onSize={(px) => {
+                    if (photo) setBrushSize({ photoId: photo.id, px })
+                  }}
+                  hardness={hardness}
+                  onHardness={setHardness}
+                />
+              )
+            ) : tool === 'dots' ? (
+              <DotsSheet
+                hasRings={selection.rings.length > 0}
+                fine={fine}
+                onFine={setFine}
+                onShape={addShape}
+                canNudge={selectedDots.length > 0}
+                onNudge={(dx, dy) => {
+                  edit(
+                    {
+                      type: 'nudge',
+                      refs: selectedDots,
+                      delta: { x: dx, y: dy },
+                    },
+                    selectedDots,
+                  )
+                }}
+                onDensityStart={() => {
+                  density.current = {
+                    start: selection,
+                    want: 0,
+                    released: false,
+                    busy: false,
+                  }
+                }}
+                onDensity={(s) => {
+                  const d = density.current
+                  if (!d) return
+                  d.want = s
+                  computeDensity(d)
+                }}
+                onDensityEnd={(s) => {
+                  const d = density.current
+                  if (!d) return
+                  d.want = s
+                  d.released = true
+                  computeDensity(d)
+                }}
+              />
+            ) : (
+              <ToolSheet
+                tool={tool}
+                viewMode={viewMode}
+                onViewMode={setViewMode}
+              />
+            )}
+          </div>
+        )}
+        <Toolbar tool={tool} disabled={!photo} onTool={chooseTool} />
+      </section>
+      {finishing && photo && (
+        <FinishFlow
+          renderer={session.renderer}
+          photoId={photo.id}
+          selection={selection}
+          settings={finish}
+          onSettings={setFinish}
+          onFeather={(px) => {
+            edit({ type: 'setFeather', px }, [])
+          }}
+          save={{
+            label: panel?.saved ? 'Saved' : 'Save',
+            disabled: !panel || !panel.canSave || panel.disabled,
+            onSave: () => {
+              panel?.onSave()
+            },
+          }}
+          onBack={() => {
+            setFinishing(false)
+          }}
+          guideOpen={guideOpen}
+        />
       )}
-      <Toolbar tool={tool} disabled={!photo} onTool={chooseTool} />
-    </section>
+    </>
   )
 }

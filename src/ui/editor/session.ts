@@ -5,6 +5,11 @@ import type { Tap } from '../../core/segmentation'
 import { emptySelection } from '../../core/selection/model'
 import type { Point } from '../../core/geometry/types'
 import type { Command, Selection } from '../../core/selection/types'
+import {
+  DEFAULT_FINISH,
+  readFinish,
+  type FinishSettings,
+} from '../../core/sticker'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { createAutoCutout, type AutoState } from '../../services/segmentation'
 import type { Cancelled } from '../../services/workerClient'
@@ -39,6 +44,18 @@ export interface Renderer {
   fitRing(
     path: Point[],
     tolerancePx: number,
+  ): Promise<FromRenderWorker | Cancelled>
+  /** The output file at full resolution (spec 0012), made in the worker. */
+  finish(
+    imageId: string,
+    selection: Selection,
+    settings: FinishSettings,
+  ): Promise<FromRenderWorker | Cancelled>
+  /** The preview's file; its own newest-wins queue, so it never cancels `finish` (AC-9). */
+  finishPreview(
+    imageId: string,
+    selection: Selection,
+    settings: FinishSettings,
   ): Promise<FromRenderWorker | Cancelled>
 }
 
@@ -115,6 +132,8 @@ export function createSession(deps: SessionDeps) {
   let sentAlpha: AlphaMask | null = null
   /** The saved sticker this photo belongs to, if any (spec 0008 AC-9). */
   let sticker: StickerRef | null = null
+  /** The Finish settings (spec 0012): kept for a new photo, the sticker's own on reopen (Decision 8). */
+  let finish: FinishSettings = DEFAULT_FINISH
   const auto = createAutoCutout({
     ...deps.engines,
     history,
@@ -209,7 +228,12 @@ export function createSession(deps: SessionDeps) {
         modelAlpha:
           sel.softEdge?.source === 'model' ? (alphas.get(sel) ?? null) : null,
         sticker,
+        finish,
       }
+    },
+    /** The Finish screen's settings, saved with the next save (spec 0012 AC-11). */
+    setFinish(settings: FinishSettings) {
+      finish = settings
     },
     saved(photoId: string, ref: StickerRef) {
       if (photo?.id === photoId) sticker = ref
@@ -220,14 +244,16 @@ export function createSession(deps: SessionDeps) {
     /**
      * Shows a saved sticker: its photo, then its selection as one undoable
      * step (spec 0008 AC-9). The model alpha is used only when the photo
-     * loads at the saved size; otherwise a model soft edge is dropped.
+     * loads at the saved size; otherwise a model soft edge is dropped. The
+     * sticker's Finish settings come back, or the defaults for one saved
+     * before spec 0012 (AC-11).
      */
     async reopen(
       record: StickerRecord,
       loaded: LoadedPhoto,
       modelAlpha: AlphaMask | null,
       saved: Selection,
-    ): Promise<Photo> {
+    ): Promise<{ photo: Photo; finish: FinishSettings }> {
       const shown = await show(loaded, modelAlpha)
       const restored = history.execute({ type: 'restore', selection: saved })
       if (modelAlpha) alphas.set(restored, modelAlpha)
@@ -237,7 +263,8 @@ export function createSession(deps: SessionDeps) {
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
       }
-      return shown
+      finish = readFinish(record.finish)
+      return { photo: shown, finish }
     },
     /** Loads `file`; if it can't be decoded, rejects before anything changes (AC-3). */
     async pick(file: File): Promise<Photo> {

@@ -1,0 +1,156 @@
+/* The Finish screen (spec 0012 AC-8, AC-20): over the editor, which stays
+   mounted underneath. The preview takes the space above the controls, at
+   least 40% of the height; the controls scroll when they don't fit. */
+.finish {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  box-sizing: border-box;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* Every control is at least 44 × 44 CSS px, as in the editor. */
+:where(.finish) button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+:where(.finish) button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.finish-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.finish-title {
+  margin: 0 auto;
+  font-size: 1.125rem;
+}
+
+/* The output on 8 CSS px checks (AC-8), fitted to the space. */
+.finish-preview {
+  flex: 1 1 40%;
+  min-height: 40dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  box-sizing: border-box;
+  background-color: var(--check-light, #ffffff);
+  background-image: conic-gradient(
+    var(--check-dark, #d9d9de) 25%,
+    transparent 0 50%,
+    var(--check-dark, #d9d9de) 0 75%,
+    transparent 0
+  );
+  background-size: 16px 16px;
+}
+
+.finish-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.finish-controls {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.75rem 1rem 1rem;
+}
+
+.finish-file {
+  margin: 0;
+  min-height: 1.5em;
+  font-variant-numeric: tabular-nums;
+}
+
+.finish-file[role='alert'] {
+  color: var(--error-fg);
+}
+
+.finish-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.finish-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+}
+
+.finish-choice label,
+.finish-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 44px;
+}
+
+.finish-choice input,
+.finish-switch input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.finish-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.finish-slider input {
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.finish-slider input:disabled,
+.finish-choice input:disabled {
+  opacity: 0.45;
+}
+
+/* Share, Copy, Download (AC-13), in that order, full width on a phone. */
+.finish-action-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.finish-action-buttons button {
+  flex: 1 1 0;
+}
+
+.finish-action-message {
+  margin: 0;
+  min-height: 1.25em;
+  color: var(--muted);
+}

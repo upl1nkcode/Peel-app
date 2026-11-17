@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cropRgba, trimBounds } from './trim'
+import { cropAlpha, cropRgba, trimBounds } from './trim'
 import { EmptyMaskError, type AlphaMask, type RgbaImage } from './types'
 
 function mask(
@@ -78,5 +78,20 @@ describe('cropRgba', () => {
       0,
       0, // row 1
     ])
+  })
+})
+
+describe('cropAlpha', () => {
+  it('should_crop_a_mask_inside_its_bounds (spec 0012 Review Focus 2)', () => {
+    const mask: AlphaMask = {
+      width: 4,
+      height: 3,
+      data: Uint8Array.from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
+    }
+    expect(cropAlpha(mask, { minX: 1, minY: 1, maxX: 3, maxY: 3 })).toEqual({
+      width: 2,
+      height: 2,
+      data: Uint8Array.from([5, 6, 9, 10]),
+    })
   })
 })

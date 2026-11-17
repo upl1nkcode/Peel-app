@@ -4,12 +4,37 @@ import { renderMask } from '../core/mask/render'
 import type { Selection } from '../core/selection/types'
 import { blurredModel, discScene } from '../test/sceneFixtures'
 import type { FromRenderWorker } from './protocol'
-import { createRenderHandler } from './renderHandler'
+import {
+  createRenderHandler as createAsyncRenderHandler,
+  type RenderDeps,
+} from './renderHandler'
+import { storedDeflate } from '../core/png/zlib'
+import { decodePng } from '../test/png'
+import { cropRgba, trimBounds } from '../core/mask/trim'
+import { applyMask } from '../core/mask/cutout'
+import type { RgbaImage } from '../core/mask/types'
+import {
+  DEFAULT_FINISH,
+  finishImage,
+  TooLargeError,
+  type FinishSettings,
+} from '../core/sticker'
+import { EncoderUnavailableError } from '../services/webp'
 import { newestWins } from './newestWins'
 import { applyCommand } from '../core/selection/commands'
 import type { Node } from '../core/geometry/types'
 import { InvalidLassoError } from '../core/geometry/lasso'
 import { fitRing } from '../core/selection/density'
+
+/** The handler for jobs that reply at once (all but `finish`). */
+function createRenderHandler(deps?: RenderDeps) {
+  const handle = createAsyncRenderHandler(deps)
+  return (msg: Parameters<typeof handle>[0]) => {
+    const reply = handle(msg)
+    if (reply instanceof Promise) throw new Error('unexpected async reply')
+    return reply
+  }
+}
 
 function rendered(reply: { message: FromRenderWorker } | undefined) {
   if (reply?.message.type !== 'rendered') {
@@ -326,5 +351,150 @@ describe('render worker handler', () => {
         }),
       ).toThrow(InvalidLassoError)
     })
+  })
+})
+
+describe('render worker finish jobs (spec 0012)', () => {
+  /** A 40 × 20 photo of position colours; the ring covers x 8..28, y 4..16. */
+  function photo(): RgbaImage {
+    const data = new Uint8Array(40 * 20 * 4)
+    for (let k = 0; k < 800; k++) {
+      data.set([(k * 7) & 255, (k * 3) & 255, 90, 255], k * 4)
+    }
+    return { width: 40, height: 20, data }
+  }
+  const corner = (x: number, y: number): Node => ({ x, y, kind: 'corner' })
+  const square: Selection = {
+    rings: [
+      {
+        op: 'add',
+        nodes: [corner(8, 4), corner(28, 4), corner(28, 16), corner(8, 16)],
+      },
+    ],
+    strokes: [],
+    feather: 0,
+  }
+  const settings = (patch: Partial<FinishSettings> = {}): FinishSettings => ({
+    ...DEFAULT_FINISH,
+    ...patch,
+  })
+
+  function setup(deps: RenderDeps = {}) {
+    const handle = createAsyncRenderHandler({ deflate: storedDeflate, ...deps })
+    void handle({ type: 'setImage', imageId: 'a', image: photo() })
+    const finish = async (
+      jobId: number,
+      selection: Selection,
+      s: FinishSettings,
+    ) =>
+      await handle({
+        type: 'finish',
+        jobId,
+        imageId: 'a',
+        selection,
+        settings: s,
+      })
+    return { handle, finish }
+  }
+
+  it('should_finish_a_sticker_png (AC-2)', async () => {
+    const { finish } = setup()
+    const reply = await finish(1, square, settings({ paddingPct: 10 }))
+    const msg = reply?.message
+    if (msg?.type !== 'finished') throw new Error(JSON.stringify(msg))
+    const mask = renderMask(square, { width: 40, height: 20 })
+    const expected = finishImage(
+      cropRgba(applyMask(photo(), mask), trimBounds(mask, 0)),
+      settings({ paddingPct: 10 }),
+    )
+    expect(msg.jobId).toBe(1)
+    expect(msg.mime).toBe('image/png')
+    expect([msg.width, msg.height]).toEqual([expected.width, expected.height])
+    expect(decodePng(msg.bytes)).toEqual(expected)
+    expect(reply?.transfer).toEqual([msg.bytes.buffer])
+  })
+
+  it('should_report_an_empty_cutout (Review Focus 3)', async () => {
+    const { finish } = setup()
+    const onlySubtract: Selection = {
+      ...square,
+      rings: [{ op: 'subtract', nodes: square.rings[0]?.nodes ?? [] }],
+    }
+    const reply = await finish(2, onlySubtract, settings())
+    expect(reply?.message).toEqual({
+      type: 'finishFailed',
+      jobId: 2,
+      reason: 'empty',
+    })
+  })
+
+  it('should_report_too_large_and_unavailable (AC-5, AC-6)', async () => {
+    const big = setup({
+      loadWebp: () =>
+        Promise.resolve(() => Promise.resolve(new Uint8Array(200_000))),
+    })
+    expect(
+      (await big.finish(3, square, settings({ output: 'whatsapp' })))?.message,
+    ).toEqual({ type: 'finishFailed', jobId: 3, reason: 'tooLarge' })
+    const offline = setup({
+      loadWebp: () => Promise.reject(new EncoderUnavailableError()),
+    })
+    expect(
+      (await offline.finish(4, square, settings({ output: 'whatsapp' })))
+        ?.message,
+    ).toEqual({ type: 'finishFailed', jobId: 4, reason: 'encoderUnavailable' })
+    expect(new TooLargeError()).toBeInstanceOf(Error)
+  })
+
+  it('should_encode_whatsapp_as_webp_at_512 (AC-4)', async () => {
+    const qualities: number[] = []
+    const { finish } = setup({
+      loadWebp: () =>
+        Promise.resolve((image: RgbaImage, quality: number) => {
+          qualities.push(quality)
+          return Promise.resolve(new Uint8Array([image.width & 255, quality]))
+        }),
+    })
+    const msg = (await finish(5, square, settings({ output: 'whatsapp' })))
+      ?.message
+    expect(msg).toMatchObject({
+      type: 'finished',
+      jobId: 5,
+      mime: 'image/webp',
+      width: 512,
+      height: 512,
+    })
+    expect(qualities).toEqual([90])
+  })
+
+  it('should_render_the_mask_once_for_settings_changes (AC-7)', async () => {
+    let renders = 0
+    const { handle, finish } = setup({
+      render: (...args) => {
+        renders++
+        return renderMask(...args)
+      },
+    })
+    for (const paddingPct of [0, 5, 10]) {
+      await finish(10 + paddingPct, square, settings({ paddingPct }))
+    }
+    expect(renders).toBe(1)
+    await finish(30, { ...square, feather: 1 }, settings())
+    expect(renders).toBe(2)
+    void handle({ type: 'setImage', imageId: 'a', image: photo() })
+    await finish(31, { ...square, feather: 1 }, settings())
+    expect(renders).toBe(3)
+  })
+
+  it('should_preview_with_its_own_job_type (AC-9)', async () => {
+    const { handle } = setup()
+    const reply = await handle({
+      type: 'finishPreview',
+      jobId: 40,
+      imageId: 'a',
+      selection: square,
+      settings: settings(),
+    })
+    expect(reply?.message).toMatchObject({ type: 'finished', jobId: 40 })
   })
 })

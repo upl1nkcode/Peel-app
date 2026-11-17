@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Selection } from '../core/selection/types'
+import { DEFAULT_FINISH } from '../core/sticker'
 import {
   createWorkerClient,
   liveWireWorkerClient,
@@ -138,5 +139,42 @@ describe('worker client', () => {
     const nodes = path.map((p) => ({ ...p, kind: 'smooth' as const }))
     reply({ type: 'fitted', jobId: 2, nodes })
     expect(await newer).toEqual({ type: 'fitted', jobId: 2, nodes })
+  })
+
+  it('should_keep_finish_and_preview_apart (spec 0012 AC-9)', async () => {
+    const { port, sent, reply } = fakePort()
+    const client = renderWorkerClient(port)
+    const file = client.finish('a', selection, DEFAULT_FINISH)
+    const preview1 = client.finishPreview('a', selection, DEFAULT_FINISH)
+    const preview2 = client.finishPreview('a', selection, DEFAULT_FINISH)
+    expect(sent.map((s) => s.message)).toEqual([
+      {
+        type: 'finish',
+        imageId: 'a',
+        selection,
+        settings: DEFAULT_FINISH,
+        jobId: 1,
+      },
+      {
+        type: 'finishPreview',
+        imageId: 'a',
+        selection,
+        settings: DEFAULT_FINISH,
+        jobId: 2,
+      },
+      {
+        type: 'finishPreview',
+        imageId: 'a',
+        selection,
+        settings: DEFAULT_FINISH,
+        jobId: 3,
+      },
+    ])
+    expect(await preview1).toEqual({ type: 'cancelled' })
+    const done = { type: 'finishFailed', jobId: 1, reason: 'empty' }
+    reply(done)
+    expect(await file).toEqual(done)
+    reply({ ...done, jobId: 3 })
+    expect(await preview2).toEqual({ ...done, jobId: 3 })
   })
 })

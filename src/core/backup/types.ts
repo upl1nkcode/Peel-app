@@ -1,4 +1,5 @@
 import type { Size } from '../geometry/types'
+import type { FinishSettings } from '../sticker/specs'
 
 /** A saved sticker (spec 0008 Contract), as stored and as backed up. */
 export interface StickerRecord {
@@ -19,4 +20,6 @@ export interface StickerRecord {
   sticker: Uint8Array
   /** At most 256 px on the long side (spec 0008 AC-7). */
   thumbnail: Uint8Array
+  /** The Finish settings (spec 0012 AC-11); none before spec 0012, read as the defaults. */
+  finish?: FinishSettings
 }

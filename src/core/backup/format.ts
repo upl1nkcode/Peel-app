@@ -1,4 +1,5 @@
 import { parseSelection } from '../selection/serialize'
+import { readFinish, type FinishSettings } from '../sticker/specs'
 import { utf8Decode, utf8Encode, type Inflate, type ZipEntry } from '../zip'
 import type { StickerRecord } from './types'
 
@@ -56,6 +57,8 @@ export interface ManifestSticker {
   imageSize: { width: number; height: number }
   photoType: string
   modelAlpha?: { width: number; height: number }
+  /** Spec 0012; older Peels ignore it, older backups lack it. */
+  finish?: FinishSettings
   files: FileNames
 }
 
@@ -95,6 +98,7 @@ export function stickerEntries(s: StickerRecord): {
       ...(s.modelAlpha && {
         modelAlpha: { width: s.modelAlpha.width, height: s.modelAlpha.height },
       }),
+      ...(s.finish && { finish: readFinish(s.finish) }),
       files: names,
     },
   }
@@ -283,6 +287,8 @@ async function readSticker(
     sticker,
     thumbnail,
   }
+  // A bad `finish` is repaired, never a reason to drop the sticker (spec 0012 Data).
+  if (meta.finish !== undefined) record.finish = readFinish(meta.finish)
   if (hasAlpha) {
     const size = meta.modelAlpha
     const deflated = file(names.modelAlpha)

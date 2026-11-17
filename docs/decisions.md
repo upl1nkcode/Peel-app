@@ -161,3 +161,19 @@ The product owner skipped the questions (2026-11-08), so decisions 1–11 are Cl
 - **A brush tap or a still press paints one dab; a second finger or a tool change drops the stroke.** Strokes aren't clamped to the photo (the mask clips them, spec 0004). While painting, the stroke shows as a translucent band (red for Erase, green for Restore) and the cutout previews it, one render at a time.
 - **The toolbar is Auto · Lasso · Dots · Brush · View.** "Use Lasso" shows only in Auto and opens the Lasso tool, which also fixes it covering the photo in other tools (story #65).
 - **Lasso and brush options aren't remembered after a reload.**
+
+## Finish and export decisions (spec 0012)
+
+The product owner chose the WebP encoder on 2026-11-16 (decision 1 below); the rest are Claude's calls, listed in the spec for checking.
+
+- **WhatsApp-style WebP is made by libwebp in WebAssembly (`@jsquash/webp`, Apache-2.0) on every browser**, because Safari can't encode WebP from a canvas. Its script and wasm load the first time WhatsApp-style is made, never in the initial bundle and not in the service worker's precache (offline caching is #89). Workers are built as ES modules so the encoder is its own chunk.
+- **"Done" in the top bar opens the Finish screen** over the editor, which stays mounted (and inert) underneath, so "Back" finds it as it was. It's enabled when the selection has a ring.
+- **Outline width and padding are a share of the cutout's long side**, so the sticker looks the same in all three outputs. Outline off by default, white or black, 1–6% (default 3%); padding 0–20%.
+- **Outputs:** Sticker is a PNG whose long side, outline and padding included, is at most 1024 px (outline and padding are whole pixels, so it can land 1–2 px under); Original is the full size; WhatsApp-style is the Sticker output fitted in 480 × 480 (never enlarged) on a 512 × 512 WebP, encoded at quality 90 down to 40 until it is at most 100 KB, alpha at full quality.
+- **Edge softness is the selection's feather**, applied with `setFeather` when the slider is let go, so Undo in the editor undoes it.
+- **The file is made before the tap**, in the render worker, when the Finish screen opens and after each change (at most one request per 150 ms while dragging; the newest result wins). Share, Copy and Download wait for the file of the settings on screen, so a stale file is never shared or downloaded.
+- **Copy is for PNG outputs only**, where `ClipboardItem` takes PNG. Share shows only where `canShare` accepts a real one-pixel file of the output's type. Download always shows.
+- **The saved sticker and its thumbnail stay plain**; the Finish settings are saved beside them, in the store and the backup manifest. Bad or out-of-range values read as that field's default, and never drop a sticker.
+- **A new photo keeps the current Finish settings; a reopened sticker uses its own**; a reload gives the defaults.
+- **The "Add to Stickers" guide shows on iPhone and iPad only** (a Mac user agent with touch counts as an iPad), open on the first Finish screen of a session. Without Web Share, its steps go through Download.
+- **`addOutline`'s distance field is `Float32Array`**, halving its memory on a 12 MP Original; golden hashes prove the output is unchanged.

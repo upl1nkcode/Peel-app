@@ -268,4 +268,37 @@ describe('backup format', () => {
       false,
     )
   })
+
+  it('should_back_up_and_import_the_finish (spec 0012 AC-11, Data)', async () => {
+    const finish = {
+      output: 'whatsapp' as const,
+      outline: { on: true, widthPct: 4.5, color: 'black' as const },
+      paddingPct: 7,
+    }
+    const withFinish = { ...(await record('f1')), finish }
+    const plain = await record('p2')
+    const files = asMap(backupEntries([withFinish, plain], when))
+    expect(manifestOf(files).stickers[0]?.finish).toEqual(finish)
+    expect(manifestOf(files).stickers[1]).not.toHaveProperty('finish')
+    const out = await parseBackup(files, [], testInflate)
+    expect(out.stickers).toEqual([withFinish, plain])
+    expect(out.stickers[1]).not.toHaveProperty('finish')
+  })
+
+  it('should_repair_a_bad_finish_without_losing_the_sticker (spec 0012 Data)', async () => {
+    const files = withManifest(
+      asMap(backupEntries([await record('f1')], when)),
+      (m) => {
+        const line = m.stickers[0] as Record<string, unknown>
+        line.finish = { output: 'gif', outline: 'x', paddingPct: 99 }
+      },
+    )
+    const out = await parseBackup(files, [], testInflate)
+    expect(out.damaged).toBe(0)
+    expect(out.stickers[0]?.finish).toEqual({
+      output: 'sticker',
+      outline: { on: false, widthPct: 3, color: 'white' },
+      paddingPct: 0,
+    })
+  })
 })

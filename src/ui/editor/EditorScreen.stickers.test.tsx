@@ -80,6 +80,8 @@ function fakeRenderer(log: RenderLog) {
     },
     resimplify: () => Promise.resolve({ type: 'cancelled' as const }),
     fitRing: () => Promise.resolve({ type: 'cancelled' as const }),
+    finish: () => Promise.resolve({ type: 'cancelled' as const }),
+    finishPreview: () => Promise.resolve({ type: 'cancelled' as const }),
     renderFull: async (id, selection, alpha) => {
       log.renderFull.push(selection)
       log.fullAlphas?.push(alpha)
