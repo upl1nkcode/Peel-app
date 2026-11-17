@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { createRef } from 'react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RgbaImage } from '../../core/mask'
 import type { Tap } from '../../core/segmentation'
@@ -12,7 +13,7 @@ import {
   type SegmentationEngine,
 } from '../../services/segmentation'
 import { PhotoUnreadableError } from '../../services/photo'
-import { EditorScreen, type Renderer } from './EditorScreen'
+import { EditorScreen, type EditorHandle, type Renderer } from './EditorScreen'
 import type { Snapper } from './session'
 
 const PHOTO: RgbaImage = {
@@ -102,6 +103,18 @@ const fakeRenderer = (): Renderer => ({
   },
 })
 
+/** The mounted editor's handle; photos open through it (spec 0013). */
+const handle = createRef<EditorHandle>()
+
+/** Opens `file` as the Library's + does; resolves to its error, or null. */
+async function openFile(file: File) {
+  let error: string | null = null
+  await act(async () => {
+    error = (await handle.current?.openFile(file)) ?? null
+  })
+  return error
+}
+
 function mount(
   fast: SegmentationEngine,
   precise: SegmentationEngine,
@@ -117,6 +130,7 @@ function mount(
       createSnapper={fakeSnapper}
       loadPhoto={(file) => Promise.resolve(loaded(file))}
       now={() => clock.t}
+      handle={handle}
     />,
   )
 }
@@ -124,9 +138,7 @@ function mount(
 /** Picks a photo and waits for it; the canvas is 200×100 CSS px at (10, 20). */
 async function choose() {
   const before = screen.queryByTestId('photo')
-  fireEvent.change(screen.getByLabelText('Pick a photo'), {
-    target: { files: [new File(['x'], 'photo.png', { type: 'image/png' })] },
-  })
+  await openFile(new File(['x'], 'photo.png', { type: 'image/png' }))
   await waitFor(() => {
     const now = screen.queryByTestId('photo')
     expect(now).not.toBeNull()
@@ -247,9 +259,7 @@ describe('EditorScreen', () => {
     )
     press(canvas, clock, { x: 110, y: 70 }, 50)
     const before = screen.getByTestId('photo')
-    fireEvent.change(screen.getByLabelText('Pick a photo'), {
-      target: { files: [new File(['y'], 'next.png', { type: 'image/png' })] },
-    })
+    await openFile(new File(['y'], 'next.png', { type: 'image/png' }))
     await waitFor(() => {
       expect(screen.getByTestId('photo')).not.toBe(before)
     })
@@ -324,28 +334,23 @@ describe('EditorScreen', () => {
             ? Promise.reject(new PhotoUnreadableError())
             : Promise.resolve(loaded(file))
         }
+        handle={handle}
       />,
     )
-    const input = screen.getByLabelText('Pick a photo')
     const file = new File(['x'], 'photo.png', { type: 'image/png' })
-    fireEvent.change(input, { target: { files: [file] } })
+    expect(await openFile(file)).toBeNull()
     await screen.findByTestId('photo')
     const stage = screen.getByTestId('canvas')
     expect(stage.getAttribute('data-image-size')).toBe('100x50')
 
+    // The Library shows the error (spec 0013 AC-3); the editor keeps its photo.
     fail = true
-    fireEvent.change(input, { target: { files: [file] } })
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      "This photo can't be opened. Try a JPEG or PNG.",
-    )
+    expect(await openFile(file)).toBe('photo.unreadable')
     expect(stage.getAttribute('data-image-size')).toBe('100x50')
     expect(screen.getByTestId('photo')).toBeInTheDocument()
 
     fail = false
-    fireEvent.change(input, { target: { files: [file] } })
-    await waitFor(() => {
-      expect(screen.queryByRole('alert')).toBeNull()
-    })
+    expect(await openFile(file)).toBeNull()
   })
 
   it('should_enable_undo_and_redo_only_when_possible (spec 0009 AC-19)', async () => {
@@ -496,12 +501,10 @@ describe('EditorScreen', () => {
   it('should_disable_tools_until_a_photo_is_picked (spec 0009 AC-24)', async () => {
     const { fast, precise } = fastOnly()
     mount(fast, precise, { t: 0 })
-    expect(button('Pick a photo')).toBeEnabled()
     for (const name of ['Auto', 'View', 'Undo', 'Redo', 'Compare']) {
       expect(button(name)).toBeDisabled()
     }
     await choose()
-    expect(screen.queryByRole('button', { name: 'Pick a photo' })).toBeNull()
     for (const name of ['Auto', 'View', 'Compare']) {
       expect(button(name)).toBeEnabled()
     }

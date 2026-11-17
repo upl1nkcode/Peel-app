@@ -127,8 +127,10 @@ export function useShareFiles(
   }, [store, update])
 
   useEffect(() => {
-    tickedRef.current = ticked
-    if (ticked.length === 0) {
+    // Without file sharing nothing is prepared (and no worker starts).
+    const active = typeof nav?.share === 'function'
+    tickedRef.current = active ? ticked : []
+    if (!active || ticked.length === 0) {
       if (renderer.current) {
         renderer.current.terminate()
         renderer.current = null
@@ -153,7 +155,7 @@ export function useShareFiles(
     }
     renderer.current ??= createRenderer()
     void pump()
-  }, [ticked, createRenderer, pump, update])
+  }, [ticked, nav, createRenderer, pump, update])
 
   useEffect(
     () => () => {

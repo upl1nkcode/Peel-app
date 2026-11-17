@@ -19,6 +19,7 @@ const FIREFOX =
 function menuProps(over: Partial<MoreMenuProps> = {}): MoreMenuProps {
   return {
     canExportAll: true,
+    canImport: true,
     onExportAll: vi.fn(),
     onImport: vi.fn(),
     choice: 'auto',

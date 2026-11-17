@@ -220,7 +220,7 @@ test('should_fit_the_screen_with_44_px_targets (AC-21, AC-22)', async ({
   })
   expect(fits.scrollHeight).toBeLessThanOrEqual(fits.innerHeight)
   expect(fits.scrollWidth).toBeLessThanOrEqual(fits.innerWidth)
-  for (const sheet of ['Auto', 'View', 'Stickers']) {
+  for (const sheet of ['Auto', 'View', 'Dots']) {
     await page.getByRole('button', { name: sheet }).click()
     const targets = page
       .getByTestId('editor')

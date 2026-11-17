@@ -6,6 +6,8 @@ import type { InstallOffer } from './installOffer'
 export interface MoreMenuProps {
   /** There's at least one sticker to export. */
   canExportAll: boolean
+  /** The sticker store is open and usable. */
+  canImport: boolean
   onExportAll: () => void
   onImport: (file: File) => void
   choice: LangChoice
@@ -104,6 +106,7 @@ export function MoreMenu(props: MoreMenuProps) {
           <button
             type="button"
             role="menuitem"
+            disabled={!props.canImport}
             onClick={() => {
               close()
               fileRef.current?.click()
@@ -170,6 +173,7 @@ export function MoreMenu(props: MoreMenuProps) {
         type="file"
         accept=".zip,application/zip"
         aria-label={t('menu.import')}
+        disabled={!props.canImport}
         tabIndex={-1}
         onChange={(e) => {
           const file = e.currentTarget.files?.[0]

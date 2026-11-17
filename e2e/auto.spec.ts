@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { inflateRawSync } from 'node:zlib'
 import { expect, test, type Page } from './helpers/test'
 import { readZip, utf8Decode } from '../src/core/zip'
-import { imageToClient, openStickers } from './helpers/editor'
+import { exportAllFromMenu, imageToClient, toLibrary } from './helpers/editor'
 
 /**
  * Auto cutout with the real MediaPipe models (spec 0007 AC-18, AC-20 to
@@ -256,14 +256,15 @@ test.describe('auto cutout with the real models', () => {
   }) => {
     /** Saves the cutout on screen, then exports; returns the backup's files. */
     const saveAndExport = async () => {
-      await openStickers(page)
-      await page.getByRole('button', { name: 'Save', exact: true }).click()
+      await page
+        .getByTestId('editor')
+        .getByRole('button', { name: /^Save(d)?$/ })
+        .click()
       await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible({
         timeout: 60_000,
       })
-      const downloading = page.waitForEvent('download')
-      await page.getByRole('button', { name: 'Export all' }).click()
-      const zip = readFileSync(await (await downloading).path())
+      await toLibrary(page)
+      const zip = readFileSync(await (await exportAllFromMenu(page)).path())
       const { files } = await readZip(new Uint8Array(zip), (d) =>
         Promise.resolve(new Uint8Array(inflateRawSync(d))),
       )
@@ -285,11 +286,11 @@ test.describe('auto cutout with the real models', () => {
     expect(first.file('model-alpha.bin')).toBeDefined()
 
     await page.reload()
-    await openStickers(page)
     await page.getByRole('button', { name: 'Open sticker' }).click()
-    await expect(
-      page.getByRole('button', { name: 'Save', exact: true }),
-    ).toBeEnabled({ timeout: 60_000 })
+    // A reopened sticker is saved as it is (spec 0013 AC-4); Saved saves again.
+    await expect(page.getByRole('button', { name: 'Saved' })).toBeEnabled({
+      timeout: 60_000,
+    })
     const second = sticker(await saveAndExport())
 
     expect(second.meta.id).toBe(first.meta.id)

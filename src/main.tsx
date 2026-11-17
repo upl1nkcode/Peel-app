@@ -7,16 +7,15 @@ import { watchForUpdate } from './services/update'
 import './index.css'
 
 // Both start before the first render: Chrome fires `beforeinstallprompt`
-// early, and the service worker registers at once (spec 0013). The Library
-// shows them (Task 9 of plan 0013 passes them to <App>).
-captureInstallPrompt(window)
-watchForUpdate(registerSW)
+// early, and the service worker registers at once (spec 0013).
+const install = captureInstallPrompt(window)
+const update = watchForUpdate(registerSW)
 
 const root = document.getElementById('root')
 if (!root) throw new Error('Root element #root not found')
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <App install={install} update={update} />
   </StrictMode>,
 )

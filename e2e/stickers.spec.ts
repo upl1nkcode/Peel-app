@@ -3,8 +3,8 @@ import { inflateRawSync } from 'node:zlib'
 import { expect, test, type Page } from './helpers/test'
 import { readZip, utf8Decode } from '../src/core/zip'
 import {
+  exportAllFromMenu,
   importFile,
-  openStickers,
   SEED_PHOTO as PHOTO,
   seedBackup,
 } from './helpers/editor'
@@ -29,7 +29,7 @@ test('should_keep_stickers_after_reload (AC-5, AC-8)', async ({ page }) => {
   ).toBeVisible()
   await expect(thumbnails(page)).toHaveCount(1)
   await page.reload()
-  await openStickers(page)
+  // The Library is home (spec 0013 AC-1).
   await expect(thumbnails(page)).toHaveCount(1)
 })
 
@@ -39,9 +39,7 @@ test('should_round_trip_a_backup (AC-4, AC-15, AC-16)', async ({ page }) => {
   await importFile(page, seed)
   await expect(thumbnails(page)).toHaveCount(1)
 
-  const downloading = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export all' }).click()
-  const download = await downloading
+  const download = await exportAllFromMenu(page)
   expect(download.suggestedFilename()).toMatch(
     /^peel-stickers-\d{4}-\d{2}-\d{2}\.zip$/,
   )
