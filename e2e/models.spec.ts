@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './helpers/test'
 
 interface ModelFile {
   path: string

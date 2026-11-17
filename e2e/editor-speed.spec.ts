@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './helpers/test'
 import { VIEW_MODES } from '../src/core/editor'
 import { en } from '../src/ui/i18n/en'
 import {

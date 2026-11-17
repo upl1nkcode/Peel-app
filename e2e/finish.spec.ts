@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './helpers/test'
 import { canvasInfo, imageToClient, nextFrame } from './helpers/editor'
 import { zoomAt } from './helpers/dots'
 import { decodeInPage, expectFile, openFinish } from './helpers/finish'

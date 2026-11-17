@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { inflateRawSync } from 'node:zlib'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './helpers/test'
 import { readZip, utf8Decode } from '../src/core/zip'
 import {
   importFile,

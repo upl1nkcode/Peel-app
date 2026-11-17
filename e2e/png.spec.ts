@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './helpers/test'
 import { encodePng } from '../src/core/png/encode'
 import type { RgbaImage } from '../src/core/mask/types'
 

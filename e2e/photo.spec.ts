@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './helpers/test'
 
 /**
  * Photo loading (spec 0008 AC-1 to AC-3) in every project. Fixtures:

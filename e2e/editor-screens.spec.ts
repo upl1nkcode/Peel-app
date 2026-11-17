@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './helpers/test'
 import { VIEW_MODES } from '../src/core/editor'
 import { en } from '../src/ui/i18n/en'
 import {

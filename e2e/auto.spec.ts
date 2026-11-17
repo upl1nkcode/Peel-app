@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { inflateRawSync } from 'node:zlib'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './helpers/test'
 import { readZip, utf8Decode } from '../src/core/zip'
 import { imageToClient, openStickers } from './helpers/editor'
 

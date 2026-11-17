@@ -48,10 +48,10 @@ export default defineConfig({
         globPatterns: [
           '*.{js,css,html,svg,png,webmanifest}',
           'assets/**/*.{js,css,html,svg,png,webmanifest}',
+          // The WebP encoder's wasm: WhatsApp-style works offline after the
+          // first visit (spec 0013 AC-20). It still loads only when chosen.
+          'assets/webp_enc*.wasm',
         ],
-        // The WebP encoder downloads when WhatsApp-style is first picked,
-        // not at install (spec 0012 Decision 1; offline caching is #89).
-        globIgnores: ['**/webp_enc*.js'],
         navigateFallback: 'index.html',
       },
     }),
