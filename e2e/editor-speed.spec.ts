@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
-import { VIEW_LABELS, VIEW_MODES } from '../src/core/editor'
+import { VIEW_MODES } from '../src/core/editor'
+import { en } from '../src/ui/i18n/en'
 import {
   devicePixel,
   expectRgb,
@@ -60,7 +61,7 @@ test('should_draw_a_frame_under_8_ms (AC-26)', async ({ page }) => {
   const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
 
   for (const mode of VIEW_MODES) {
-    await page.getByRole('radio', { name: VIEW_LABELS[mode] }).click()
+    await page.getByRole('radio', { name: en[`view.${mode}`] }).click()
     await expect(canvas).toHaveAttribute('data-view', mode)
     await page.evaluate(() => {
       performance.clearMeasures('peel-frame')

@@ -1,17 +1,15 @@
 import type { KeyboardEvent } from 'react'
-import { VIEW_LABELS, VIEW_MODES, type ViewMode } from '../../core/editor'
+import { VIEW_MODES, type ViewMode } from '../../core/editor'
+import { useT, type MessageKey } from '../i18n'
 import type { EditorTool } from './EditorCanvas'
 
-/** The Auto tool's options sheet (spec 0009 AC-23). */
-export const AUTO_HINT = 'Tap to add · Hold to remove · Slide to aim'
-
 const TOOLS: readonly EditorTool[] = ['auto', 'lasso', 'dots', 'brush', 'view']
-const TOOL_LABELS: Record<EditorTool, string> = {
-  auto: 'Auto',
-  lasso: 'Lasso',
-  dots: 'Dots',
-  brush: 'Brush',
-  view: 'View',
+const TOOL_LABELS: Record<EditorTool, MessageKey> = {
+  auto: 'tool.auto',
+  lasso: 'tool.lasso',
+  dots: 'tool.dots',
+  brush: 'tool.brush',
+  view: 'tool.view',
 }
 
 export interface ToolbarProps {
@@ -22,19 +20,20 @@ export interface ToolbarProps {
 
 /** The bottom toolbar: Auto · Lasso · Dots · Brush · View (spec 0011 AC-23). */
 export function Toolbar({ tool, disabled, onTool }: ToolbarProps) {
+  const t = useT()
   return (
-    <nav className="editor-tools" aria-label="Tools">
-      {TOOLS.map((t) => (
+    <nav className="editor-tools" aria-label={t('editor.tools')}>
+      {TOOLS.map((tl) => (
         <button
-          key={t}
+          key={tl}
           type="button"
-          aria-pressed={t === tool}
+          aria-pressed={tl === tool}
           disabled={disabled}
           onClick={() => {
-            onTool(t)
+            onTool(tl)
           }}
         >
-          {TOOL_LABELS[t]}
+          {t(TOOL_LABELS[tl])}
         </button>
       ))}
     </nav>
@@ -50,7 +49,8 @@ export interface ToolSheetProps {
 
 /** The active tool's options: Auto's hint, or View's five backgrounds (AC-11, AC-23). */
 export function ToolSheet({ tool, viewMode, onViewMode }: ToolSheetProps) {
-  if (tool === 'auto') return <p className="editor-hint">{AUTO_HINT}</p>
+  const t = useT()
+  if (tool === 'auto') return <p className="editor-hint">{t('auto.hint')}</p>
 
   // Arrow keys move the choice, as in any radio group.
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
@@ -76,7 +76,7 @@ export function ToolSheet({ tool, viewMode, onViewMode }: ToolSheetProps) {
   }
 
   return (
-    <div className="editor-views" role="radiogroup" aria-label="View">
+    <div className="editor-views" role="radiogroup" aria-label={t('tool.view')}>
       {VIEW_MODES.map((mode) => (
         <button
           key={mode}
@@ -89,7 +89,7 @@ export function ToolSheet({ tool, viewMode, onViewMode }: ToolSheetProps) {
           }}
           onKeyDown={onKeyDown}
         >
-          {VIEW_LABELS[mode]}
+          {t(`view.${mode}`)}
         </button>
       ))}
     </div>

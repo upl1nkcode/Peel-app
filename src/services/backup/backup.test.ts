@@ -12,6 +12,7 @@ import {
   StorageFullError,
   type StickerStore,
 } from '../storage'
+import { english } from '../../test/english'
 import { exportAll, importBackup, importMessage } from './index'
 
 const codecs = { inflate: browserInflate, inflateRaw: browserInflateRaw }
@@ -97,13 +98,13 @@ describe('backup', () => {
     expect(await b.get('b')).toEqual(mine)
     expect((await b.list()).map((s) => s.id).sort()).toEqual(['a', 'b', 'c'])
 
-    expect(importMessage(result)).toBe(
+    expect(english(importMessage(result))).toBe(
       'Imported 2 stickers. 1 were already here.',
     )
-    expect(importMessage({ added: 1, existing: 0, damaged: 0 })).toBe(
+    expect(english(importMessage({ added: 1, existing: 0, damaged: 0 }))).toBe(
       'Imported 1 sticker. 0 were already here.',
     )
-    expect(importMessage({ added: 0, existing: 2, damaged: 1 })).toBe(
+    expect(english(importMessage({ added: 0, existing: 2, damaged: 1 }))).toBe(
       "Imported 0 stickers. 2 were already here. 1 couldn't be read.",
     )
   })

@@ -1,15 +1,12 @@
 import type { KeyboardEvent } from 'react'
 import { brushSizeAt, brushSliderAt } from '../../core/editor'
+import { useT, type MessageKey } from '../i18n'
 import type { BrushSettings } from './brushTool'
 
-/** The Brush tool's hints (spec 0011 AC-24). */
-export const ERASE_HINT = 'Paint over what to remove'
-export const RESTORE_HINT = 'Paint over what to bring back'
-
 type BrushMode = BrushSettings['mode']
-const MODES: readonly [BrushMode, string][] = [
-  ['erase', 'Erase'],
-  ['restore', 'Restore'],
+const MODES: readonly [BrushMode, MessageKey][] = [
+  ['erase', 'brush.erase'],
+  ['restore', 'brush.restore'],
 ]
 
 export interface BrushSheetProps {
@@ -28,6 +25,7 @@ export interface BrushSheetProps {
  * Restore; the logarithmic Size slider in image px; the Hardness slider.
  */
 export function BrushSheet(props: BrushSheetProps) {
+  const t = useT()
   // Arrow keys move the choice, as in any radio group.
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     const step =
@@ -50,16 +48,20 @@ export function BrushSheet(props: BrushSheetProps) {
     radios?.[next]?.focus()
   }
 
-  const sizeText = `Size ${String(props.sizePx)} px`
+  const sizeText = t('brush.sizeValue', { px: props.sizePx })
   const percent = Math.round(props.hardness * 100)
-  const hardnessText = `Hardness ${String(percent)}%`
+  const hardnessText = t('brush.hardnessValue', { percent })
 
   return (
     <div className="editor-dots">
       <p className="editor-hint">
-        {props.mode === 'erase' ? ERASE_HINT : RESTORE_HINT}
+        {t(props.mode === 'erase' ? 'brush.eraseHint' : 'brush.restoreHint')}
       </p>
-      <div className="editor-views" role="radiogroup" aria-label="Brush mode">
+      <div
+        className="editor-views"
+        role="radiogroup"
+        aria-label={t('brush.mode')}
+      >
         {MODES.map(([m, label]) => (
           <button
             key={m}
@@ -72,14 +74,14 @@ export function BrushSheet(props: BrushSheetProps) {
             }}
             onKeyDown={onKeyDown}
           >
-            {label}
+            {t(label)}
           </button>
         ))}
       </div>
       <div className="editor-density">
         <input
           type="range"
-          aria-label="Size"
+          aria-label={t('brush.size')}
           aria-valuetext={sizeText}
           min={0}
           max={1}
@@ -94,7 +96,7 @@ export function BrushSheet(props: BrushSheetProps) {
       <div className="editor-density">
         <input
           type="range"
-          aria-label="Hardness"
+          aria-label={t('brush.hardness')}
           aria-valuetext={hardnessText}
           min={0}
           max={100}

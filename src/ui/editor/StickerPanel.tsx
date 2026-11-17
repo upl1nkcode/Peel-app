@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { StickerSummary } from '../../services/storage'
+import { say, useT, type Message, type MessageKey } from '../i18n'
 import './StickerPanel.css'
 
 export interface StickerPanelProps {
@@ -15,9 +16,9 @@ export interface StickerPanelProps {
   onExport: () => void
   onImport: (file: File) => void
   /** The storage status line (spec 0008 AC-14). */
-  status: string | null
-  /** The last result or error. */
-  message: string | null
+  status: MessageKey | null
+  /** The last result or error, as lines joined with spaces. */
+  message: readonly Message[] | null
 }
 
 function pngDataUrl(bytes: Uint8Array): string {
@@ -34,13 +35,14 @@ function pngDataUrl(bytes: Uint8Array): string {
  * export and import, and the storage status. Phase 9's Library replaces it.
  */
 export function StickerPanel(props: StickerPanelProps) {
+  const t = useT()
   const [confirming, setConfirming] = useState<string | null>(null)
   const thumbnails = useMemo(
     () => new Map(props.stickers.map((s) => [s.id, pngDataUrl(s.thumbnail)])),
     [props.stickers],
   )
   return (
-    <section className="sticker-panel" aria-label="Saved stickers">
+    <section className="sticker-panel" aria-label={t('stickers.panel')}>
       <div className="sticker-actions">
         <button
           type="button"
@@ -54,13 +56,13 @@ export function StickerPanel(props: StickerPanelProps) {
           disabled={props.stickers.length === 0 || props.disabled}
           onClick={props.onExport}
         >
-          Export all
+          {t('stickers.exportAll')}
         </button>
         <label
           className="sticker-import"
           data-disabled={props.disabled || undefined}
         >
-          Import
+          {t('stickers.import')}
           <input
             type="file"
             accept=".zip,application/zip"
@@ -75,7 +77,7 @@ export function StickerPanel(props: StickerPanelProps) {
       </div>
       {props.message && (
         <p className="sticker-message" aria-live="polite">
-          {props.message}
+          {props.message.map((m) => say(t, m)).join(' ')}
         </p>
       )}
       {props.stickers.length > 0 && (
@@ -85,7 +87,7 @@ export function StickerPanel(props: StickerPanelProps) {
               <button
                 type="button"
                 className="sticker-thumb"
-                aria-label="Open sticker"
+                aria-label={t('stickers.open')}
                 disabled={props.disabled}
                 onClick={() => {
                   props.onOpen(s.id)
@@ -95,7 +97,7 @@ export function StickerPanel(props: StickerPanelProps) {
               </button>
               {confirming === s.id ? (
                 <span className="sticker-confirm">
-                  Delete this sticker?
+                  {t('stickers.deleteOne')}
                   <button
                     type="button"
                     onClick={() => {
@@ -103,7 +105,7 @@ export function StickerPanel(props: StickerPanelProps) {
                       props.onDelete(s.id)
                     }}
                   >
-                    Delete
+                    {t('common.delete')}
                   </button>
                   <button
                     type="button"
@@ -111,7 +113,7 @@ export function StickerPanel(props: StickerPanelProps) {
                       setConfirming(null)
                     }}
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                 </span>
               ) : (
@@ -122,14 +124,14 @@ export function StickerPanel(props: StickerPanelProps) {
                     setConfirming(s.id)
                   }}
                 >
-                  Delete
+                  {t('common.delete')}
                 </button>
               )}
             </li>
           ))}
         </ul>
       )}
-      {props.status && <p className="sticker-status">{props.status}</p>}
+      {props.status && <p className="sticker-status">{t(props.status)}</p>}
     </section>
   )
 }

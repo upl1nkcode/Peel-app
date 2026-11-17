@@ -1,3 +1,4 @@
+import type { Message } from '../../ui/i18n'
 import {
   manifestEntry,
   NotABackupError,
@@ -107,11 +108,14 @@ export async function importBackup(
   return result
 }
 
-/** The import result line (spec 0008 AC-17). */
-export function importMessage(result: ImportResult): string {
-  const noun = result.added === 1 ? 'sticker' : 'stickers'
-  const base = `Imported ${String(result.added)} ${noun}. ${String(result.existing)} were already here.`
-  return result.damaged > 0
-    ? `${base} ${String(result.damaged)} couldn't be read.`
-    : base
+/** The import result line (spec 0008 AC-17), as messages for the UI to word and join with spaces (spec 0013). */
+export function importMessage(result: ImportResult): Message[] {
+  const lines: Message[] = [
+    { key: 'import.result_plural', params: { count: result.added } },
+    { key: 'import.existing', params: { count: result.existing } },
+  ]
+  if (result.damaged > 0) {
+    lines.push({ key: 'import.damaged', params: { count: result.damaged } })
+  }
+  return lines
 }

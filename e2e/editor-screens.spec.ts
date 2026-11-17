@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
-import { VIEW_LABELS, VIEW_MODES } from '../src/core/editor'
+import { VIEW_MODES } from '../src/core/editor'
+import { en } from '../src/ui/i18n/en'
 import {
   generatedJpeg,
   imageToClient,
@@ -50,7 +51,7 @@ test('should_match_each_view_at_fit_and_100_percent (AC-12)', async ({
       await expect(canvas).toHaveAttribute('data-mask-scale', '1.0000')
     }
     for (const mode of VIEW_MODES) {
-      await page.getByRole('radio', { name: VIEW_LABELS[mode] }).click()
+      await page.getByRole('radio', { name: en[`view.${mode}`] }).click()
       await expect(canvas).toHaveAttribute('data-view', mode)
       await nextFrame(page)
       await expect(canvas).toHaveScreenshot(`view-${mode}-${zoom}.png`, SHOT)

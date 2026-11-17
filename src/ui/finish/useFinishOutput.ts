@@ -5,6 +5,7 @@ import { toArrayBufferView } from '../../services/deflate'
 import type { FinishFailure, FromRenderWorker } from '../../workers/protocol'
 import type { Cancelled } from '../../services/workerClient'
 import type { Renderer } from '../editor/session'
+import type { MessageKey } from '../i18n'
 
 /** The file made for the current settings (spec 0012 Decision 5). */
 export interface FinishedFile {
@@ -22,18 +23,16 @@ export interface FinishOutput {
   /** What the preview shows: the file, or the Sticker output for Original (AC-9). */
   preview: Blob | null
   preparing: boolean
-  error: string | null
+  error: MessageKey | null
 }
 
-export const FINISH_ERRORS: Record<FinishFailure, string> = {
-  empty: 'Nothing is selected yet.',
-  tooLarge:
-    'This sticker is too detailed for WhatsApp-style (over 100 KB). Try the Sticker output.',
-  encoderUnavailable:
-    "Couldn't load the WebP encoder. Connect to the internet and try again.",
+export const FINISH_ERRORS: Record<FinishFailure, MessageKey> = {
+  empty: 'finish.empty',
+  tooLarge: 'finish.tooLarge',
+  encoderUnavailable: 'finish.encoderUnavailable',
 }
 /** A worker error outside the contract; it shouldn't happen. */
-export const FINISH_FAILED = "Couldn't make the file. Try again."
+export const FINISH_FAILED: MessageKey = 'finish.failed'
 
 /** AC-9: at most one request per 150 ms while a slider is dragged. */
 export const FINISH_THROTTLE_MS = 150
@@ -61,7 +60,7 @@ export function useFinishOutput(
   const [result, setResult] = useState<{
     of: typeof wanted
     file: FinishedFile | null
-    error: string | null
+    error: MessageKey | null
   } | null>(null)
   const [preview, setPreview] = useState<Blob | null>(null)
   /** When the last request went out; 0 until the first one. */

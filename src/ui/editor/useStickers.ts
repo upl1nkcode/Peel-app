@@ -19,6 +19,7 @@ import {
   type StickerSummary,
   type StorageManagerLike,
 } from '../../services/storage'
+import type { Message, MessageKey } from '../i18n'
 import type { StickerPanelProps } from './StickerPanel'
 
 /** What the screen needs to save and keep stickers (spec 0008). */
@@ -63,29 +64,21 @@ export interface StickerHost {
   /** The sticker `id` was deleted; a later save makes a new one. */
   deleted(id: string): void
   /** Shows a saved sticker; resolves to a warning to show, or null. */
-  open(record: StickerRecord): Promise<string | null>
+  open(record: StickerRecord): Promise<MessageKey | null>
 }
 
-export const NOTHING_TO_SAVE = 'Nothing to save: the cutout is empty.'
-export const NOT_A_BACKUP = "This file isn't a Peel backup."
-export const TOO_BIG_FOR_ZIP =
-  'Too many stickers for one backup file. Delete some, then export again.'
-export const STORAGE_UNAVAILABLE = "Stickers can't be saved in this browser."
-export const SOMETHING_WENT_WRONG = 'Something went wrong. Try again.'
-
-function messageFor(e: unknown): string {
-  if (
-    e instanceof StorageFullError ||
-    e instanceof StorageOutdatedError ||
-    e instanceof PhotoUnreadableError
-  ) {
-    return e.message
-  }
-  if (e instanceof EmptyMaskError) return NOTHING_TO_SAVE
-  if (e instanceof NotABackupError) return NOT_A_BACKUP
-  if (e instanceof ZipLimitError) return TOO_BIG_FOR_ZIP
-  return SOMETHING_WENT_WRONG
+/** The message for an error from a sticker action (spec 0008), as a catalog key (spec 0013). */
+export function messageFor(e: unknown): MessageKey {
+  if (e instanceof StorageFullError) return 'storage.full'
+  if (e instanceof StorageOutdatedError) return 'storage.outdated'
+  if (e instanceof PhotoUnreadableError) return 'photo.unreadable'
+  if (e instanceof EmptyMaskError) return 'stickers.nothingToSave'
+  if (e instanceof NotABackupError) return 'stickers.notABackup'
+  if (e instanceof ZipLimitError) return 'stickers.tooBigForZip'
+  return 'common.somethingWrong'
 }
+
+const note = (key: MessageKey): Message[] => [{ key }]
 
 /**
  * The temporary panel's state and actions (spec 0008 AC-5 to AC-20). Without
@@ -101,10 +94,10 @@ export function useStickers(
   finish: FinishSettings,
 ): StickerPanelProps | null {
   const [store, setStore] = useState<StickerStore | null>(null)
-  const [blocked, setBlocked] = useState<string | null>(null)
+  const [blocked, setBlocked] = useState<MessageKey | null>(null)
   const [stickers, setStickers] = useState<readonly StickerSummary[]>([])
-  const [status, setStatus] = useState<string | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
+  const [status, setStatus] = useState<MessageKey | null>(null)
+  const [message, setMessage] = useState<readonly Message[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [savedAs, setSavedAs] = useState<{
     photoId: string
@@ -118,8 +111,8 @@ export function useStickers(
   const clock = deps?.clock ?? Date.now
 
   const fail = useCallback((e: unknown) => {
-    if (e instanceof StorageOutdatedError) setBlocked(e.message)
-    setMessage(messageFor(e))
+    if (e instanceof StorageOutdatedError) setBlocked('storage.outdated')
+    setMessage(note(messageFor(e)))
   }, [])
 
   const refresh = useCallback(
@@ -147,8 +140,8 @@ export function useStickers(
       (s) => {
         if (!alive) return
         s.onOutdated(() => {
-          setBlocked(new StorageOutdatedError().message)
-          setMessage(new StorageOutdatedError().message)
+          setBlocked('storage.outdated')
+          setMessage(note('storage.outdated'))
         })
         setStore(s)
         void refresh(s)
@@ -156,9 +149,11 @@ export function useStickers(
       (e: unknown) => {
         if (!alive) return
         const text =
-          e instanceof StorageOutdatedError ? e.message : STORAGE_UNAVAILABLE
+          e instanceof StorageOutdatedError
+            ? 'storage.outdated'
+            : 'storage.unavailable'
         setBlocked(text)
-        setMessage(text)
+        setMessage(note(text))
       },
     )
     return () => {
@@ -239,7 +234,8 @@ export function useStickers(
           await refresh(s)
           return
         }
-        setMessage(await hostRef.current.open(record))
+        const warning = await hostRef.current.open(record)
+        setMessage(warning && note(warning))
         setSavedAs(null)
       })
     },

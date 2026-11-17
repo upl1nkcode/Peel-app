@@ -11,13 +11,13 @@ import { DEFAULT_FINISH, type FinishSettings } from '../../core/sticker'
 import type { Command, NodeRef, Selection } from '../../core/selection/types'
 import {
   statusLines,
-  USE_LASSO_LABEL,
   type AutoState,
   type ModelFile,
   type SegmentationEngine,
 } from '../../services/segmentation'
 import type { StickerRecord } from '../../core/backup'
 import { parseSelection } from '../../core/selection/serialize'
+import { say, useT, type Message, type MessageKey } from '../i18n'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { inflateModelAlpha } from '../../services/sticker'
 import { BrushSheet } from './BrushSheet'
@@ -46,8 +46,7 @@ import './EditorScreen.css'
 export type { Renderer }
 
 /** Shown when a re-opened photo decodes at another size (spec 0008 AC-9). */
-export const DIFFERENT_SIZE =
-  'This photo opened at a different size here; the outline may be off.'
+export const DIFFERENT_SIZE: MessageKey = 'editor.differentSize'
 
 const NO_REFS: readonly NodeRef[] = []
 
@@ -87,9 +86,10 @@ export interface EditorScreenProps {
  * below 100% and at full resolution above.
  */
 export function EditorScreen(props: EditorScreenProps) {
+  const t = useT()
   const [state, setState] = useState<AutoState | null>(null)
   const [photo, setPhoto] = useState<Photo | null>(null)
-  const [photoError, setPhotoError] = useState<string | null>(null)
+  const [photoError, setPhotoError] = useState<MessageKey | null>(null)
   /** The chosen view; it stays across tools and photos (AC-11). */
   const [viewMode, setViewMode] = useState<ViewMode>('overlay')
   const [tool, setTool] = useState<EditorTool>('auto')
@@ -203,7 +203,7 @@ export function EditorScreen(props: EditorScreenProps) {
     } catch (e) {
       if (!(e instanceof PhotoUnreadableError)) throw e
       // The current photo and cutout stay as they were (spec 0008 AC-3).
-      setPhotoError(e.message)
+      setPhotoError('photo.unreadable')
       return
     }
     setPhotoError(null)
@@ -355,9 +355,9 @@ export function EditorScreen(props: EditorScreenProps) {
     finish,
   )
 
-  const lines = [
+  const lines: Message[] = [
     ...(state ? statusLines(state) : []),
-    ...(lasso.notice ? [lasso.notice] : []),
+    ...(lasso.notice ? [{ key: lasso.notice }] : []),
   ]
   const release = () => {
     setComparing(false)
@@ -392,7 +392,7 @@ export function EditorScreen(props: EditorScreenProps) {
         <header className="editor-top">
           <h1 className="editor-title">Peel</h1>
           <button type="button" onClick={choosePhoto}>
-            Photo
+            {t('editor.photo')}
           </button>
           <button
             type="button"
@@ -405,7 +405,7 @@ export function EditorScreen(props: EditorScreenProps) {
               setFinishing(true)
             }}
           >
-            Done
+            {t('editor.done')}
           </button>
           {panel && (
             <button
@@ -416,7 +416,7 @@ export function EditorScreen(props: EditorScreenProps) {
                 setStickersOpen((open) => !open)
               }}
             >
-              Stickers
+              {t('editor.stickers')}
             </button>
           )}
           <input
@@ -424,7 +424,7 @@ export function EditorScreen(props: EditorScreenProps) {
             className="editor-file"
             type="file"
             accept="image/*"
-            aria-label="Pick a photo"
+            aria-label={t('editor.pickPhoto')}
             tabIndex={-1}
             onChange={(e) => {
               const file = e.currentTarget.files?.[0]
@@ -469,19 +469,21 @@ export function EditorScreen(props: EditorScreenProps) {
           {!photo && (
             <div className="editor-empty">
               <button type="button" onClick={choosePhoto}>
-                Pick a photo
+                {t('editor.pickPhoto')}
               </button>
             </div>
           )}
           <div className="editor-status" role="status" aria-live="polite">
             {photoError && (
               <p className="editor-error" role="alert">
-                {photoError}
+                {t(photoError)}
               </p>
             )}
-            {lines.map((line) => (
-              <p key={line}>{line}</p>
-            ))}
+            {lines
+              .map((m) => say(t, m))
+              .map((line) => (
+                <p key={line}>{line}</p>
+              ))}
             {state?.unavailable && tool === 'auto' && (
               <button
                 type="button"
@@ -490,7 +492,7 @@ export function EditorScreen(props: EditorScreenProps) {
                   chooseTool('lasso')
                 }}
               >
-                {USE_LASSO_LABEL}
+                {t('auto.useLasso')}
               </button>
             )}
           </div>
@@ -504,7 +506,7 @@ export function EditorScreen(props: EditorScreenProps) {
               else session.undo()
             }}
           >
-            Undo
+            {t('editor.undo')}
           </button>
           <button
             type="button"
@@ -513,7 +515,7 @@ export function EditorScreen(props: EditorScreenProps) {
               session.redo()
             }}
           >
-            Redo
+            {t('editor.redo')}
           </button>
           {state?.hasAutoResult && (
             <button
@@ -523,7 +525,7 @@ export function EditorScreen(props: EditorScreenProps) {
                 session.resetToAuto()
               }}
             >
-              Reset to auto
+              {t('editor.resetAuto')}
             </button>
           )}
           <button
@@ -548,7 +550,7 @@ export function EditorScreen(props: EditorScreenProps) {
               e.preventDefault()
             }}
           >
-            Compare
+            {t('editor.compare')}
           </button>
         </div>
         {(showPanel || sheetOpen) && (
@@ -644,7 +646,7 @@ export function EditorScreen(props: EditorScreenProps) {
             edit({ type: 'setFeather', px }, [])
           }}
           save={{
-            label: panel?.saved ? 'Saved' : 'Save',
+            label: t(panel?.saved ? 'common.saved' : 'common.save'),
             disabled: !panel || !panel.canSave || panel.disabled,
             onSave: () => {
               panel?.onSave()

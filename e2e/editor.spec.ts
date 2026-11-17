@@ -1,8 +1,8 @@
+import { en } from '../src/ui/i18n/en'
 import { expect, test } from '@playwright/test'
 import {
   checkerColourAt,
   loupeScale,
-  VIEW_LABELS,
   VIEW_MODES,
   viewPixel,
 } from '../src/core/editor'
@@ -187,7 +187,7 @@ test('should_draw_each_view_with_the_spec_colours (AC-11)', async ({
     { px: { x: 5, y: 5 }, a: 0 },
   ]
   for (const mode of VIEW_MODES) {
-    await page.getByRole('radio', { name: VIEW_LABELS[mode] }).click()
+    await page.getByRole('radio', { name: en[`view.${mode}`] }).click()
     await expect(canvas).toHaveAttribute('data-view', mode)
     await nextFrame(page)
     for (const { px, a } of probes) {
