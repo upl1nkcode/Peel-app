@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './helpers/test'
 
 test('should_show_the_app_title_on_every_device', async ({ page }) => {
   await page.goto('/')

@@ -1,16 +1,11 @@
 import type { KeyboardEvent } from 'react'
 import type { SmoothStrength } from '../../core/geometry/smooth'
+import { useT, type MessageKey } from '../i18n'
 import type { LassoMode } from './useLasso'
 
-/** The Lasso tool's hints (spec 0011 AC-24). */
-export const LASSO_HINT = 'Trace around it with one finger · Lift to pause'
-export const LASSO_OPEN_HINT =
-  'Drag the end dot to go on · End at the start to close'
-export const LASSO_BUSY_HINT = 'Making dots…'
-
-const MODES: readonly [LassoMode, string][] = [
-  ['add', 'Add'],
-  ['subtract', 'Subtract'],
+const MODES: readonly [LassoMode, MessageKey][] = [
+  ['add', 'lasso.add'],
+  ['subtract', 'lasso.subtract'],
 ]
 
 export interface LassoSheetProps {
@@ -37,6 +32,7 @@ export interface LassoSheetProps {
  * Finish and Discard.
  */
 export function LassoSheet(props: LassoSheetProps) {
+  const t = useT()
   const enabled = (m: LassoMode) => m === 'add' || props.hasRings
   // Arrow keys move the choice, as in any radio group.
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
@@ -60,11 +56,13 @@ export function LassoSheet(props: LassoSheetProps) {
     radios?.[next]?.focus()
   }
 
-  const hint = props.closing
-    ? LASSO_BUSY_HINT
-    : props.isOpen
-      ? LASSO_OPEN_HINT
-      : LASSO_HINT
+  const hint = t(
+    props.closing
+      ? 'lasso.busyHint'
+      : props.isOpen
+        ? 'lasso.openHint'
+        : 'lasso.hint',
+  )
   const canAct = props.isOpen && !props.busy
 
   return (
@@ -74,7 +72,7 @@ export function LassoSheet(props: LassoSheetProps) {
         <div
           className="editor-views editor-modes"
           role="radiogroup"
-          aria-label="Lasso mode"
+          aria-label={t('lasso.mode')}
         >
           {MODES.map(([m, label]) => (
             <button
@@ -89,7 +87,7 @@ export function LassoSheet(props: LassoSheetProps) {
               }}
               onKeyDown={onKeyDown}
             >
-              {label}
+              {t(label)}
             </button>
           ))}
         </div>
@@ -101,14 +99,14 @@ export function LassoSheet(props: LassoSheetProps) {
             props.onSnap(!props.snapOn)
           }}
         >
-          Snap to edges
+          {t('lasso.snap')}
         </button>
       </div>
       <div className="editor-density">
-        <span aria-hidden="true">Raw</span>
+        <span aria-hidden="true">{t('lasso.raw')}</span>
         <input
           type="range"
-          aria-label="Smoothing"
+          aria-label={t('lasso.smoothing')}
           min={0}
           max={4}
           step={1}
@@ -117,18 +115,18 @@ export function LassoSheet(props: LassoSheetProps) {
             props.onSmoothing(Number(e.currentTarget.value) as SmoothStrength)
           }}
         />
-        <span aria-hidden="true">Smooth</span>
+        <span aria-hidden="true">{t('lasso.smooth')}</span>
       </div>
       <div className="editor-row">
         <button type="button" disabled={!canAct} onClick={props.onFinish}>
-          Finish
+          {t('lasso.finish')}
         </button>
         <button
           type="button"
           disabled={!props.isOpen}
           onClick={props.onDiscard}
         >
-          Discard
+          {t('lasso.discard')}
         </button>
       </div>
     </div>

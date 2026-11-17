@@ -1,10 +1,12 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createModelStore,
+  prefetchModels,
   sha256Hex,
   type EngineUnavailable,
   type ModelFile,
+  type OfflineStatus,
 } from './index'
 
 const bytes = (n: number, seed: number) =>
@@ -35,9 +37,20 @@ const streamed = (data: Uint8Array, failAfterFirst = false): Response => {
 class FakeCache {
   readonly entries = new Map<string, ArrayBuffer>()
   failPut: Error | null = null
+  /** Cached bodies read so far. */
+  reads = 0
   match(key: string) {
     const v = this.entries.get(key)
-    return Promise.resolve(v ? new Response(v.slice(0)) : undefined)
+    return Promise.resolve(
+      v
+        ? {
+            arrayBuffer: () => {
+              this.reads++
+              return Promise.resolve(v.slice(0))
+            },
+          }
+        : undefined,
+    )
   }
   async put(key: string, res: Response) {
     if (this.failPut) throw this.failPut
@@ -210,5 +223,126 @@ describe('model store', () => {
     // Only the new version stays cached.
     expect(env.cache.entries.size).toBe(1)
     expect(await store2.missingBytes([f2])).toBe(0)
+  })
+})
+
+describe('offline after the first visit (spec 0013)', () => {
+  const increasing = (xs: number[]) =>
+    xs.every((x, i) => i === 0 || x >= (xs[i - 1] ?? 0))
+
+  it('should_fetch_a_file_once_for_two_callers (Review Focus 3)', async () => {
+    const data = bytes(4000, 7)
+    const f = await fileOf('models/fast.tflite', data)
+    const env = setup({ 'models/fast.tflite': data })
+    const seenA: number[] = []
+    const seenB: number[] = []
+    const [a, b] = await Promise.all([
+      env.store.get([f], (n) => seenA.push(n)),
+      env.store.get([f], (n) => seenB.push(n)),
+    ])
+    expect(env.calls).toEqual(['models/fast.tflite'])
+    expect(new Uint8Array(a.get(f.path) as ArrayBuffer)).toEqual(data)
+    expect(new Uint8Array(b.get(f.path) as ArrayBuffer)).toEqual(data)
+    for (const seen of [seenA, seenB]) {
+      expect(increasing(seen)).toBe(true)
+      expect(seen.at(-1)).toBe(4000)
+    }
+    // Once cached, a third caller reads the cache.
+    await env.store.get([f], () => undefined)
+    expect(env.calls).toHaveLength(1)
+  })
+
+  it('should_prefetch_all_four_files_in_order (AC-18, AC-19)', async () => {
+    const served = {
+      'engine/loader.js': bytes(100, 1),
+      'engine/engine.wasm': bytes(900, 2),
+      'models/fast.tflite': bytes(500, 3),
+      'models/precise.task': bytes(1500, 4),
+    }
+    const files = await Promise.all(
+      Object.entries(served).map(([p, d]) => fileOf(p, d)),
+    )
+    const env = setup(served)
+    const statuses: OfflineStatus[] = []
+    await prefetchModels(env.store, files, { saveData: false }, (s) =>
+      statuses.push(s),
+    )
+    expect(env.calls).toEqual(Object.keys(served))
+    const percents = statuses.flatMap((s) =>
+      s.kind === 'downloading' ? [s.percent] : [],
+    )
+    expect(percents.length).toBeGreaterThan(2)
+    expect(percents.every(Number.isInteger)).toBe(true)
+    expect(increasing(percents)).toBe(true)
+    expect(statuses.at(-1)).toEqual({ kind: 'ready' })
+
+    const again: OfflineStatus[] = []
+    await prefetchModels(env.store, files, { saveData: false }, (s) =>
+      again.push(s),
+    )
+    expect(again).toEqual([{ kind: 'ready' }])
+    expect(env.calls).toHaveLength(4)
+  })
+
+  it('should_not_read_cached_files_on_each_start (final review I-2)', async () => {
+    const served = {
+      'models/fast.tflite': bytes(500, 3),
+      'models/precise.task': bytes(1500, 4),
+    }
+    const files = await Promise.all(
+      Object.entries(served).map(([p, d]) => fileOf(p, d)),
+    )
+    const env = setup(served)
+    await prefetchModels(env.store, files, { saveData: false }, () => undefined)
+    const statuses: OfflineStatus[] = []
+    await prefetchModels(env.store, files, { saveData: false }, (s) =>
+      statuses.push(s),
+    )
+    expect(statuses).toEqual([{ kind: 'ready' }])
+    expect(env.cache.reads).toBe(0)
+  })
+
+  it('should_not_copy_a_download_that_auto_joins (final review I-2)', async () => {
+    const data = bytes(4000, 7)
+    const f = await fileOf('models/fast.tflite', data)
+    const env = setup({ 'models/fast.tflite': data })
+    const slices = vi.spyOn(ArrayBuffer.prototype, 'slice')
+    const [, got] = await Promise.all([
+      prefetchModels(env.store, [f], { saveData: false }, () => undefined),
+      env.store.get([f], () => undefined),
+    ])
+    expect(env.calls).toEqual(['models/fast.tflite'])
+    expect(new Uint8Array(got.get(f.path) as ArrayBuffer)).toEqual(data)
+    expect(slices).not.toHaveBeenCalled()
+    slices.mockRestore()
+  })
+
+  it('should_skip_the_download_on_save_data (AC-18, Decision 13)', async () => {
+    const data = bytes(10, 1)
+    const env = setup({ 'models/fast.tflite': data })
+    const statuses: OfflineStatus[] = []
+    await prefetchModels(
+      env.store,
+      [await fileOf('models/fast.tflite', data)],
+      { saveData: true },
+      (s) => statuses.push(s),
+    )
+    expect(env.calls).toEqual([])
+    expect(statuses).toEqual([{ kind: 'needsInternet' }])
+  })
+
+  it('should_report_a_failure_once (AC-18, AC-19)', async () => {
+    const data = bytes(10, 1)
+    const env = setup({ 'models/fast.tflite': data }, { fail: 'reject' })
+    const statuses: OfflineStatus[] = []
+    await prefetchModels(
+      env.store,
+      [await fileOf('models/fast.tflite', data)],
+      { saveData: false },
+      (s) => statuses.push(s),
+    )
+    expect(env.calls).toHaveLength(1)
+    expect(statuses.at(-1)).toEqual({ kind: 'needsInternet' })
+    expect(statuses.filter((s) => s.kind === 'needsInternet')).toHaveLength(1)
   })
 })

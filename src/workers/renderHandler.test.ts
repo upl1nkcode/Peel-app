@@ -9,7 +9,8 @@ import {
   type RenderDeps,
 } from './renderHandler'
 import { storedDeflate } from '../core/png/zlib'
-import { decodePng } from '../test/png'
+import { decodePng, inflateStored } from '../test/png'
+import { encodePng } from '../core/png/encode'
 import { cropRgba, trimBounds } from '../core/mask/trim'
 import { applyMask } from '../core/mask/cutout'
 import type { RgbaImage } from '../core/mask/types'
@@ -496,5 +497,39 @@ describe('render worker finish jobs (spec 0012)', () => {
       settings: settings(),
     })
     expect(reply?.message).toMatchObject({ type: 'finished', jobId: 40 })
+  })
+})
+
+describe('render worker finishSaved (spec 0013)', () => {
+  it('should_finish_a_saved_sticker_exactly (AC-8)', async () => {
+    const data = new Uint8Array(100 * 60 * 4)
+    for (let y = 0; y < 60; y++) {
+      for (let x = 0; x < 100; x++) {
+        // An opaque red rectangle with a transparent margin and soft edge.
+        const inside = x >= 10 && x < 90 && y >= 10 && y < 50
+        const edge = x === 9 || x === 90 || y === 9 || y === 50
+        data.set(
+          [220, 30, 40, inside ? 255 : edge ? 128 : 0],
+          (y * 100 + x) * 4,
+        )
+      }
+    }
+    const red: RgbaImage = { width: 100, height: 60, data }
+    const settings: FinishSettings = {
+      ...DEFAULT_FINISH,
+      outline: { on: true, widthPct: 4, color: 'white' },
+    }
+    const handle = createAsyncRenderHandler({
+      deflate: storedDeflate,
+      inflate: (z) => Promise.resolve(inflateStored(z)),
+    })
+    const png = await encodePng(red, storedDeflate)
+    const reply = await handle({ type: 'finishSaved', jobId: 7, png, settings })
+    const msg = reply?.message
+    if (msg?.type !== 'finished') throw new Error(JSON.stringify(msg))
+    const expected = finishImage(red, settings)
+    expect(msg.jobId).toBe(7)
+    expect(msg.mime).toBe('image/png')
+    expect(decodePng(msg.bytes)).toEqual(expected)
   })
 })

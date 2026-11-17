@@ -8,6 +8,7 @@ import {
 } from '../../core/sticker'
 import type { FinishOutput } from './useFinishOutput'
 import './FinishScreen.css'
+import { useT, type MessageKey } from '../i18n'
 
 export interface FinishScreenProps {
   settings: FinishSettings
@@ -17,7 +18,7 @@ export interface FinishScreenProps {
   /** Called once, when the softness slider is let go (AC-10). */
   onFeather: (px: number) => void
   output: FinishOutput
-  save: { label: 'Save' | 'Saved'; disabled: boolean; onSave: () => void }
+  save: { label: string; disabled: boolean; onSave: () => void }
   onBack: () => void
   /** Share, Copy and Download (AC-13). */
   actions: ReactNode
@@ -25,10 +26,10 @@ export interface FinishScreenProps {
   guide: ReactNode
 }
 
-const OUTPUTS: readonly { kind: OutputKind; label: string }[] = [
-  { kind: 'sticker', label: 'Sticker' },
-  { kind: 'original', label: 'Original' },
-  { kind: 'whatsapp', label: 'WhatsApp-style' },
+const OUTPUTS: readonly { kind: OutputKind; label: MessageKey }[] = [
+  { kind: 'sticker', label: 'finish.out.sticker' },
+  { kind: 'original', label: 'finish.out.original' },
+  { kind: 'whatsapp', label: 'finish.out.whatsapp' },
 ]
 
 /** "PNG · 1024 × 768 px · 412 KB" (AC-8). */
@@ -64,6 +65,7 @@ function usePreviewImage(blob: Blob | null) {
  * and padding, then the export actions and the guide.
  */
 export function FinishScreen(props: FinishScreenProps) {
+  const t = useT()
   const { settings, output } = props
   const set = (patch: Partial<FinishSettings>) => {
     props.onSettings({ ...settings, ...patch })
@@ -83,12 +85,12 @@ export function FinishScreen(props: FinishScreenProps) {
   const outlineOff = !settings.outline.on
 
   return (
-    <section className="finish" aria-label="Finish sticker">
+    <section className="finish" aria-label={t('finish.region')}>
       <header className="finish-top">
         <button type="button" onClick={props.onBack}>
-          Back
+          {t('finish.back')}
         </button>
-        <h2 className="finish-title">Finish</h2>
+        <h2 className="finish-title">{t('finish.title')}</h2>
         <button
           type="button"
           disabled={props.save.disabled}
@@ -98,7 +100,11 @@ export function FinishScreen(props: FinishScreenProps) {
         </button>
       </header>
       <div className="finish-preview" data-testid="finish-preview">
-        <img ref={previewImg} alt="Sticker preview" hidden={!output.preview} />
+        <img
+          ref={previewImg}
+          alt={t('finish.preview')}
+          hidden={!output.preview}
+        />
       </div>
       <div className="finish-controls">
         <p
@@ -108,10 +114,18 @@ export function FinishScreen(props: FinishScreenProps) {
           aria-live="polite"
         >
           {output.preparing
-            ? 'Preparing…'
-            : (output.error ?? (output.file ? fileLine(output.file) : ''))}
+            ? t('finish.preparing')
+            : output.error
+              ? t(output.error)
+              : output.file
+                ? fileLine(output.file)
+                : ''}
         </p>
-        <div className="finish-choice" role="radiogroup" aria-label="Output">
+        <div
+          className="finish-choice"
+          role="radiogroup"
+          aria-label={t('finish.output')}
+        >
           {OUTPUTS.map((o) => (
             <label key={o.kind}>
               <input
@@ -122,7 +136,7 @@ export function FinishScreen(props: FinishScreenProps) {
                   set({ output: o.kind })
                 }}
               />
-              {o.label}
+              {t(o.label)}
             </label>
           ))}
         </div>
@@ -136,12 +150,12 @@ export function FinishScreen(props: FinishScreenProps) {
                 setOutline({ on: e.currentTarget.checked })
               }}
             />
-            Outline
+            {t('finish.outline')}
           </label>
           <div
             className="finish-choice"
             role="radiogroup"
-            aria-label="Outline colour"
+            aria-label={t('finish.outlineColour')}
           >
             {(['white', 'black'] as const).map((color) => (
               <label key={color}>
@@ -154,16 +168,18 @@ export function FinishScreen(props: FinishScreenProps) {
                     setOutline({ color })
                   }}
                 />
-                {color === 'white' ? 'White' : 'Black'}
+                {t(color === 'white' ? 'finish.white' : 'finish.black')}
               </label>
             ))}
           </div>
         </div>
         <label className="finish-slider">
-          <span>Width {String(settings.outline.widthPct)}%</span>
+          <span>
+            {t('finish.widthValue', { value: settings.outline.widthPct })}
+          </span>
           <input
             type="range"
-            aria-label="Width"
+            aria-label={t('finish.width')}
             disabled={outlineOff}
             min={OUTLINE_WIDTH_PCT.min}
             max={OUTLINE_WIDTH_PCT.max}
@@ -175,10 +191,10 @@ export function FinishScreen(props: FinishScreenProps) {
           />
         </label>
         <label className="finish-slider">
-          <span>Softness {String(feather)} px</span>
+          <span>{t('finish.softnessValue', { value: feather })}</span>
           <input
             type="range"
-            aria-label="Edge softness"
+            aria-label={t('finish.softness')}
             min={FEATHER_PX.min}
             max={FEATHER_PX.max}
             step={FEATHER_PX.step}
@@ -193,10 +209,12 @@ export function FinishScreen(props: FinishScreenProps) {
           />
         </label>
         <label className="finish-slider">
-          <span>Padding {String(settings.paddingPct)}%</span>
+          <span>
+            {t('finish.paddingValue', { value: settings.paddingPct })}
+          </span>
           <input
             type="range"
-            aria-label="Padding"
+            aria-label={t('finish.padding')}
             min={PADDING_PCT.min}
             max={PADDING_PCT.max}
             step={PADDING_PCT.step}

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
+} from 'react'
 import {
   defaultBrushSize,
   densityTolerance,
@@ -11,13 +18,13 @@ import { DEFAULT_FINISH, type FinishSettings } from '../../core/sticker'
 import type { Command, NodeRef, Selection } from '../../core/selection/types'
 import {
   statusLines,
-  USE_LASSO_LABEL,
   type AutoState,
   type ModelFile,
   type SegmentationEngine,
 } from '../../services/segmentation'
 import type { StickerRecord } from '../../core/backup'
 import { parseSelection } from '../../core/selection/serialize'
+import { say, useT, type Message, type MessageKey } from '../i18n'
 import { PhotoUnreadableError, type LoadedPhoto } from '../../services/photo'
 import { inflateModelAlpha } from '../../services/sticker'
 import { BrushSheet } from './BrushSheet'
@@ -29,7 +36,6 @@ import {
   type EditorCanvasHandle,
   type EditorTool,
 } from './EditorCanvas'
-import { StickerPanel } from './StickerPanel'
 import {
   copyMask,
   createSession,
@@ -39,15 +45,15 @@ import {
 } from './session'
 import { Toolbar, ToolSheet } from './Toolbar'
 import { useLasso } from './useLasso'
-import { useStickers, type StickerDeps, type StickerHost } from './useStickers'
+import { useSave, type SaveHost } from './useSave'
+import { messageFor, type Library } from '../library/useLibrary'
 import { FinishFlow } from '../finish/FinishFlow'
 import './EditorScreen.css'
 
 export type { Renderer }
 
 /** Shown when a re-opened photo decodes at another size (spec 0008 AC-9). */
-export const DIFFERENT_SIZE =
-  'This photo opened at a different size here; the outline may be off.'
+export const DIFFERENT_SIZE: MessageKey = 'editor.differentSize'
 
 const NO_REFS: readonly NodeRef[] = []
 
@@ -74,12 +80,34 @@ export interface EditorScreenProps {
   /** Whether the browser can run the engines; checked before any download. */
   supported?: () => boolean
   now?: () => number
-  /** Saving and keeping stickers (spec 0008); without it there is no panel. */
-  stickers?: StickerDeps
+  /** Saving and opening stickers (spec 0008, spec 0013); without it there is no Save. */
+  library?: Library
+  /** What the app asks of the editor (spec 0013). */
+  handle?: Ref<EditorHandle>
+  /** The top bar's "Library" button (spec 0013 AC-5); without it there is none. */
+  onLibrary?: () => void
+  /** False while the Library shows: the editor is hidden and inert. */
+  visible?: boolean
+}
+
+/** What the app asks of the editor (spec 0013). */
+export interface EditorHandle {
+  /** Shows a picked photo; resolves to an error to show on the Library, or null (AC-3). */
+  openFile: (file: File) => Promise<MessageKey | null>
+  /** Shows a saved sticker as saved (AC-4); false when it's gone or can't be shown. */
+  openSticker: (id: string) => Promise<boolean>
+  /** What leaving would lose (AC-5): nothing, a new sticker, or changes to a saved one. */
+  unsaved: () => 'none' | 'new' | 'changed'
+  /** Saves what's shown; false with the error in the status strip. */
+  save: () => Promise<boolean>
+  /** These stickers were deleted; the open one is saved as new next time (Review Focus 2). */
+  deleted: (ids: readonly string[]) => void
+  /** Closes the Finish screen if it's open; true when it was (Decision 14). */
+  back: () => boolean
 }
 
 /**
- * The editor (spec 0009). Top to bottom: a top bar (Photo, Stickers), the
+ * The editor (spec 0009). Top to bottom: a top bar (Library, Save, Done), the
  * canvas with the status strip over it, the action row (Undo, Redo, Reset
  * to auto, Compare), the options sheet, and the toolbar (Auto, Lasso, Dots,
  * Brush, View). The
@@ -87,17 +115,14 @@ export interface EditorScreenProps {
  * below 100% and at full resolution above.
  */
 export function EditorScreen(props: EditorScreenProps) {
+  const t = useT()
   const [state, setState] = useState<AutoState | null>(null)
   const [photo, setPhoto] = useState<Photo | null>(null)
-  const [photoError, setPhotoError] = useState<string | null>(null)
   /** The chosen view; it stays across tools and photos (AC-11). */
   const [viewMode, setViewMode] = useState<ViewMode>('overlay')
   const [tool, setTool] = useState<EditorTool>('auto')
   /** The active tool's options sheet (AC-23). */
   const [sheetOpen, setSheetOpen] = useState(true)
-  /** The spec 0008 panel, in the sheet's place while open (AC-21). */
-  const [stickersOpen, setStickersOpen] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
   /** Hold-to-compare (AC-18). */
   const [comparing, setComparing] = useState(false)
   const [selection, setSelection] = useState<Selection>(emptySelection())
@@ -140,7 +165,6 @@ export function EditorScreen(props: EditorScreenProps) {
       setDots(null)
       setTool('dots')
       setSheetOpen(true)
-      setStickersOpen(false)
     },
     hasRings: selection.rings.length > 0,
   })
@@ -167,13 +191,15 @@ export function EditorScreen(props: EditorScreenProps) {
   /** Undo and Redo work on the open lasso's sections (AC-8). */
   const lassoUndo = tool === 'lasso' && lasso.open !== null
 
+  const visible = props.visible ?? true
   // Only the canvas moves; the page itself never scrolls (AC-21).
   useEffect(() => {
+    if (!visible) return
     document.body.classList.add('editor-open')
     return () => {
       document.body.classList.remove('editor-open')
     }
-  }, [])
+  }, [visible])
 
   // A download that failed offline is tried again when the connection returns.
   useEffect(() => {
@@ -196,22 +222,20 @@ export function EditorScreen(props: EditorScreenProps) {
     [session, photo],
   )
 
-  const pick = async (file: File) => {
+  /** The current photo and cutout stay when `file` can't be read (spec 0008 AC-3). */
+  const pick = async (file: File): Promise<MessageKey | null> => {
     let next: Photo
     try {
       next = await session.pick(file)
     } catch (e) {
-      if (!(e instanceof PhotoUnreadableError)) throw e
-      // The current photo and cutout stay as they were (spec 0008 AC-3).
-      setPhotoError(e.message)
-      return
+      return messageFor(e)
     }
-    setPhotoError(null)
     setDots(null)
     dropDensity()
     lasso.drop()
     if (tool === 'brush') sizeBrushFor(next.id, next.image)
     setPhoto(next)
+    return null
   }
 
   /** One dot edit as one undo step, then the dots to select (spec 0010). */
@@ -290,7 +314,7 @@ export function EditorScreen(props: EditorScreenProps) {
     }
   }
 
-  const host: StickerHost = {
+  const host: SaveHost = {
     snapshot: () => session.snapshot(),
     renderFull: async (photoId, sel, alpha) => {
       const renderer = session.renderer
@@ -306,9 +330,6 @@ export function EditorScreen(props: EditorScreenProps) {
     saved: (photoId, ref) => {
       session.saved(photoId, ref)
     },
-    deleted: (id) => {
-      session.deleted(id)
-    },
     open: async (record) => {
       const loaded = await loadSaved(record)
       const saved = parseSelection(record.selection).selection
@@ -316,10 +337,10 @@ export function EditorScreen(props: EditorScreenProps) {
         loaded.image.width === record.imageSize.width &&
         loaded.image.height === record.imageSize.height
       const alpha =
-        sameSize && record.modelAlpha && props.stickers
+        sameSize && record.modelAlpha && props.library
           ? await inflateModelAlpha(
               record.modelAlpha,
-              props.stickers.codecs.inflate,
+              props.library.deps.codecs.inflate,
             )
           : null
       // A model soft edge can't be drawn without a model alpha of this size.
@@ -338,47 +359,77 @@ export function EditorScreen(props: EditorScreenProps) {
         restore,
       )
       setFinish(reopened)
-      setPhotoError(null)
       setDots(null)
       dropDensity()
       lasso.drop()
       if (tool === 'brush') sizeBrushFor(shown.id, shown.image)
       setPhoto(shown)
-      return sameSize ? null : DIFFERENT_SIZE
+      return {
+        photoId: shown.id,
+        selection: session.snapshot()?.selection ?? restore,
+        finish: reopened,
+        warning: sameSize ? null : DIFFERENT_SIZE,
+      }
     },
   }
-  const panel = useStickers(
-    props.stickers,
+  const saver = useSave(
+    props.library,
     host,
     photo?.id ?? null,
     selection,
     finish,
   )
 
-  const lines = [
+  const openFinish = () => {
+    dropDensity()
+    setGuideOpen(!guideSeen)
+    setGuideSeen(true)
+    setFinishing(true)
+    // Android Back closes it (Decision 14).
+    window.history.pushState({ peel: 'finish' }, '')
+  }
+
+  useImperativeHandle(props.handle, () => ({
+    openFile: pick,
+    openSticker: (id) => saver.open(id),
+    unsaved: () => {
+      const snap = session.snapshot()
+      if (!snap || !saver.canSave || saver.saved) return 'none'
+      if (snap.selection.rings.length === 0) return 'none'
+      return snap.sticker ? 'changed' : 'new'
+    },
+    save: () => saver.save(),
+    deleted: (ids) => {
+      const open = session.snapshot()?.sticker?.id
+      for (const id of ids) session.deleted(id)
+      if (open !== undefined && ids.includes(open)) saver.forget()
+    },
+    back: () => {
+      if (!finishing) return false
+      setFinishing(false)
+      return true
+    },
+  }))
+
+  const lines: Message[] = [
     ...(state ? statusLines(state) : []),
-    ...(lasso.notice ? [lasso.notice] : []),
+    ...(lasso.notice ? [{ key: lasso.notice }] : []),
   ]
   const release = () => {
     setComparing(false)
   }
 
-  const choosePhoto = () => {
-    fileRef.current?.click()
-  }
   const chooseTool = (next: EditorTool) => {
     // The sheet goes, so its slider never sees the finger lift (I-3).
     dropDensity()
     if (next === 'brush' && photo) sizeBrushFor(photo.id)
-    if (next === tool && !stickersOpen) {
+    if (next === tool) {
       setSheetOpen((open) => !open)
     } else {
       setTool(next)
       setSheetOpen(true)
     }
-    setStickersOpen(false)
   }
-  const showPanel = stickersOpen && panel !== null
 
   return (
     <>
@@ -387,51 +438,45 @@ export function EditorScreen(props: EditorScreenProps) {
         data-testid="editor"
         data-phase={state?.phase ?? 'idle'}
         data-fallback={state?.fallbackTool ?? undefined}
-        inert={finishing}
+        hidden={!visible}
+        inert={finishing || !visible}
       >
         <header className="editor-top">
-          <h1 className="editor-title">Peel</h1>
-          <button type="button" onClick={choosePhoto}>
-            Photo
-          </button>
-          <button
-            type="button"
-            disabled={!photo || selection.rings.length === 0}
-            onClick={() => {
-              dropDensity()
-              setStickersOpen(false)
-              setGuideOpen(!guideSeen)
-              setGuideSeen(true)
-              setFinishing(true)
-            }}
-          >
-            Done
-          </button>
-          {panel && (
+          {props.onLibrary && (
             <button
               type="button"
-              aria-expanded={stickersOpen}
+              className="editor-library"
               onClick={() => {
                 dropDensity()
-                setStickersOpen((open) => !open)
+                props.onLibrary?.()
               }}
             >
-              Stickers
+              <span aria-hidden="true">‹</span>
+              {t('editor.library')}
             </button>
           )}
-          <input
-            ref={fileRef}
-            className="editor-file"
-            type="file"
-            accept="image/*"
-            aria-label="Pick a photo"
-            tabIndex={-1}
-            onChange={(e) => {
-              const file = e.currentTarget.files?.[0]
-              if (file) void pick(file)
-              e.currentTarget.value = ''
-            }}
-          />
+          <div className="editor-top-actions">
+            {props.library && (
+              <button
+                type="button"
+                className="editor-save"
+                disabled={!saver.canSave || saver.busy}
+                onClick={() => {
+                  void saver.save()
+                }}
+              >
+                {t(saver.saved ? 'common.saved' : 'common.save')}
+              </button>
+            )}
+            <button
+              type="button"
+              className="editor-done"
+              disabled={!photo || selection.rings.length === 0}
+              onClick={openFinish}
+            >
+              {t('editor.done')}
+            </button>
+          </div>
         </header>
         <div className="editor-main">
           <EditorCanvas
@@ -466,22 +511,17 @@ export function EditorScreen(props: EditorScreenProps) {
             brush={brush}
             {...(props.now && { now: props.now })}
           />
-          {!photo && (
-            <div className="editor-empty">
-              <button type="button" onClick={choosePhoto}>
-                Pick a photo
-              </button>
-            </div>
-          )}
           <div className="editor-status" role="status" aria-live="polite">
-            {photoError && (
+            {saver.message && (
               <p className="editor-error" role="alert">
-                {photoError}
+                {t(saver.message)}
               </p>
             )}
-            {lines.map((line) => (
-              <p key={line}>{line}</p>
-            ))}
+            {lines
+              .map((m) => say(t, m))
+              .map((line) => (
+                <p key={line}>{line}</p>
+              ))}
             {state?.unavailable && tool === 'auto' && (
               <button
                 type="button"
@@ -490,7 +530,7 @@ export function EditorScreen(props: EditorScreenProps) {
                   chooseTool('lasso')
                 }}
               >
-                {USE_LASSO_LABEL}
+                {t('auto.useLasso')}
               </button>
             )}
           </div>
@@ -504,7 +544,7 @@ export function EditorScreen(props: EditorScreenProps) {
               else session.undo()
             }}
           >
-            Undo
+            {t('editor.undo')}
           </button>
           <button
             type="button"
@@ -513,7 +553,7 @@ export function EditorScreen(props: EditorScreenProps) {
               session.redo()
             }}
           >
-            Redo
+            {t('editor.redo')}
           </button>
           {state?.hasAutoResult && (
             <button
@@ -523,7 +563,7 @@ export function EditorScreen(props: EditorScreenProps) {
                 session.resetToAuto()
               }}
             >
-              Reset to auto
+              {t('editor.resetAuto')}
             </button>
           )}
           <button
@@ -548,14 +588,12 @@ export function EditorScreen(props: EditorScreenProps) {
               e.preventDefault()
             }}
           >
-            Compare
+            {t('editor.compare')}
           </button>
         </div>
-        {(showPanel || sheetOpen) && (
+        {sheetOpen && (
           <div className="editor-sheet" data-testid="sheet">
-            {showPanel ? (
-              <StickerPanel {...panel} />
-            ) : tool === 'lasso' ? (
+            {tool === 'lasso' ? (
               <LassoSheet
                 isOpen={lasso.open !== null}
                 busy={lasso.open?.busy ?? false}
@@ -633,7 +671,7 @@ export function EditorScreen(props: EditorScreenProps) {
         )}
         <Toolbar tool={tool} disabled={!photo} onTool={chooseTool} />
       </section>
-      {finishing && photo && (
+      {finishing && visible && photo && (
         <FinishFlow
           renderer={session.renderer}
           photoId={photo.id}
@@ -644,14 +682,16 @@ export function EditorScreen(props: EditorScreenProps) {
             edit({ type: 'setFeather', px }, [])
           }}
           save={{
-            label: panel?.saved ? 'Saved' : 'Save',
-            disabled: !panel || !panel.canSave || panel.disabled,
+            label: t(saver.saved ? 'common.saved' : 'common.save'),
+            disabled: !props.library || !saver.canSave || saver.busy,
             onSave: () => {
-              panel?.onSave()
+              void saver.save()
             },
           }}
           onBack={() => {
             setFinishing(false)
+            // Its history entry goes too; the app ignores the popstate (Decision 14).
+            window.history.back()
           }}
           guideOpen={guideOpen}
         />

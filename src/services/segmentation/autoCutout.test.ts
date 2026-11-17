@@ -6,7 +6,8 @@ import type { Tap } from '../../core/segmentation'
 import { emptySelection } from '../../core/selection/model'
 import { createAutoCutout, type AutoState } from './autoCutout'
 import { createFakeEngine } from './fakeEngine'
-import { statusLines, USE_LASSO_LABEL } from './status'
+import { englishLines } from '../../test/english'
+import { statusLines } from './status'
 import { EngineUnavailable, type SegmentationEngine } from './types'
 
 const photo = (): RgbaImage => ({
@@ -146,17 +147,17 @@ describe('auto cutout controller', () => {
     await auto.start()
     await auto.setImage('p', photo())
     auto.tap(add(60, 50))
-    expect(statusLines(last())).toEqual(['Cutting out…'])
+    expect(englishLines(statusLines(last()))).toEqual(['Cutting out…'])
     await vi.advanceTimersByTimeAsync(10)
     const fast = await direct('fast', [add(60, 50)])
     expect(history.current).toEqual(fast.selection)
-    expect(statusLines(last())).toEqual(['Sharpening…'])
+    expect(englishLines(statusLines(last()))).toEqual(['Sharpening…'])
     await vi.advanceTimersByTimeAsync(100)
     const precise = await direct('precise', [add(60, 50)])
     expect(history.current).toEqual(precise.selection)
     expect(last().phase).toBe('done')
     expect(last().modelAlpha).toEqual(precise.alpha)
-    expect(statusLines(last())).toEqual([])
+    expect(englishLines(statusLines(last()))).toEqual([])
   })
 
   it('should_never_apply_a_stale_precise_result (AC-11)', async () => {
@@ -202,7 +203,7 @@ describe('auto cutout controller', () => {
     const edited = history.current
     await vi.advanceTimersByTimeAsync(100)
     expect(history.current).toBe(edited)
-    expect(statusLines(last())).toEqual(['Sharper cutout ready'])
+    expect(englishLines(statusLines(last()))).toEqual(['Sharper cutout ready'])
     auto.resetToAuto()
     const precise = await direct('precise', [add(60, 50)])
     expect(history.current).toEqual(precise.selection)
@@ -218,7 +219,7 @@ describe('auto cutout controller', () => {
     auto.tap({ imagePt: { x: 60, y: 50 }, mode: 'remove' })
     await vi.advanceTimersByTimeAsync(200)
     expect(history.current).toBe(before)
-    expect(statusLines(last())).toEqual([
+    expect(englishLines(statusLines(last()))).toEqual([
       'Nothing found there. Tap on the subject.',
     ])
   })
@@ -235,7 +236,7 @@ describe('auto cutout controller', () => {
       (await direct('fast', [add(60, 50)])).selection,
     )
     expect(noPrecise.last().phase).toBe('done')
-    expect(statusLines(noPrecise.last())).toEqual([
+    expect(englishLines(statusLines(noPrecise.last()))).toEqual([
       'Sharper cutout not available on this device',
     ])
 
@@ -247,7 +248,7 @@ describe('auto cutout controller', () => {
     await noFast.auto.start()
     await noFast.auto.setImage('p', photo())
     noFast.auto.tap(add(60, 50))
-    expect(statusLines(noFast.last())).toEqual(['Cutting out…'])
+    expect(englishLines(statusLines(noFast.last()))).toEqual(['Cutting out…'])
     await vi.advanceTimersByTimeAsync(100)
     expect(noFast.history.current).toEqual(
       (await direct('precise', [add(60, 50)])).selection,
@@ -259,10 +260,9 @@ describe('auto cutout controller', () => {
     })
     await none.auto.start()
     expect(none.last().unavailable).toBe('offline')
-    expect(statusLines(none.last())).toEqual([
+    expect(englishLines(statusLines(none.last()))).toEqual([
       "You're offline. The cutout model needs one download first.",
     ])
-    expect(USE_LASSO_LABEL).toBe('Use Lasso')
     none.auto.useLasso()
     expect(none.last().fallbackTool).toBe('lasso')
   })
@@ -278,15 +278,17 @@ describe('auto cutout controller', () => {
       hasAutoResult: false,
       autoResultSelection: null,
     }
-    expect(statusLines({ ...base, unavailable: 'download' })).toEqual([
+    expect(
+      englishLines(statusLines({ ...base, unavailable: 'download' })),
+    ).toEqual([
       "The cutout model didn't download. Check the connection and try again.",
     ])
-    expect(statusLines({ ...base, unavailable: 'storage' })).toEqual([
-      'Not enough storage for the cutout model.',
-    ])
-    expect(statusLines({ ...base, unavailable: 'unsupported' })).toEqual([
-      "Auto cutout doesn't work in this browser.",
-    ])
+    expect(
+      englishLines(statusLines({ ...base, unavailable: 'storage' })),
+    ).toEqual(['Not enough storage for the cutout model.'])
+    expect(
+      englishLines(statusLines({ ...base, unavailable: 'unsupported' })),
+    ).toEqual(["Auto cutout doesn't work in this browser."])
   })
 
   it('should_total_the_download_before_the_first_byte (AC-16)', async () => {
@@ -299,10 +301,12 @@ describe('auto cutout controller', () => {
     const downloads = states.flatMap((s) => (s.download ? [s.download] : []))
     expect(downloads[0]).toEqual({ loadedBytes: 0, totalBytes: 51_300_000 })
     expect(
-      statusLines({
-        ...(states[0] as AutoState),
-        download: downloads[0] ?? null,
-      }),
+      englishLines(
+        statusLines({
+          ...(states[0] as AutoState),
+          download: downloads[0] ?? null,
+        }),
+      ),
     ).toEqual(['Downloading cutout model: 0.0 of 51.3 MB'])
     for (let k = 1; k < downloads.length; k++) {
       expect(downloads[k]?.loadedBytes).toBeGreaterThanOrEqual(
@@ -415,7 +419,7 @@ describe('auto cutout controller', () => {
     await auto.setImage('p', photo())
     auto.tap(add(60, 50))
     await vi.advanceTimersByTimeAsync(200)
-    expect(statusLines(last())).toEqual([
+    expect(englishLines(statusLines(last()))).toEqual([
       'Sharper cutout not available on this device',
     ])
     auto.retry()
@@ -424,7 +428,7 @@ describe('auto cutout controller', () => {
     expect(history.current).toEqual(
       (await direct('precise', [add(60, 50)])).selection,
     )
-    expect(statusLines(last())).toEqual([])
+    expect(englishLines(statusLines(last()))).toEqual([])
   })
 
   it('should_not_download_when_the_browser_cannot_run_auto (AC-20)', async () => {
@@ -452,7 +456,7 @@ describe('auto cutout controller', () => {
     })
     await expect(auto.start()).resolves.toBeUndefined()
     expect(last().unavailable).toBe('unsupported')
-    expect(statusLines(last())).toEqual([
+    expect(englishLines(statusLines(last()))).toEqual([
       "Auto cutout doesn't work in this browser.",
     ])
   })
@@ -468,6 +472,6 @@ describe('auto cutout controller', () => {
     await vi.advanceTimersByTimeAsync(200)
     expect(history.current).toEqual(emptySelection())
     expect(last().modelAlpha).toBeNull()
-    expect(statusLines(last())).toEqual([])
+    expect(englishLines(statusLines(last()))).toEqual([])
   })
 })

@@ -18,7 +18,7 @@ import type {
   FromRenderWorker,
 } from '../../workers/protocol'
 import type { EditorScreenProps } from './EditorScreen'
-import type { SaveSnapshot, StickerRef } from './useStickers'
+import type { SaveSnapshot, StickerRef } from './useSave'
 
 /** The part of the render worker client this screen uses (spec 0006). */
 export interface Renderer {

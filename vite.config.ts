@@ -17,8 +17,8 @@ export default defineConfig({
     react(),
     peelModels(),
     VitePWA({
-      // Silent auto-update for now; switch to 'prompt' with the update prompt UI (plan Phase 9).
-      registerType: 'autoUpdate',
+      // A new version waits until the Library's Reload (spec 0013 AC-22, AC-23).
+      registerType: 'prompt',
       includeAssets: ['favicon.svg', 'apple-touch-icon-180x180.png'],
       manifest: {
         name: 'Peel',
@@ -48,10 +48,10 @@ export default defineConfig({
         globPatterns: [
           '*.{js,css,html,svg,png,webmanifest}',
           'assets/**/*.{js,css,html,svg,png,webmanifest}',
+          // The WebP encoder's wasm: WhatsApp-style works offline after the
+          // first visit (spec 0013 AC-20). It still loads only when chosen.
+          'assets/webp_enc*.wasm',
         ],
-        // The WebP encoder downloads when WhatsApp-style is first picked,
-        // not at install (spec 0012 Decision 1; offline caching is #89).
-        globIgnores: ['**/webp_enc*.js'],
         navigateFallback: 'index.html',
       },
     }),

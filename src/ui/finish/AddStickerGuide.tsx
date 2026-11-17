@@ -1,4 +1,5 @@
 import { useId, useState } from 'react'
+import { Rich, useT } from '../i18n'
 
 export interface AddStickerGuideProps {
   /** Share is offered for the Sticker output (AC-14); otherwise the steps use Download. */
@@ -11,8 +12,17 @@ export interface AddStickerGuideProps {
  * web app can't add it to the system's Stickers, but Photos can.
  */
 export function AddStickerGuide(props: AddStickerGuideProps) {
+  const t = useT()
   const [open, setOpen] = useState(props.initiallyOpen)
   const id = useId()
+  const steps = [
+    ...(props.shareShown
+      ? (['guide.share1', 'guide.share2'] as const)
+      : (['guide.download1', 'guide.download2'] as const)),
+    'guide.step3',
+    'guide.step4',
+    'guide.step5',
+  ] as const
   return (
     <div className="finish-guide">
       <button
@@ -23,45 +33,19 @@ export function AddStickerGuide(props: AddStickerGuideProps) {
           setOpen((o) => !o)
         }}
       >
-        How to add to iPhone Stickers
+        {t('guide.toggle')}
       </button>
       <div id={id} hidden={!open}>
         {open && (
           <>
             <ol>
-              {props.shareShown ? (
-                <>
-                  <li>
-                    Choose <strong>Sticker</strong>, then tap{' '}
-                    <strong>Share</strong>.
-                  </li>
-                  <li>
-                    Tap <strong>Save Image</strong>.
-                  </li>
-                </>
-              ) : (
-                <>
-                  <li>
-                    Choose <strong>Sticker</strong>, then tap{' '}
-                    <strong>Download</strong>.
-                  </li>
-                  <li>
-                    Open the download and tap <strong>Share</strong>, then{' '}
-                    <strong>Save Image</strong>.
-                  </li>
-                </>
-              )}
-              <li>
-                Open <strong>Photos</strong> and open the image.
-              </li>
-              <li>Touch and hold the sticker until it lifts, then let go.</li>
-              <li>
-                Tap <strong>Add Sticker</strong>.
-              </li>
+              {steps.map((key) => (
+                <li key={key}>
+                  <Rich text={t(key)} />
+                </li>
+              ))}
             </ol>
-            <p>
-              Your sticker is now in the stickers of Messages and the keyboard.
-            </p>
+            <p>{t('guide.after')}</p>
           </>
         )}
       </div>

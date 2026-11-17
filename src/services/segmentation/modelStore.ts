@@ -24,6 +24,14 @@ export interface ModelStore {
     files: readonly ModelFile[],
     onProgress: (loadedBytes: number, totalBytes: number) => void,
   ): Promise<Map<string, ArrayBuffer>>
+  /**
+   * Downloads the files not cached yet, as `get` does, without reading the
+   * cached ones or keeping any bytes (spec 0013 AC-18, final review I-2).
+   */
+  ensure(
+    files: readonly ModelFile[],
+    onProgress: (loadedBytes: number, totalBytes: number) => void,
+  ): Promise<void>
 }
 
 export async function sha256Hex(data: ArrayBuffer): Promise<string> {
@@ -100,6 +108,106 @@ export function createModelStore(deps: ModelStoreDeps): ModelStore {
     return at - offset
   }
 
+  /** One download per file at a time; other callers join it (spec 0013 Review Focus 3). */
+  interface Flight {
+    promise: Promise<ArrayBuffer>
+    /** Bytes of this file downloaded so far. */
+    loaded: number
+    listeners: Set<(loaded: number) => void>
+    /** Callers of `get` waiting for the bytes (`ensure` takes none). */
+    users: number
+  }
+  const flights = new Map<string, Flight>()
+
+  /** Downloads, checks and caches `file`, or joins its download already running. */
+  const download = (cache: Cache, file: ModelFile): Flight => {
+    const key = keyOf(file)
+    const running = flights.get(key)
+    if (running) return running
+    const flight: Flight = {
+      promise: Promise.resolve(new ArrayBuffer(0)),
+      loaded: 0,
+      listeners: new Set(),
+      users: 0,
+    }
+    const run = async (): Promise<ArrayBuffer> => {
+      const data = new Uint8Array(file.bytes)
+      const parts = file.parts ?? [{ path: file.path, bytes: file.bytes }]
+      let offset = 0
+      try {
+        for (const part of parts) {
+          const got = await fetchInto(part.path, data, offset, (n) => {
+            flight.loaded += n
+            for (const l of flight.listeners) l(flight.loaded)
+          })
+          if (got !== part.bytes) {
+            throw new EngineUnavailable(
+              'download',
+              `${part.path}: got ${String(got)} of ${String(part.bytes)} bytes`,
+            )
+          }
+          offset += got
+        }
+      } catch (e) {
+        throw networkError(e)
+      }
+      if ((await deps.digest(data.buffer)) !== file.sha256) {
+        throw new EngineUnavailable(
+          'download',
+          `${file.path}: checksum mismatch`,
+        )
+      }
+      try {
+        await cache.put(keyOf(file), new Response(data.slice().buffer))
+      } catch (e) {
+        if (isQuota(e)) throw new EngineUnavailable('storage', file.path)
+        throw e
+      }
+      await dropStale(cache, file)
+      return data.buffer
+    }
+    flight.promise = run().finally(() => {
+      flights.delete(key)
+    })
+    flights.set(key, flight)
+    return flight
+  }
+
+  /**
+   * Downloads `missing` in order, or joins their downloads, reporting this
+   * call's bytes; `take` collects each file's bytes into `out`.
+   */
+  const fetchMissing = async (
+    cache: Cache,
+    missing: readonly ModelFile[],
+    onProgress: (loadedBytes: number, totalBytes: number) => void,
+    out: Map<string, ArrayBuffer> | null,
+  ) => {
+    const total = missing.reduce((n, f) => n + f.bytes, 0)
+    const perFile = new Map<string, number>()
+    let loaded = 0
+    if (missing.length > 0) onProgress(0, total)
+    for (const file of missing) {
+      const flight = download(cache, file)
+      if (out) flight.users++
+      const listener = (n: number) => {
+        loaded += n - (perFile.get(file.path) ?? 0)
+        perFile.set(file.path, n)
+        onProgress(loaded, total)
+      }
+      flight.listeners.add(listener)
+      if (flight.loaded > 0) listener(flight.loaded)
+      try {
+        const buffer = await flight.promise
+        // A shared download gives each caller its own copy: a caller may
+        // transfer its buffer to a worker, detaching it (spec 0013).
+        out?.set(file.path, flight.users > 1 ? buffer.slice(0) : buffer)
+      } finally {
+        flight.listeners.delete(listener)
+      }
+    }
+  }
+
   return {
     async missingBytes(files) {
       const cache = await open()
@@ -119,46 +227,17 @@ export function createModelStore(deps: ModelStoreDeps): ModelStore {
         if (hit) out.set(file.path, hit)
         else missing.push(file)
       }
-      const total = missing.reduce((n, f) => n + f.bytes, 0)
-      let loaded = 0
-      if (missing.length > 0) onProgress(0, total)
-      for (const file of missing) {
-        const data = new Uint8Array(file.bytes)
-        const parts = file.parts ?? [{ path: file.path, bytes: file.bytes }]
-        let offset = 0
-        try {
-          for (const part of parts) {
-            const got = await fetchInto(part.path, data, offset, (n) => {
-              loaded += n
-              onProgress(loaded, total)
-            })
-            if (got !== part.bytes) {
-              throw new EngineUnavailable(
-                'download',
-                `${part.path}: got ${String(got)} of ${String(part.bytes)} bytes`,
-              )
-            }
-            offset += got
-          }
-        } catch (e) {
-          throw networkError(e)
-        }
-        if ((await deps.digest(data.buffer)) !== file.sha256) {
-          throw new EngineUnavailable(
-            'download',
-            `${file.path}: checksum mismatch`,
-          )
-        }
-        try {
-          await cache.put(keyOf(file), new Response(data.slice().buffer))
-        } catch (e) {
-          if (isQuota(e)) throw new EngineUnavailable('storage', file.path)
-          throw e
-        }
-        await dropStale(cache, file)
-        out.set(file.path, data.buffer)
-      }
+      await fetchMissing(cache, missing, onProgress, out)
       return out
+    },
+
+    async ensure(files, onProgress) {
+      const cache = await open()
+      const missing: ModelFile[] = []
+      for (const file of files) {
+        if (!(await cache.match(keyOf(file)))) missing.push(file)
+      }
+      await fetchMissing(cache, missing, onProgress, null)
     },
   }
 }

@@ -1,0 +1,418 @@
+/* The Library (spec 0013 AC-1, AC-7, AC-28). Colours come from index.css. */
+.library {
+  min-height: 100dvh;
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+.library button {
+  min-height: 44px;
+  min-width: 44px;
+  font: inherit;
+}
+
+.library-top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
+  background: var(--strip-bg);
+  backdrop-filter: blur(12px);
+}
+
+.library-title {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.library-count {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.library-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.library-top-actions > button,
+.library-bar-actions > button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0 16px;
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.library-message,
+.library-blocked {
+  margin: 4px 16px 8px;
+  color: var(--muted);
+}
+
+.library-blocked {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--error-bg);
+  color: var(--error-fg);
+}
+
+.library-empty {
+  display: grid;
+  place-items: center;
+  /* The title and its line sit together in the middle (AC-2). */
+  align-content: center;
+  gap: 4px;
+  min-height: 50dvh;
+  padding: 0 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.library-empty p {
+  margin: 0;
+}
+
+.library-empty-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 4px 12px;
+  list-style: none;
+}
+
+@media (min-width: 600px) {
+  .library-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 160px));
+  }
+}
+
+.library-tile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 8px;
+  border: 0;
+  border-radius: 14px;
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(45deg, var(--border) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--border) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--border) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--border) 75%);
+  background-size: 12px 12px;
+  background-position:
+    0 0,
+    0 6px,
+    6px -6px,
+    -6px 0;
+  /* Touch and hold selects (AC-7); no image menu or text selection (Review Focus 1). */
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  transition: transform 120ms ease;
+}
+
+.library-tile img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.library-tile[aria-pressed='true'] {
+  transform: scale(0.94);
+  box-shadow: 0 0 0 3px var(--accent);
+}
+
+.library-tick {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.25);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+}
+
+.library-tick[data-on] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.library-new {
+  position: fixed;
+  right: 16px;
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  z-index: 3;
+  width: 56px;
+  height: 56px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 2rem;
+  font-weight: 300;
+  line-height: 1;
+  box-shadow: 0 6px 18px rgb(36 89 201 / 0.4);
+}
+
+.library-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--strip-bg);
+  backdrop-filter: blur(12px);
+}
+
+.library-bar-note {
+  margin: 0 0 6px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.library-bar-actions {
+  display: flex;
+  justify-content: space-around;
+  gap: 6px;
+}
+
+.library-bar-actions > button {
+  flex: 1;
+  padding: 0 8px;
+}
+
+.library .library-danger {
+  color: var(--error-fg);
+}
+
+/* Clipped, or WebKit's "Choose File" text spills past the screen (AC-28). */
+.library-file {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: end center;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  background: rgb(0 0 0 / 0.4);
+}
+
+.dialog {
+  width: min(100%, 420px);
+  box-sizing: border-box;
+  padding: 20px 16px 16px;
+  border-radius: 18px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.dialog-title {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+}
+
+.dialog-body {
+  margin: 0 0 16px;
+  color: var(--muted);
+}
+
+.dialog-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.dialog-actions button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+}
+
+.dialog-actions .dialog-primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.dialog-actions .dialog-danger {
+  background: var(--error-bg);
+  color: var(--error-fg);
+}
+
+/* ⋯ menu (AC-13) */
+.menu-root {
+  position: relative;
+}
+
+.library .menu-button {
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  display: grid;
+  min-width: 240px;
+  max-width: calc(100vw - 32px);
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
+}
+
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: none;
+  color: var(--fg);
+  text-align: left;
+}
+
+.menu button:disabled {
+  color: var(--muted);
+}
+
+.menu button:not(:disabled):active {
+  background: var(--surface);
+}
+
+.menu-group {
+  display: grid;
+  margin: 4px 0;
+  padding: 4px 0;
+  border-block: 1px solid var(--border);
+}
+
+.menu-label {
+  margin: 4px 10px 2px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.menu-check {
+  width: 1em;
+  color: var(--accent);
+}
+
+.menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.menu-status {
+  margin: 4px 10px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* Install card (AC-17) and update bar (AC-22) */
+.install-card,
+.update-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 12px 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.install-card p,
+.update-bar p {
+  flex: 1;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.install-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.library .install-card-go,
+.library .update-bar button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0 14px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+}
+
+.library .install-card-close {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 1.25rem;
+}
+
+.guide-steps {
+  margin: 8px 0 12px;
+  padding-left: 1.25rem;
+  line-height: 1.5;
+}
+
+.guide-steps li + li {
+  margin-top: 6px;
+}

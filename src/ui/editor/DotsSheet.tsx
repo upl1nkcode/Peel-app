@@ -1,10 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-
-/** The Dots tool's hint (spec 0010 AC-18). */
-export const DOTS_HINT =
-  'Drag a dot · Tap the line to add · Double-tap to delete · Hold for corner'
-/** The hint with nothing to edit yet (AC-2). */
-export const DOTS_EMPTY_HINT = 'Start with a shape, or use Auto'
+import { useT } from '../i18n'
 
 const NUDGES = [
   ['left', '←', -1, 0],
@@ -35,6 +30,7 @@ export interface DotsSheetProps {
  * back to the middle; and the nudge pad.
  */
 export function DotsSheet(props: DotsSheetProps) {
+  const t = useT()
   const [value, setValue] = useState(0)
   /** The slider is held, and where it is (read when it is let go). */
   const held = useRef<number | null>(null)
@@ -75,7 +71,7 @@ export function DotsSheet(props: DotsSheetProps) {
   return (
     <div className="editor-dots">
       <p className="editor-hint">
-        {props.hasRings ? DOTS_HINT : DOTS_EMPTY_HINT}
+        {t(props.hasRings ? 'dots.hint' : 'dots.emptyHint')}
       </p>
       <div className="editor-row">
         <button
@@ -86,7 +82,7 @@ export function DotsSheet(props: DotsSheetProps) {
             props.onFine(!props.fine)
           }}
         >
-          Fine
+          {t('dots.fine')}
         </button>
         <button
           type="button"
@@ -94,7 +90,7 @@ export function DotsSheet(props: DotsSheetProps) {
             props.onShape('rectangle')
           }}
         >
-          Rectangle
+          {t('dots.rectangle')}
         </button>
         <button
           type="button"
@@ -102,14 +98,14 @@ export function DotsSheet(props: DotsSheetProps) {
             props.onShape('ellipse')
           }}
         >
-          Ellipse
+          {t('dots.ellipse')}
         </button>
       </div>
       <div className="editor-density">
-        <span aria-hidden="true">Fewer</span>
+        <span aria-hidden="true">{t('dots.fewer')}</span>
         <input
           type="range"
-          aria-label="Dots"
+          aria-label={t('dots.slider')}
           min={-1}
           max={1}
           step={0.01}
@@ -128,14 +124,14 @@ export function DotsSheet(props: DotsSheetProps) {
           onKeyUp={end}
           onBlur={end}
         />
-        <span aria-hidden="true">More</span>
+        <span aria-hidden="true">{t('dots.more')}</span>
       </div>
       <div className="editor-row editor-nudge">
         {NUDGES.map(([name, arrow, dx, dy]) => (
           <button
             key={name}
             type="button"
-            aria-label={`Nudge ${name}`}
+            aria-label={t(`dots.nudge.${name}`)}
             disabled={!props.canNudge}
             onClick={() => {
               props.onNudge(dx, dy)

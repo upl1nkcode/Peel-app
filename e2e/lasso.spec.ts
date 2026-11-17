@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './helpers/test'
 import { cutoutAlpha, cutoutAlphas, drag, finger, zoomAt } from './helpers/dots'
 import { canvasInfo, imageToClient } from './helpers/editor'
 import { around, openLasso, trace } from './helpers/lasso'

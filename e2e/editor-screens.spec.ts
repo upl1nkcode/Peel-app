@@ -1,10 +1,13 @@
-import { expect, test } from '@playwright/test'
-import { VIEW_LABELS, VIEW_MODES } from '../src/core/editor'
+import { expect, test } from './helpers/test'
+import { VIEW_MODES } from '../src/core/editor'
+import { en } from '../src/ui/i18n/en'
 import {
   generatedJpeg,
   imageToClient,
+  importFile,
   nextFrame,
   seedAndOpen,
+  seedMany,
 } from './helpers/editor'
 
 // The PWA's service worker would fetch the models itself, past page.route,
@@ -50,7 +53,7 @@ test('should_match_each_view_at_fit_and_100_percent (AC-12)', async ({
       await expect(canvas).toHaveAttribute('data-mask-scale', '1.0000')
     }
     for (const mode of VIEW_MODES) {
-      await page.getByRole('radio', { name: VIEW_LABELS[mode] }).click()
+      await page.getByRole('radio', { name: en[`view.${mode}`] }).click()
       await expect(canvas).toHaveAttribute('data-view', mode)
       await nextFrame(page)
       await expect(canvas).toHaveScreenshot(`view-${mode}-${zoom}.png`, SHOT)
@@ -191,4 +194,49 @@ test('should_match_the_finish_screen (spec 0012 AC-21)', async ({ page }) => {
       await expect(page.getByAltText('Sticker preview')).toBeVisible()
     })
   }
+})
+
+test('should_match_the_library (spec 0013 AC-29)', async ({ page }) => {
+  const shoot = async (name: string, setUp: () => Promise<void>) => {
+    for (const size of [
+      { width: 375, height: 812 },
+      { width: 430, height: 932 },
+    ]) {
+      for (const colorScheme of ['light', 'dark'] as const) {
+        await page.setViewportSize(size)
+        await page.emulateMedia({ colorScheme })
+        await page.goto('/')
+        await setUp()
+        await nextFrame(page)
+        await expect(page).toHaveScreenshot(
+          `library-${name}-${String(size.width)}-${colorScheme}.png`,
+          SHOT,
+        )
+      }
+    }
+  }
+  const tiles = page.getByRole('button', { name: 'Open sticker' })
+  // Each test has its own browser context: nothing is saved until `nine`.
+  await shoot('empty', async () => {
+    await expect(page.getByText('No stickers yet')).toBeVisible()
+  })
+  const nine = async () => {
+    if ((await tiles.count()) !== 9) {
+      await importFile(page, await seedMany(9))
+    }
+    await expect(tiles).toHaveCount(9)
+  }
+  await shoot('grid', nine)
+  await shoot('selecting', async () => {
+    await nine()
+    await page.getByRole('button', { name: 'Select' }).click()
+    await tiles.nth(0).click()
+    await tiles.nth(2).click()
+    await expect(page.getByText('2 selected')).toBeVisible()
+  })
+  await shoot('menu', async () => {
+    await nine()
+    await page.getByRole('button', { name: 'More' }).click()
+    await expect(page.getByRole('menu')).toBeVisible()
+  })
 })

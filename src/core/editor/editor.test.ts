@@ -20,7 +20,6 @@ import {
   needsFinerMask,
   previewScale,
   VIEW_BACKGROUNDS,
-  VIEW_LABELS,
   VIEW_MODES,
   viewPixel,
   type Rgb,
@@ -42,13 +41,6 @@ describe('view colours', () => {
       'black',
       'white',
       'red',
-    ])
-    expect(VIEW_MODES.map((m) => VIEW_LABELS[m])).toEqual([
-      'Overlay',
-      'Checkerboard',
-      'Black',
-      'White',
-      'Red',
     ])
     expectRgb(viewPixel('overlay', p, 1, CHECKER_LIGHT), p)
     expectRgb(viewPixel('overlay', p, 0, CHECKER_LIGHT), [100, 50, 25])

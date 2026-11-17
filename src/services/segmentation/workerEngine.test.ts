@@ -26,6 +26,7 @@ const fakeStore = (fail?: EngineUnavailable): ModelStore => ({
       new Map(files.map((f) => [f.path, new ArrayBuffer(f.bytes)])),
     )
   },
+  ensure: () => Promise.resolve(),
 })
 
 const discBackend = (runs: Stroke[][]): InferenceBackend => {

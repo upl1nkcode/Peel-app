@@ -13,6 +13,7 @@ import {
   shareFile,
 } from '../../services/export'
 import type { FinishedFile } from './useFinishOutput'
+import { useT, type MessageKey } from '../i18n'
 
 /** The browser parts the actions use; tests pass their own. */
 export interface ExportEnv {
@@ -22,8 +23,8 @@ export interface ExportEnv {
   doc?: Document
 }
 
-export const SHARE_FAILED = "Couldn't share. Try Download instead."
-export const COPY_FAILED = "Couldn't copy. Try Share or Download instead."
+export const SHARE_FAILED: MessageKey = 'finish.shareFailed'
+export const COPY_FAILED: MessageKey = 'finish.copyFailed'
 /** AC-15: how long "Copied" shows. */
 export const COPIED_MS = 2000
 
@@ -52,6 +53,7 @@ export interface ExportActionsProps {
  * ready (Review Focus 1). Share and Copy run inside the tap (Decision 5).
  */
 export function ExportActions(props: ExportActionsProps) {
+  const t = useT()
   // Detected once, at mount, for each type (AC-13).
   const [env] = useState(() => props.env ?? browserEnv())
   const [can] = useState(() => ({
@@ -61,7 +63,7 @@ export function ExportActions(props: ExportActionsProps) {
     },
     copy: canCopyPng(env),
   }))
-  const [message, setMessage] = useState<string | null>(null)
+  const [message, setMessage] = useState<MessageKey | null>(null)
   const [copied, setCopied] = useState(false)
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -118,20 +120,20 @@ export function ExportActions(props: ExportActionsProps) {
       <div className="finish-action-buttons">
         {can.share[mime] && (
           <button type="button" disabled={!ready} onClick={share}>
-            Share
+            {t('finish.share')}
           </button>
         )}
         {mime === 'image/png' && can.copy && (
           <button type="button" disabled={!ready} onClick={copy}>
-            {copied ? 'Copied' : 'Copy'}
+            {t(copied ? 'finish.copied' : 'finish.copy')}
           </button>
         )}
         <button type="button" disabled={!ready} onClick={download}>
-          Download
+          {t('finish.download')}
         </button>
       </div>
       <p className="finish-action-message" role="status">
-        {message}
+        {message && t(message)}
       </p>
     </div>
   )

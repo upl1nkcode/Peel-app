@@ -58,6 +58,17 @@ export type ToRenderWorker =
       selection: Selection
       settings: FinishSettings
     }
+  /**
+   * A saved sticker's file in its saved finish (spec 0013 AC-8): `png` is the
+   * stored cutout, decoded exactly. Its own type, so it never cancels the
+   * editor's jobs.
+   */
+  | {
+      type: 'finishSaved'
+      jobId: number
+      png: Uint8Array
+      settings: FinishSettings
+    }
 export type FinishFailure = 'empty' | 'tooLarge' | 'encoderUnavailable'
 export type FromRenderWorker =
   | { type: 'rendered'; jobId: number; mask: AlphaMask }

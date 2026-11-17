@@ -20,3 +20,20 @@ Deployed build: <https://peel-app-9kg.pages.dev>, installed to the Home Screen.
 | 10 | Save on the Finish screen; reopen the sticker: its Finish settings come back | | |
 
 Tested by: product owner · Date: 2026-11-17 · Devices: iPhone 15 Pro, iOS 26.6.2, Safari (rows 1, 3, 4). Android: not yet.
+
+## Library, install and offline (spec 0013, story #86)
+
+Deployed build: <https://peel-app-9kg.pages.dev>. Clear the site's data (or use a new profile) before row 5 so it really is a first visit.
+
+| # | Check | iPhone | Android |
+|---|---|---|---|
+| 1 | Touch and hold a sticker: it's ticked and nothing opens; tick a second; Share sends both in one sheet | | |
+| 2 | Delete (with its dialog) and Duplicate on ticked stickers | | |
+| 3 | Install with the "Install Peel" button (⋯ menu or the card) | n/a | |
+| 4 | Install with the iPhone guide; its steps match what Safari shows | | n/a |
+| 5 | After the first visit says "Ready to use offline.": airplane mode, reopen, pick a photo, Auto, all three outputs, Save | | |
+| 6 | Phone language Romanian: everything is in Romanian; Automatic/English/Română switch at once | | |
+| 7 | After a new deploy, the Library shows "A new version of Peel is ready." and Reload loads it | | |
+| 8 | Android Back: Finish → editor → Library (asking first when there are unsaved changes) | n/a | |
+
+Tested by: · Date: · Devices:

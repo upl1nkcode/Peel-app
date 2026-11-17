@@ -1,31 +1,15 @@
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { renderMask, type RgbaImage } from '../../core/mask'
-import { storedDeflate } from '../../core/png'
+import { renderMask } from '../../core/mask'
 import type { Selection } from '../../core/selection/types'
 import type { FinishSettings } from '../../core/sticker'
-import { testInflate, testInflateRaw } from '../../core/testing/codecs'
-import { createFakeEngine } from '../../services/segmentation'
 import { openStickerStore, type StickerStore } from '../../services/storage'
-import type { LoadedPhoto } from '../../services/photo'
 import type { FromRenderWorker } from '../../workers/protocol'
 import type { Cancelled } from '../../services/workerClient'
-import { EditorScreen, type Renderer } from '../editor/EditorScreen'
-
-const image = (width: number, height: number): RgbaImage => ({
-  width,
-  height,
-  data: new Uint8Array(width * height * 4).fill(200),
-})
+import type { Renderer } from '../editor/EditorScreen'
+import { pickPhoto, renderShell } from '../../test/shell'
 
 interface FinishCall {
   kind: 'finish' | 'finishPreview'
@@ -97,34 +81,9 @@ async function failedWith(
   })
 }
 
+/** The app with the editor's finish jobs held in `calls` (spec 0013 Shell). */
 function setup(store?: Promise<StickerStore>) {
-  return render(
-    <EditorScreen
-      engines={{
-        fast: createFakeEngine({ name: 'fast' }),
-        precise: createFakeEngine({ name: 'precise' }),
-      }}
-      missingBytes={() => Promise.resolve(0)}
-      createRenderer={fakeRenderer}
-      loadPhoto={(f: Blob): Promise<LoadedPhoto> =>
-        Promise.resolve({
-          image: image(100, 50),
-          bytes: new Uint8Array([1, 2, 3]),
-          type: f.type,
-        })
-      }
-      stickers={{
-        store: store ?? openStickerStore(new IDBFactory()),
-        storage: undefined,
-        codecs: {
-          deflate: storedDeflate,
-          inflate: testInflate,
-          inflateRaw: testInflateRaw,
-        },
-        clock: () => Date.now(),
-      }}
-    />,
-  )
+  return renderShell({ ...(store && { store }), renderer: fakeRenderer }).view
 }
 
 const button = (name: string | RegExp) => screen.getByRole('button', { name })
@@ -194,6 +153,8 @@ afterEach(() => {
 describe('Finish screen (spec 0012)', () => {
   it('should_open_from_done_only_with_a_ring (AC-8)', async () => {
     setup()
+    // A photo without a ring: no Done (the editor only shows with a photo).
+    await pickPhoto()
     expect(done()).toBeDisabled()
     await cutPhoto()
     const region = await openFinish()
@@ -408,7 +369,8 @@ describe('Finish screen (spec 0012)', () => {
     expect(save()).not.toHaveTextContent('Saved')
     // Reopen the sticker: its own settings come back.
     fireEvent.click(button('Back'))
-    fireEvent.click(button('Stickers'))
+    fireEvent.click(button('Library'))
+    fireEvent.click(button("Don't save"))
     fireEvent.click(await screen.findByRole('button', { name: 'Open sticker' }))
     await waitFor(() => {
       expect(done()).toBeEnabled()

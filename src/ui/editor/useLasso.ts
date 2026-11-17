@@ -10,13 +10,14 @@ import { isDegenerateRing } from '../../core/geometry/polygon'
 import type { SmoothStrength } from '../../core/geometry/smooth'
 import type { Point } from '../../core/geometry/types'
 import type { Command, Selection } from '../../core/selection/types'
+import type { MessageKey } from '../i18n'
 import type { DrawnSection, OpenLasso } from './lassoTool'
 import type { Renderer, Snapper } from './session'
 
 /** The status when a lasso can't become a ring (spec 0011 AC-10). */
-export const LASSO_INVALID = 'Draw around the area to cut out'
+export const LASSO_INVALID: MessageKey = 'lasso.invalid'
 /** The status when a snap fails (AC-13). */
-export const SNAP_FAILED = "Couldn't snap to edges here, kept your line"
+export const SNAP_FAILED: MessageKey = 'lasso.snapFailed'
 
 export type LassoMode = 'add' | 'subtract'
 
@@ -44,7 +45,7 @@ export interface LassoController {
   setSnapOn: (on: boolean) => void
   smoothing: SmoothStrength
   setSmoothing: (s: SmoothStrength) => void
-  notice: string | null
+  notice: MessageKey | null
   addSection: (d: DrawnSection) => void
   undoSection: () => void
   finish: () => void
@@ -70,7 +71,7 @@ export function useLasso(
   const [pending, setPending] = useState<readonly Point[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [closing, setClosing] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<MessageKey | null>(null)
   const [mode, setMode] = useState<LassoMode>('add')
   const [snapOn, setSnapOn] = useState(false)
   const [smoothing, setSmoothing] = useState<SmoothStrength>(1)

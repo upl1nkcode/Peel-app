@@ -1,3 +1,4 @@
+import { english } from '../../test/english'
 // @vitest-environment node
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
@@ -77,10 +78,11 @@ describe('persistent storage', () => {
         persisted: () => Promise.reject(new Error('no')),
       }),
     ).toBe('atRisk')
-    expect(STORAGE_STATUS_TEXT).toEqual({
-      persisted: 'Stickers are kept on this device.',
-      atRisk:
-        "Your browser may clear stickers if Peel isn't used for a while. Add Peel to your Home Screen, or export a backup.",
-    })
+    expect(english({ key: STORAGE_STATUS_TEXT.persisted })).toBe(
+      'Stickers are kept on this device.',
+    )
+    expect(english({ key: STORAGE_STATUS_TEXT.atRisk })).toBe(
+      "Your browser may clear stickers if Peel isn't used for a while. Add Peel to your Home Screen, or export a backup.",
+    )
   })
 })

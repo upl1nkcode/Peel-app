@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './helpers/test'
 
 /**
  * Photo loading (spec 0008 AC-1 to AC-3) in every project. Fixtures:
@@ -97,14 +97,21 @@ test('should_explain_unreadable_files (AC-3)', async ({ page }) => {
       buffer: Buffer.from('not a photo'),
     },
   ]
+  // Photos are picked on the Library (spec 0013 AC-3); the message shows there.
+  await page.getByRole('button', { name: 'Library' }).click()
   for (const file of bad) {
     await pick.setInputFiles(file)
     await expect(page.getByText(UNREADABLE)).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'New sticker' }),
+    ).toBeVisible()
+    // The editor behind keeps its photo.
     await expect(stage(page)).toHaveAttribute('data-image-size', '120x80')
     await expect(page.getByTestId('photo')).toBeAttached()
   }
 
-  // A good photo clears the message.
+  // A good photo opens the editor and clears the message.
   await pick.setInputFiles(resolve(DIR, 'orientation-6.jpg'))
+  await expect(page.getByTestId('editor')).toBeVisible()
   await expect(page.getByText(UNREADABLE)).toBeHidden()
 })

@@ -9,14 +9,6 @@ export const VIEW_MODES: readonly ViewMode[] = [
   'red',
 ]
 
-export const VIEW_LABELS: Record<ViewMode, string> = {
-  overlay: 'Overlay',
-  checkerboard: 'Checkerboard',
-  black: 'Black',
-  white: 'White',
-  red: 'Red',
-}
-
 /** An sRGB colour, 0–255 per channel (not rounded). */
 export type Rgb = readonly [number, number, number]
 

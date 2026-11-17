@@ -1,214 +1,63 @@
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { renderMask, type AlphaMask, type RgbaImage } from '../../core/mask'
-import { storedDeflate } from '../../core/png'
-import {
-  parseSelection,
-  serializeSelection,
-} from '../../core/selection/serialize'
-import type { Selection } from '../../core/selection/types'
-import { testInflate, testInflateRaw } from '../../core/testing/codecs'
-import { backupEntries } from '../../core/backup'
-import { writeZip } from '../../core/zip'
-import { exportAll } from '../../services/backup'
+import type { AlphaMask } from './core/mask'
+import { parseSelection, serializeSelection } from './core/selection/serialize'
+import { backupEntries } from './core/backup'
+import { writeZip } from './core/zip'
+import { exportAll } from './services/backup'
 import {
   createFakeEngine,
   type SegmentationEngine,
-} from '../../services/segmentation'
+} from './services/segmentation'
 import {
   openStickerStore,
   StorageFullError,
   StorageOutdatedError,
   type StickerStore,
-} from '../../services/storage'
-import type { LoadedPhoto } from '../../services/photo'
-import { EditorScreen, type Renderer } from './EditorScreen'
+} from './services/storage'
+import {
+  cutAndSave,
+  image,
+  loaded,
+  openMenu,
+  pickPhoto,
+  renderShell,
+  saveButton,
+  stageSize,
+  tap,
+  thumbnails,
+  tick,
+  toLibrary,
+  type RenderLog,
+  type ShellSetup,
+} from './test/shell'
 
-const image = (width: number, height: number, v = 200): RgbaImage => ({
-  width,
-  height,
-  data: new Uint8Array(width * height * 4).fill(v),
-})
-
-const loaded = (file: Blob): LoadedPhoto => ({
-  image: image(100, 50),
-  bytes: new Uint8Array([1, 2, 3]),
-  type: file.type,
-})
-
-/** A renderer that renders on the main thread; `gate` can hold back renderFull. */
-interface RenderLog {
-  renderFull: Selection[]
-  /** Selections drawn by the preview. */
-  render?: Selection[]
-  gate?: Promise<void>
-  /** Make the full render cover nothing. */
-  empty?: boolean
-  /** Model alphas sent to the renderer, in order. */
-  alphas?: AlphaMask[]
-  /** The model alpha each full render was given. */
-  fullAlphas?: (AlphaMask | undefined)[]
-}
-
-function fakeRenderer(log: RenderLog) {
-  const sizes = new Map<string, { width: number; height: number }>()
-  const renderer: Renderer = {
-    setImage: (id, img) => {
-      sizes.set(id, { width: img.width, height: img.height })
-    },
-    setModelAlpha: (_id, alpha) => {
-      log.alphas?.push(alpha)
-    },
-    render: (id, selection, scale) => {
-      log.render?.push(selection)
-      return Promise.resolve({
-        type: 'rendered' as const,
-        jobId: 1,
-        mask: renderMask(selection, sizes.get(id) ?? { width: 1, height: 1 }, {
-          scale,
-        }),
-      })
-    },
-    resimplify: () => Promise.resolve({ type: 'cancelled' as const }),
-    fitRing: () => Promise.resolve({ type: 'cancelled' as const }),
-    finish: () => Promise.resolve({ type: 'cancelled' as const }),
-    finishPreview: () => Promise.resolve({ type: 'cancelled' as const }),
-    renderFull: async (id, selection, alpha) => {
-      log.renderFull.push(selection)
-      log.fullAlphas?.push(alpha)
-      await log.gate
-      const size = sizes.get(id) ?? { width: 1, height: 1 }
-      return {
-        type: 'rendered' as const,
-        jobId: 2,
-        mask: log.empty
-          ? { ...size, data: new Uint8Array(size.width * size.height) }
-          : renderMask(selection, size),
-      }
-    },
-  }
-  return renderer
-}
-
-const codecs = {
-  deflate: storedDeflate,
-  inflate: testInflate,
-  inflateRaw: testInflateRaw,
-}
-
-interface Setup {
-  store?: Promise<StickerStore>
-  storage?: Partial<Pick<StorageManager, 'persist' | 'persisted'>> | undefined
-  loadPhoto?: (file: Blob) => Promise<LoadedPhoto>
-  precise?: SegmentationEngine
-  fast?: SegmentationEngine
-  log?: RenderLog
-  clock?: () => number
-  /** Open the Stickers sheet after mounting (default: yes). */
-  openPanel?: boolean
-}
-
-function setup(opts: Setup = {}) {
-  const store = opts.store ?? openStickerStore(new IDBFactory())
-  const log = opts.log ?? { renderFull: [] }
-  const t = { now: 1000 }
-  render(
-    <EditorScreen
-      engines={{
-        fast: opts.fast ?? createFakeEngine({ name: 'fast' }),
-        precise: opts.precise ?? createFakeEngine({ name: 'precise' }),
-      }}
-      missingBytes={() => Promise.resolve(0)}
-      createRenderer={() => fakeRenderer(log)}
-      loadPhoto={opts.loadPhoto ?? ((f) => Promise.resolve(loaded(f)))}
-      now={() => t.now}
-      stickers={{
-        store,
-        storage: opts.storage,
-        codecs,
-        clock: opts.clock ?? (() => Date.now()),
-      }}
-    />,
-  )
-  // The panel lives in the Stickers sheet (spec 0009 AC-21).
-  if (opts.openPanel ?? true) {
-    fireEvent.click(screen.getByRole('button', { name: 'Stickers' }))
-  }
-  return { store, log, t }
-}
-
-/** Waits for a newly picked photo to show (its full-size canvas is replaced). */
-async function shown(before: HTMLElement | null) {
-  await waitFor(() => {
-    const now = screen.queryByTestId('photo')
-    expect(now).not.toBeNull()
-    expect(now).not.toBe(before)
+/** The app, once its sticker store has opened. */
+async function setup(opts: ShellSetup = {}) {
+  const env = renderShell(opts)
+  await act(async () => {
+    await env.store.catch(() => undefined)
   })
-  return screen.getByTestId('canvas')
+  return env
 }
-
-async function pickPhoto() {
-  const before = screen.queryByTestId('photo')
-  fireEvent.change(screen.getByLabelText('Pick a photo'), {
-    target: { files: [new File(['x'], 'photo.jpg', { type: 'image/jpeg' })] },
-  })
-  const canvas = await shown(before)
-  canvas.getBoundingClientRect = () =>
-    ({
-      left: 0,
-      top: 0,
-      width: 100,
-      height: 50,
-      right: 100,
-      bottom: 50,
-    }) as DOMRect
-  return canvas
-}
-
-/** A tap at image (x, y): the canvas is shown at scale 1. */
-function tap(canvas: HTMLElement, x: number, y: number) {
-  fireEvent.pointerDown(canvas, { clientX: x, clientY: y, pointerId: 1 })
-  fireEvent.pointerUp(canvas, { clientX: x, clientY: y, pointerId: 1 })
-}
-
-const saveButton = () => screen.getByRole('button', { name: /^Save(d)?$/ })
-const thumbnails = () =>
-  screen.queryAllByRole('button', { name: 'Open sticker' })
-
-async function cutAndSave(canvas: HTMLElement) {
-  tap(canvas, 50, 25)
-  await waitFor(() => {
-    expect(saveButton()).toBeEnabled()
-  })
-  fireEvent.click(saveButton())
-  await screen.findByRole('button', { name: 'Saved' })
-}
-
-const stageSize = () =>
-  screen.getByTestId('canvas').getAttribute('data-image-size')
 
 // jsdom has no 2D canvas; the screen skips drawing without one.
 beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+  window.history.replaceState(null, '')
 })
 afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
+describe('saving and keeping stickers through the Library (spec 0008, spec 0013)', () => {
   it('should_save_reopen_and_update (AC-5, AC-9, AC-20)', async () => {
-    const { store } = setup()
+    const { store } = await setup()
     const canvas = await pickPhoto()
     await cutAndSave(canvas)
+    await toLibrary()
     await waitFor(() => {
       expect(thumbnails()).toHaveLength(1)
     })
@@ -229,16 +78,21 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
       expect(saveButton()).toBeDisabled()
     })
     expect(screen.queryByRole('button', { name: 'Reset to auto' })).toBeNull()
+    await toLibrary()
     fireEvent.click(thumbnails()[0] as HTMLElement)
     await waitFor(() => {
-      expect(saveButton()).toBeEnabled()
+      expect(saveButton()).toHaveTextContent('Saved')
     })
     expect(stageSize()).toBe('100x50')
     // No Auto result for the re-opened photo yet (spec 0009 AC-20).
     expect(screen.queryByRole('button', { name: 'Reset to auto' })).toBeNull()
 
     fireEvent.click(saveButton())
-    await screen.findByRole('button', { name: 'Saved' })
+    await waitFor(async () => {
+      expect((await s.get(first?.id ?? ''))?.updatedAt).toBeGreaterThan(
+        saved?.updatedAt ?? Infinity,
+      )
+    })
     const after = await s.list()
     expect(after).toHaveLength(1)
     const again = await s.get(first?.id ?? '')
@@ -270,7 +124,7 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
       releaseRender = resolve
     })
     const log: RenderLog = { renderFull: [], render: [], gate }
-    const { store } = setup({ precise, log })
+    const { store } = await setup({ precise, log })
     const canvas = await pickPhoto()
     tap(canvas, 50, 25)
     await waitFor(() => {
@@ -289,7 +143,10 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
       expect(log.render?.some((sel) => sel.feather === 2)).toBe(true)
     })
     releaseRender()
-    await screen.findByRole('button', { name: 'Save' }) // the selection changed since
+    // The selection changed since.
+    await within(screen.getByTestId('editor')).findByRole('button', {
+      name: 'Save',
+    })
     await waitFor(async () => {
       expect(await (await store).list()).toHaveLength(1)
     })
@@ -313,7 +170,7 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
       },
     }
     const log: RenderLog = { renderFull: [], alphas: [], fullAlphas: [] }
-    setup({ precise, log })
+    await setup({ precise, log })
     const canvas = await pickPhoto()
     tap(canvas, 50, 25)
     await waitFor(() => {
@@ -326,7 +183,9 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
     })
     expect(log.alphas?.at(-1)).toBeDefined()
     fireEvent.click(saveButton())
-    await screen.findByRole('button', { name: 'Saved' })
+    await within(screen.getByTestId('editor')).findByRole('button', {
+      name: 'Saved',
+    })
     expect(log.fullAlphas).toHaveLength(1)
     expect(log.fullAlphas?.[0]).toBeDefined()
     expect(marked(log.fullAlphas?.[0])).toBe(false)
@@ -336,47 +195,23 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
     })
   })
 
-  it('should_save_as_new_after_deleting_the_open_sticker (Review Focus 2)', async () => {
-    const { store } = setup()
-    const canvas = await pickPhoto()
-    await cutAndSave(canvas)
-    const s = await store
-    const [first] = await s.list()
-
-    const item = (
-      await screen.findByRole('button', { name: 'Open sticker' })
-    ).closest('li') as HTMLElement
-    fireEvent.click(within(item).getByRole('button', { name: 'Delete' }))
-    expect(within(item).getByText('Delete this sticker?')).toBeInTheDocument()
-    fireEvent.click(within(item).getByRole('button', { name: 'Delete' }))
-    await waitFor(() => {
-      expect(thumbnails()).toHaveLength(0)
-    })
-    expect(await s.list()).toHaveLength(0)
-
-    fireEvent.click(saveButton())
-    await waitFor(() => {
-      expect(thumbnails()).toHaveLength(1)
-    })
-    const [second] = await s.list()
-    expect(second?.id).not.toBe(first?.id)
-  })
-
   it('should_cancel_a_delete (AC-20)', async () => {
-    setup()
+    await setup()
     await cutAndSave(await pickPhoto())
-    const item = (
-      await screen.findByRole('button', { name: 'Open sticker' })
-    ).closest('li') as HTMLElement
-    fireEvent.click(within(item).getByRole('button', { name: 'Delete' }))
-    fireEvent.click(within(item).getByRole('button', { name: 'Cancel' }))
-    expect(within(item).queryByText('Delete this sticker?')).toBeNull()
+    await toLibrary()
+    tick(await screen.findByRole('button', { name: 'Open sticker' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(
+      screen.getByRole('dialog', { name: 'Delete this sticker?' }),
+    ).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
     expect(thumbnails()).toHaveLength(1)
   })
 
   it('should_warn_when_the_photo_opens_at_another_size (AC-9)', async () => {
     let size = { width: 100, height: 50 }
-    const { store } = setup({
+    const { store } = await setup({
       loadPhoto: (f) =>
         Promise.resolve({
           ...loaded(f),
@@ -387,6 +222,7 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
     expect(await (await store).list()).toHaveLength(1)
 
     size = { width: 99, height: 50 }
+    await toLibrary()
     fireEvent.click(
       (
         await screen.findAllByRole('button', { name: 'Open sticker' })
@@ -404,14 +240,13 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
   })
 
   it('should_disable_save_without_a_cutout (AC-20)', async () => {
-    setup()
-    expect(saveButton()).toBeDisabled()
+    await setup()
     await pickPhoto()
     expect(saveButton()).toBeDisabled()
   })
 
   it('should_say_nothing_to_save_for_an_empty_render (AC-20)', async () => {
-    const { store } = setup({ log: { renderFull: [], empty: true } })
+    const { store } = await setup({ log: { renderFull: [], empty: true } })
     const canvas = await pickPhoto()
     tap(canvas, 50, 25)
     await waitFor(() => {
@@ -430,7 +265,7 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
       ...real,
       save: () => Promise.reject(new StorageFullError()),
     }
-    setup({ store: Promise.resolve(full) })
+    await setup({ store: Promise.resolve(full) })
     const canvas = await pickPhoto()
     tap(canvas, 50, 25)
     await waitFor(() => {
@@ -447,12 +282,10 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
   })
 
   it('should_show_outdated_when_the_database_is_newer (AC-11)', async () => {
-    setup({ store: Promise.reject(new StorageOutdatedError()) })
-    expect(
-      await screen.findByText(
-        'Peel was updated in another tab. Reload to use your stickers.',
-      ),
-    ).toBeInTheDocument()
+    await setup({ store: Promise.reject(new StorageOutdatedError()) })
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Peel was updated in another tab. Reload to use your stickers.',
+    )
     await pickPhoto()
     expect(saveButton()).toBeDisabled()
   })
@@ -460,7 +293,7 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
   it('should_show_outdated_when_another_tab_upgrades (AC-11)', async () => {
     const real = await openStickerStore(new IDBFactory())
     let fire: () => void = () => undefined
-    setup({
+    await setup({
       store: Promise.resolve({
         ...real,
         onOutdated: (cb) => {
@@ -468,23 +301,22 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
         },
       }),
     })
-    await screen.findByText(/Your browser may clear stickers/)
     act(() => {
       fire()
     })
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Peel was updated in another tab. Reload to use your stickers.',
+    )
     expect(
-      await screen.findByText(
-        'Peel was updated in another tab. Reload to use your stickers.',
-      ),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Export all' })).toBeDisabled()
+      within(openMenu()).getByRole('menuitem', { name: 'Export all' }),
+    ).toBeDisabled()
   })
 
   it('should_ask_for_persistence_after_the_first_save (AC-13)', async () => {
     const persist = vi.fn(() => Promise.resolve(true))
     let granted = false
     const persisted = vi.fn(() => Promise.resolve(granted))
-    setup({ storage: { persist, persisted } })
+    await setup({ storage: { persist, persisted } })
     const canvas = await pickPhoto()
     expect(persist).not.toHaveBeenCalled()
     granted = true
@@ -492,16 +324,19 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
     await waitFor(() => {
       expect(persist).toHaveBeenCalledTimes(1)
     })
-    expect(
-      await screen.findByText('Stickers are kept on this device.'),
-    ).toBeInTheDocument()
     tap(canvas, 20, 20)
     await waitFor(() => {
       expect(saveButton()).toHaveTextContent(/^Save$/)
     })
     fireEvent.click(saveButton())
-    await screen.findByRole('button', { name: 'Saved' })
+    await within(screen.getByTestId('editor')).findByRole('button', {
+      name: 'Saved',
+    })
     expect(persist).toHaveBeenCalledTimes(1)
+    await toLibrary()
+    await waitFor(() => {
+      expect(openMenu()).toHaveTextContent('Stickers are kept on this device.')
+    })
   })
 
   it('should_ask_for_persistence_after_an_import_that_adds_stickers (AC-13)', async () => {
@@ -530,12 +365,12 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
       'peel-stickers-2026-11-07.zip',
     )
     const persist = vi.fn(() => Promise.resolve(true))
-    setup({ storage: { persist, persisted: () => Promise.resolve(false) } })
-    const importInput = screen.getByLabelText('Import')
-    await waitFor(() => {
-      expect(importInput).toBeEnabled()
+    await setup({
+      storage: { persist, persisted: () => Promise.resolve(false) },
     })
-    fireEvent.change(importInput, { target: { files: [backupFile] } })
+    fireEvent.change(screen.getByLabelText('Import'), {
+      target: { files: [backupFile] },
+    })
     await screen.findByText('Imported 1 sticker. 0 were already here.')
     await waitFor(() => {
       expect(persist).toHaveBeenCalledTimes(1)
@@ -543,18 +378,19 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
   })
 
   it('should_show_the_storage_status (AC-14)', async () => {
-    setup({ storage: undefined })
-    expect(
-      await screen.findByText(
+    await setup({ storage: undefined })
+    await waitFor(() => {
+      expect(openMenu()).toHaveTextContent(
         "Your browser may clear stickers if Peel isn't used for a while. Add Peel to your Home Screen, or export a backup.",
-      ),
-    ).toBeInTheDocument()
+      )
+    })
   })
 
   it('should_disable_export_without_stickers (AC-15)', async () => {
-    setup()
-    await screen.findByText(/Your browser may clear stickers/)
-    expect(screen.getByRole('button', { name: 'Export all' })).toBeDisabled()
+    await setup()
+    expect(
+      within(openMenu()).getByRole('menuitem', { name: 'Export all' }),
+    ).toBeDisabled()
   })
 
   it('should_download_the_backup (AC-15)', async () => {
@@ -570,13 +406,15 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
         expect(this.download).toMatch(/^peel-stickers-\d{4}-\d{2}-\d{2}\.zip$/)
         expect(this.href).toBe('blob:peel')
       })
-    setup()
+    await setup()
     await cutAndSave(await pickPhoto())
-    const exportButton = screen.getByRole('button', { name: 'Export all' })
+    await toLibrary()
     await waitFor(() => {
-      expect(exportButton).toBeEnabled()
+      expect(thumbnails()).toHaveLength(1)
     })
-    fireEvent.click(exportButton)
+    fireEvent.click(
+      within(openMenu()).getByRole('menuitem', { name: 'Export all' }),
+    )
     await waitFor(() => {
       expect(click).toHaveBeenCalledTimes(1)
     })
@@ -585,8 +423,9 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
 
   it('should_show_the_import_result (AC-17, AC-18)', async () => {
     const source = await openStickerStore(new IDBFactory())
-    const { store } = setup()
+    const { store } = await setup()
     await cutAndSave(await pickPhoto())
+    await toLibrary()
     const s = await store
     const [mine] = await s.list()
     const record = await s.get(mine?.id ?? '')
@@ -655,14 +494,13 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
         }),
     }
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click')
-    setup({ store: Promise.resolve(huge) })
-    const exportButton = await screen.findByRole('button', {
-      name: 'Export all',
-    })
+    await setup({ store: Promise.resolve(huge) })
     await waitFor(() => {
-      expect(exportButton).toBeEnabled()
+      expect(thumbnails()).toHaveLength(1)
     })
-    fireEvent.click(exportButton)
+    fireEvent.click(
+      within(openMenu()).getByRole('menuitem', { name: 'Export all' }),
+    )
     expect(
       await screen.findByText(
         'Too many stickers for one backup file. Delete some, then export again.',
@@ -674,12 +512,12 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
   }, 20_000)
 
   it('should_lay_out_top_to_bottom (spec 0009 AC-21)', async () => {
-    setup()
+    await setup()
     await pickPhoto()
     const order = [
-      screen.getByRole('heading', { name: 'Peel' }),
-      screen.getByRole('button', { name: 'Photo' }),
-      screen.getByRole('button', { name: 'Stickers' }),
+      screen.getByRole('button', { name: 'Library' }),
+      saveButton(),
+      screen.getByRole('button', { name: 'Done' }),
       screen.getByTestId('canvas'),
       screen.getByRole('button', { name: 'Undo' }),
       screen.getByRole('button', { name: 'Compare' }),
@@ -696,28 +534,14 @@ describe('sticker panel on the tap-to-cut screen (spec 0008)', () => {
     }
   })
 
-  it('should_open_the_sticker_panel_in_a_sheet (spec 0009 AC-21)', () => {
-    setup({ openPanel: false })
-    const stickers = screen.getByRole('button', { name: 'Stickers' })
-    expect(stickers).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByRole('region', { name: 'Saved stickers' })).toBeNull()
-    fireEvent.click(stickers)
-    expect(stickers).toHaveAttribute('aria-expanded', 'true')
-    expect(
-      screen.getByRole('region', { name: 'Saved stickers' }),
-    ).toBeInTheDocument()
-    fireEvent.click(stickers)
-    expect(screen.queryByRole('region', { name: 'Saved stickers' })).toBeNull()
-  })
-
   it('should_show_auto_status_whatever_sheet_is_open (spec 0009 AC-17)', async () => {
-    setup({
+    await setup({
       precise: createFakeEngine({ name: 'precise', failLoad: 'unsupported' }),
       fast: createFakeEngine({ name: 'fast', failLoad: 'unsupported' }),
     })
     await pickPhoto()
     const text = "Auto cutout doesn't work in this browser."
-    for (const open of ['View', 'Stickers']) {
+    for (const open of ['View', 'Dots']) {
       fireEvent.click(screen.getByRole('button', { name: open }))
       const line = await screen.findByText(text)
       expect(line.closest('[role=status]')).not.toBeNull()

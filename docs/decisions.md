@@ -177,3 +177,22 @@ The product owner chose the WebP encoder on 2026-11-16 (decision 1 below); the r
 - **A new photo keeps the current Finish settings; a reopened sticker uses its own**; a reload gives the defaults.
 - **The "Add to Stickers" guide shows on iPhone and iPad only** (a Mac user agent with touch counts as an iPad), open on the first Finish screen of a session. Without Web Share, its steps go through Download.
 - **`addOutline`'s distance field is `Float32Array`**, halving its memory on a 12 MP Original; golden hashes prove the output is unchanged.
+
+## Library, install and offline decisions (spec 0013)
+
+The product owner made decisions 1 to 3 on 2026-11-17; the rest are Claude's calls, listed in the spec for checking.
+
+- **The Library is the home screen** (mockup B): tap a sticker to edit it; touch and hold (or "Select") to tick several, then Share, Duplicate, Export or Delete from a bottom bar; a round + makes a new one.
+- **The models download on the first visit** (about 51 MB), so the whole app works in airplane mode afterwards. This replaces spec 0007 AC-19 and its Decision 4.
+- **The interface stays clean and simple**; the Library reuses the sticker store, backups, the Finish pipeline and the export actions.
+- **Tiles show the saved thumbnails as they are** (the plain cutout), newest edited first.
+- **Leaving the editor with unsaved changes asks first:** Save, Don't save or Cancel. A photo with no ring has nothing to lose.
+- **Share from the Library sends each sticker in its saved Finish settings** (a Sticker PNG for ones saved before spec 0012), made in a second render worker as stickers are ticked, so the tap calls `navigator.share` at once.
+- **"Select" also starts selecting**, for keyboards, desktops and screen readers; while selecting it reads "Done".
+- **The ⋯ menu** holds Export all, Import, Language, "Install Peel" (when it applies) and the storage and offline lines.
+- **One install card at the top of the Library**, once a sticker is saved, until it's closed (kept in the sticker store's meta) or Peel is installed. It says why: stickers are safer installed.
+- **The update bar shows only on the Library**, where reloading can't lose work. The service worker waits (`registerType: 'prompt'`) until Reload.
+- **No translation library:** typed English and Romanian catalogs, `Intl.PluralRules` for plurals, and a test that fails on hard-coded text.
+- **The language choice is kept in `localStorage`** (a per-device convenience); "Automatic" follows the phone.
+- **Save-Data skips the first-visit download**; Auto then downloads on first use. Every e2e test but the offline one sets it, so 51 MB isn't fetched each time.
+- **Android's Back gesture goes back one screen:** opening the editor and the Finish screen adds a history entry; Back with unsaved changes asks first.

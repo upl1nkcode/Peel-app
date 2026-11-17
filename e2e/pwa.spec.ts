@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './helpers/test'
 
 interface Manifest {
   name: string
@@ -60,4 +60,17 @@ test('should_be_installable_in_chrome', async ({ page, browserName }) => {
     'Page.getInstallabilityErrors',
   )) as { installabilityErrors: { errorId: string }[] }
   expect(installabilityErrors).toEqual([])
+})
+
+test('should_wait_for_reload_before_updating (spec 0013 AC-22)', async ({
+  request,
+}) => {
+  const sw = await (await request.get('/sw.js')).text()
+  // The new version takes over only when the page asks (Reload).
+  expect(sw).toMatch(/SKIP_WAITING"===\w+\.data\.type&&self\.skipWaiting\(\)/)
+  const unconditional = sw.replace(
+    /"SKIP_WAITING"===\w+\.data\.type&&self\.skipWaiting\(\)/g,
+    '',
+  )
+  expect(unconditional).not.toContain('skipWaiting()')
 })

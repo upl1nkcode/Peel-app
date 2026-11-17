@@ -1,36 +1,37 @@
 import type { AutoState } from './autoCutout'
 import type { UnavailableReason } from './types'
+import type { Message, MessageKey } from '../../ui/i18n'
 
-/** The fallback button (spec 0007 AC-20). */
-export const USE_LASSO_LABEL = 'Use Lasso'
-
-const UNAVAILABLE: Record<UnavailableReason, string> = {
-  offline: "You're offline. The cutout model needs one download first.",
-  download:
-    "The cutout model didn't download. Check the connection and try again.",
-  storage: 'Not enough storage for the cutout model.',
-  unsupported: "Auto cutout doesn't work in this browser.",
+const UNAVAILABLE: Record<UnavailableReason, MessageKey> = {
+  offline: 'auto.offline',
+  download: 'auto.download',
+  storage: 'auto.storage',
+  unsupported: 'auto.unsupported',
 }
 
 const NOTICE = {
-  nothingFound: 'Nothing found there. Tap on the subject.',
-  sharperReady: 'Sharper cutout ready',
-  preciseUnavailable: 'Sharper cutout not available on this device',
-} as const
+  nothingFound: 'auto.nothingFound',
+  sharperReady: 'auto.sharperReady',
+  preciseUnavailable: 'auto.preciseUnavailable',
+} as const satisfies Record<string, MessageKey>
 
 const mb = (bytes: number) => (bytes / 1e6).toFixed(1)
 
-/** The status text for a state, in display order (spec 0007 copy; MB = 10⁶ bytes). */
-export function statusLines(state: AutoState): string[] {
-  if (state.unavailable) return [UNAVAILABLE[state.unavailable]]
-  const lines: string[] = []
-  if (state.phase === 'cutting') lines.push('Cutting out…')
-  if (state.phase === 'sharpening') lines.push('Sharpening…')
+/** The status lines for a state, in display order (spec 0007 copy; MB = 10⁶ bytes), for the UI to word (spec 0013). */
+export function statusLines(state: AutoState): Message[] {
+  if (state.unavailable) return [{ key: UNAVAILABLE[state.unavailable] }]
+  const lines: Message[] = []
+  if (state.phase === 'cutting') lines.push({ key: 'auto.cutting' })
+  if (state.phase === 'sharpening') lines.push({ key: 'auto.sharpening' })
   if (state.download) {
-    lines.push(
-      `Downloading cutout model: ${mb(state.download.loadedBytes)} of ${mb(state.download.totalBytes)} MB`,
-    )
+    lines.push({
+      key: 'auto.downloading',
+      params: {
+        loaded: mb(state.download.loadedBytes),
+        total: mb(state.download.totalBytes),
+      },
+    })
   }
-  if (state.notice) lines.push(NOTICE[state.notice])
+  if (state.notice) lines.push({ key: NOTICE[state.notice] })
   return lines
 }

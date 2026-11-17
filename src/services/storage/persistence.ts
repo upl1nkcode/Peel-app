@@ -1,3 +1,4 @@
+import type { MessageKey } from '../../ui/i18n'
 import type { StickerStore } from './stickerStore'
 
 /** The part of `navigator.storage` used here; either method may be missing. */
@@ -7,11 +8,10 @@ export type StorageManagerLike = Partial<
 
 export type PersistenceStatus = 'persisted' | 'atRisk'
 
-/** The panel's storage status line (spec 0008 AC-14). */
-export const STORAGE_STATUS_TEXT: Record<PersistenceStatus, string> = {
-  persisted: 'Stickers are kept on this device.',
-  atRisk:
-    "Your browser may clear stickers if Peel isn't used for a while. Add Peel to your Home Screen, or export a backup.",
+/** The storage status line (spec 0008 AC-14), as catalog keys (spec 0013). */
+export const STORAGE_STATUS_TEXT: Record<PersistenceStatus, MessageKey> = {
+  persisted: 'storage.persisted',
+  atRisk: 'storage.notPersisted',
 }
 
 const META_KEY = 'persistRequested'

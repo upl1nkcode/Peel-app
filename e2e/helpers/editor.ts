@@ -67,27 +67,23 @@ export async function seedBackup(opts?: Partial<SeedOptions>): Promise<Buffer> {
   return Buffer.concat(writeZip(entries, new Date(2026, 10, 2)))
 }
 
-/** Opens the Stickers sheet (spec 0009 AC-21) unless it is open already. */
-export async function openStickers(page: Page) {
-  const button = page.getByRole('button', { name: 'Stickers' })
-  if ((await button.getAttribute('aria-expanded')) !== 'true') {
-    await button.click()
-  }
-  await expect(button).toHaveAttribute('aria-expanded', 'true')
+/** The editor's "Library" button, then the Library (spec 0013). */
+export async function toLibrary(page: Page) {
+  await page.getByRole('button', { name: 'Library' }).click()
+  await expect(page.getByRole('button', { name: 'New sticker' })).toBeVisible()
 }
 
-/** Closes the Stickers sheet, giving the canvas its room back. */
-export async function closeStickers(page: Page) {
-  const button = page.getByRole('button', { name: 'Stickers' })
-  if ((await button.getAttribute('aria-expanded')) === 'true') {
-    await button.click()
-  }
-  await expect(button).toHaveAttribute('aria-expanded', 'false')
+/** Exports every sticker through the Library's ⋯ menu; resolves to the download. */
+export async function exportAllFromMenu(page: Page) {
+  await page.getByRole('button', { name: 'More' }).click()
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('menuitem', { name: 'Export all' }).click()
+  return downloading
 }
 
+/** Imports a backup through the ⋯ menu's file input (spec 0013 AC-13). */
 export async function importFile(page: Page, buffer: Buffer) {
-  await openStickers(page)
-  // The panel enables Import once the sticker store is open.
+  // Import is enabled once the sticker store is open.
   await expect(page.getByLabel('Import')).toBeEnabled()
   await page.getByLabel('Import').setInputFiles({
     name: 'peel-stickers-2026-11-02.zip',
@@ -125,6 +121,7 @@ export async function seedAndOpen(page: Page, opts?: Partial<SeedOptions>) {
   await page.route(MODEL_URL, (route) => route.abort())
   await page.goto('/')
   await importFile(page, await seedBackup(opts))
+  // The Library's tile opens it (spec 0013 AC-4).
   await page.getByRole('button', { name: 'Open sticker' }).first().click()
   const canvas = page.getByTestId('canvas')
   const size = opts?.imageSize ?? { width: 120, height: 80 }
@@ -132,7 +129,6 @@ export async function seedAndOpen(page: Page, opts?: Partial<SeedOptions>) {
     'data-image-size',
     `${String(size.width)}x${String(size.height)}`,
   )
-  await closeStickers(page)
   await expect(canvas).not.toHaveAttribute('data-mask-scale', '')
   await nextFrame(page)
 }
@@ -321,4 +317,40 @@ export async function generatedJpeg(
     { width, height },
   )
   return new Uint8Array(Buffer.from(base64, 'base64'))
+}
+
+/**
+ * A backup of `n` seed stickers with their own ids and thumbnail shades,
+ * newest first in the Library (spec 0013 AC-29).
+ */
+export async function seedMany(n: number): Promise<Buffer> {
+  const base = await seedRecord()
+  const records: StickerRecord[] = []
+  for (let k = 0; k < n; k++) {
+    const shade = 60 + Math.round((k * 160) / Math.max(1, n - 1))
+    records.push({
+      ...base,
+      id: `0b9c6c39-4f1a-4c51-9d7c-${String(k).padStart(12, '0')}`,
+      updatedAt: base.updatedAt + k,
+      // A 48 × 32 block in a transparent 64 × 64 square, as a cutout's is.
+      thumbnail: await encodePng(
+        {
+          width: 64,
+          height: 64,
+          data: new Uint8Array(64 * 64 * 4).map((_, i) => {
+            const px = i >> 2
+            const x = px % 64
+            const y = Math.floor(px / 64)
+            const inside = x >= 8 && x < 56 && y >= 16 && y < 48
+            if (!inside) return 0
+            const c = i % 4
+            return c === 3 ? 255 : c === 0 ? shade : c === 1 ? 255 - shade : 128
+          }),
+        },
+        storedDeflate,
+      ),
+    })
+  }
+  const entries = backupEntries(records, new Date(2026, 10, 2))
+  return Buffer.concat(writeZip(entries, new Date(2026, 10, 2)))
 }

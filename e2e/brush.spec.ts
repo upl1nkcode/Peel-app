@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './helpers/test'
 import { brushSliderAt } from '../src/core/editor'
 import { cutoutAlpha, drag, finger } from './helpers/dots'
 import { openBrush, openLasso, setSlider } from './helpers/lasso'

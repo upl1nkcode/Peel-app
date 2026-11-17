@@ -277,8 +277,8 @@ Each task: failing test → see it fail → minimal code → pass → refactor �
 ### Phase 9 — Finish, export, library, install
 - [x] Finish: outline, softness, padding, output choice. *Screenshot tests.*
 - [x] Export: Share (if `navigator.canShare({files})`), Download, Copy (if supported), Save. Unsupported hidden. *Tests.*
-- [ ] iPhone "Add to Stickers" guide (done, spec 0012); Android install button; iPhone install guide; update prompt. *Tests.*
-- [ ] Library: grid, re-open and re-edit, delete, export all. *Tests.*
+- [x] iPhone "Add to Stickers" guide (spec 0012); Android install button; iPhone install guide; update prompt (spec 0013). *Tests.*
+- [x] Library: grid, re-open and re-edit, select several, share, duplicate, delete, export; offline after the first visit; English and Romanian (spec 0013). *Tests.*
 
 ### Phase 10 — Accuracy & device verification
 - [ ] **Accuracy benchmark** (`npm run bench:accuracy`): fixtures (person with loose hair, person in front of busy background, pet, glossy object, object with hole) vs. ground-truth masks; report IoU and edge error for: Auto alone, Auto + smart edge, Lasso + dots. Store results in `docs/accuracy.md`; fail CI if they regress.

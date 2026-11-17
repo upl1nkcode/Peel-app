@@ -3,6 +3,7 @@ import { applyMask } from '../core/mask/cutout'
 import { renderMask, type EdgeRefiner } from '../core/mask/render'
 import { cropAlpha, cropRgba, trimBounds } from '../core/mask/trim'
 import { EmptyMaskError, type RgbaImage } from '../core/mask/types'
+import { decodePng } from '../core/png/decode'
 import { encodePng } from '../core/png/encode'
 import type { Deflate } from '../core/png/zlib'
 import { applyCommand } from '../core/selection/commands'
@@ -18,7 +19,8 @@ import {
   WHATSAPP_QUALITIES,
   type FinishSettings,
 } from '../core/sticker'
-import { browserDeflate } from '../services/deflate'
+import type { Inflate } from '../core/zip'
+import { browserDeflate, browserInflate } from '../services/deflate'
 import {
   EncoderUnavailableError,
   loadWebpEncoder,
@@ -37,6 +39,7 @@ import {
 /** What the render worker uses from outside; tests swap them. */
 export interface RenderDeps {
   deflate?: Deflate
+  inflate?: Inflate
   loadWebp?: () => Promise<WebpEncode>
   render?: typeof renderMask
 }
@@ -65,6 +68,7 @@ export function createRenderHandler(
   deps: RenderDeps = {},
 ): AsyncHandler<ToRenderWorker, FromRenderWorker> {
   const deflate = deps.deflate ?? browserDeflate
+  const inflate = deps.inflate ?? browserInflate
   const loadWebp = deps.loadWebp ?? (() => loadWebpEncoder())
   const render = deps.render ?? renderMask
   let current:
@@ -200,6 +204,10 @@ export function createRenderHandler(
         }
         return finish(msg.jobId, cutout, msg.settings)
       }
+      case 'finishSaved':
+        return decodePng(msg.png, inflate).then((cutout) =>
+          finish(msg.jobId, cutout, msg.settings),
+        )
       default:
         throw unknownMessage(msg)
     }
