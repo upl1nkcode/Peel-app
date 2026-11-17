@@ -128,7 +128,9 @@ export function useShareFiles(
 
   useEffect(() => {
     // Without file sharing nothing is prepared (and no worker starts).
-    const active = typeof nav?.share === 'function'
+    // PNG is every output's base type; WebP is probed once it's made.
+    const active =
+      typeof nav?.share === 'function' && canShareFiles(nav, ['image/png'])
     tickedRef.current = active ? ticked : []
     if (!active || ticked.length === 0) {
       if (renderer.current) {
@@ -167,7 +169,6 @@ export function useShareFiles(
   )
 
   const states = ticked.map((id) => prepared.get(id))
-  const preparing = states.some((p) => !p || p.status === 'pending')
   const mimes = useMemo(() => {
     const set = new Set<Mime>(['image/png'])
     for (const p of prepared.values()) {
@@ -179,6 +180,7 @@ export function useShareFiles(
   // One probe per set of types, not per render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const shown = useMemo(() => canShareFiles(nav, mimes), [nav, mimeKey])
+  const preparing = shown && states.some((p) => !p || p.status === 'pending')
 
   const onShare = () => {
     if (!nav || preparing) return

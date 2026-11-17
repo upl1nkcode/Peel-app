@@ -332,13 +332,20 @@ export async function seedMany(n: number): Promise<Buffer> {
       ...base,
       id: `0b9c6c39-4f1a-4c51-9d7c-${String(k).padStart(12, '0')}`,
       updatedAt: base.updatedAt + k,
+      // A 48 × 32 block in a transparent 64 × 64 square, as a cutout's is.
       thumbnail: await encodePng(
         {
-          width: 4,
-          height: 4,
-          data: new Uint8Array(64).map((_, i) =>
-            i % 4 === 3 ? 255 : i % 4 === 0 ? shade : 255 - shade,
-          ),
+          width: 64,
+          height: 64,
+          data: new Uint8Array(64 * 64 * 4).map((_, i) => {
+            const px = i >> 2
+            const x = px % 64
+            const y = Math.floor(px / 64)
+            const inside = x >= 8 && x < 56 && y >= 16 && y < 48
+            if (!inside) return 0
+            const c = i % 4
+            return c === 3 ? 255 : c === 0 ? shade : c === 1 ? 255 - shade : 128
+          }),
         },
         storedDeflate,
       ),

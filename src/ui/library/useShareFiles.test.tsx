@@ -195,6 +195,17 @@ describe('useShareFiles (spec 0013)', () => {
     expect(env.hook.result.current.shown).toBe(false)
   })
 
+  it('should_prepare_nothing_where_files_cannot_be_shared (AC-8)', async () => {
+    // navigator.share exists (as on desktop Linux Chrome) but takes no files.
+    const nav = sharing()
+    nav.canShare.mockReturnValue(false)
+    const env = setup({ a: record('a') }, nav)
+    await env.tick(['a'])
+    expect(env.createRenderer).not.toHaveBeenCalled()
+    expect(env.hook.result.current.shown).toBe(false)
+    expect(env.hook.result.current.preparing).toBe(false)
+  })
+
   it('should_treat_a_closed_sheet_as_no_error (AC-8)', async () => {
     const nav = sharing()
     const env = setup({ a: record('a') }, nav)

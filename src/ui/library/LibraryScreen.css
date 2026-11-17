@@ -69,6 +69,8 @@
 .library-empty {
   display: grid;
   place-items: center;
+  /* The title and its line sit together in the middle (AC-2). */
+  align-content: center;
   gap: 4px;
   min-height: 50dvh;
   padding: 0 16px;
