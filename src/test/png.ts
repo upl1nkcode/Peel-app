@@ -11,7 +11,7 @@ const u32 = (b: Uint8Array, at: number): number =>
   0
 
 /** Inflates a zlib stream made only of stored blocks, checking the header and Adler-32. */
-function inflateStored(z: Uint8Array): Uint8Array {
+export function inflateStored(z: Uint8Array): Uint8Array {
   const cmf = z[0] as number
   const flg = z[1] as number
   if ((cmf & 0x0f) !== 8 || (cmf * 256 + flg) % 31 !== 0) {
