@@ -183,6 +183,50 @@ describe('the Library is home (spec 0013)', () => {
     expect(onLibrary()).toBe(false)
   })
 
+  it('should_hold_the_dialog_while_its_save_runs (final review I-1)', async () => {
+    const real = await openStickerStore(new IDBFactory())
+    let finish = () => {}
+    const slow: StickerStore = {
+      ...real,
+      save: (record) =>
+        new Promise<void>((done, fail) => {
+          finish = () => {
+            real.save(record).then(done, fail)
+          }
+        }),
+    }
+    renderShell({ store: Promise.resolve(slow) })
+    const canvas = await pickPhoto()
+    tap(canvas, 50, 25)
+    await waitFor(() => {
+      expect(saveButton()).toBeEnabled()
+    })
+    const backs = vi.spyOn(window.history, 'back')
+    fireEvent.click(screen.getByRole('button', { name: 'Library' }))
+    const box = within(screen.getByRole('dialog'))
+    fireEvent.click(box.getByRole('button', { name: 'Save' }))
+    // While it saves, no other choice can be made.
+    for (const name of ['Save', "Don't save", 'Cancel']) {
+      expect(box.getByRole('button', { name })).toBeDisabled()
+    }
+    fireEvent.click(box.getByRole('button', { name: "Don't save" }))
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    expect(dialog()).not.toBeNull()
+    expect(onLibrary()).toBe(false)
+
+    await waitFor(() => {
+      expect(saveButton()).toBeDisabled()
+    })
+    act(() => {
+      finish()
+    })
+    await waitFor(() => {
+      expect(onLibrary()).toBe(true)
+    })
+    expect(backs).toHaveBeenCalledTimes(1)
+    expect(await real.list()).toHaveLength(1)
+  })
+
   it('should_save_as_new_after_the_open_sticker_is_deleted (Review Focus 2)', async () => {
     const { store, editor, open } = renderEditor()
     const s = await store

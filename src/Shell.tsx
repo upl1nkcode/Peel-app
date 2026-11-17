@@ -105,6 +105,9 @@ function Body(
   const screenRef = useRef<Screen>('library')
   const [leaving, setLeavingState] = useState<Leaving | null>(null)
   const leavingRef = useRef<Leaving | null>(null)
+  /** The dialog's Save is running: no other choice until it settles. */
+  const [saving, setSavingState] = useState(false)
+  const savingRef = useRef(false)
   const [ticked, setTicked] = useState<readonly string[]>([])
   const [offline, setOffline] = useState<OfflineStatus | null>(null)
   const [guide, setGuide] = useState(false)
@@ -120,6 +123,10 @@ function Body(
     leavingRef.current = l
     setLeavingState(l)
   }
+  const setSaving = (b: boolean) => {
+    savingRef.current = b
+    setSavingState(b)
+  }
 
   const goEditor = () => {
     if (screenRef.current === 'editor') return
@@ -130,7 +137,8 @@ function Body(
   const goLibrary = (pop: boolean) => {
     setLeaving(null)
     setScreen('library')
-    if (pop) window.history.back()
+    // Only our own entry: a second Back would leave Peel (final review I-1).
+    if (pop && peelState(window.history.state)) window.history.back()
   }
   const requestLibrary = () => {
     const unsaved = editor.current?.unsaved() ?? 'none'
@@ -152,8 +160,8 @@ function Body(
     editor.current?.back()
     if (target === 'editor') return
     if (leavingRef.current) {
-      // Back with the dialog open is Cancel.
-      setLeaving(null)
+      // Back with the dialog open is Cancel, unless its Save is running.
+      if (!savingRef.current) setLeaving(null)
       window.history.pushState({ peel: 'editor' }, '')
       return
     }
@@ -304,7 +312,11 @@ function Body(
               label: t('common.save'),
               kind: 'primary',
               onClick: () => {
-                void editor.current?.save().then((ok) => {
+                const handle = editor.current
+                if (!handle) return
+                setSaving(true)
+                void handle.save().then((ok) => {
+                  setSaving(false)
                   if (ok) goLibrary(true)
                   else setLeaving(null)
                 })
@@ -328,6 +340,7 @@ function Body(
           onCancel={() => {
             setLeaving(null)
           }}
+          busy={saving}
         />
       )}
       {guide && (

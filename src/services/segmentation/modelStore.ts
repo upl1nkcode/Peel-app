@@ -24,6 +24,14 @@ export interface ModelStore {
     files: readonly ModelFile[],
     onProgress: (loadedBytes: number, totalBytes: number) => void,
   ): Promise<Map<string, ArrayBuffer>>
+  /**
+   * Downloads the files not cached yet, as `get` does, without reading the
+   * cached ones or keeping any bytes (spec 0013 AC-18, final review I-2).
+   */
+  ensure(
+    files: readonly ModelFile[],
+    onProgress: (loadedBytes: number, totalBytes: number) => void,
+  ): Promise<void>
 }
 
 export async function sha256Hex(data: ArrayBuffer): Promise<string> {
@@ -106,6 +114,7 @@ export function createModelStore(deps: ModelStoreDeps): ModelStore {
     /** Bytes of this file downloaded so far. */
     loaded: number
     listeners: Set<(loaded: number) => void>
+    /** Callers of `get` waiting for the bytes (`ensure` takes none). */
     users: number
   }
   const flights = new Map<string, Flight>()
@@ -164,6 +173,41 @@ export function createModelStore(deps: ModelStoreDeps): ModelStore {
     return flight
   }
 
+  /**
+   * Downloads `missing` in order, or joins their downloads, reporting this
+   * call's bytes; `take` collects each file's bytes into `out`.
+   */
+  const fetchMissing = async (
+    cache: Cache,
+    missing: readonly ModelFile[],
+    onProgress: (loadedBytes: number, totalBytes: number) => void,
+    out: Map<string, ArrayBuffer> | null,
+  ) => {
+    const total = missing.reduce((n, f) => n + f.bytes, 0)
+    const perFile = new Map<string, number>()
+    let loaded = 0
+    if (missing.length > 0) onProgress(0, total)
+    for (const file of missing) {
+      const flight = download(cache, file)
+      if (out) flight.users++
+      const listener = (n: number) => {
+        loaded += n - (perFile.get(file.path) ?? 0)
+        perFile.set(file.path, n)
+        onProgress(loaded, total)
+      }
+      flight.listeners.add(listener)
+      if (flight.loaded > 0) listener(flight.loaded)
+      try {
+        const buffer = await flight.promise
+        // A shared download gives each caller its own copy: a caller may
+        // transfer its buffer to a worker, detaching it (spec 0013).
+        out?.set(file.path, flight.users > 1 ? buffer.slice(0) : buffer)
+      } finally {
+        flight.listeners.delete(listener)
+      }
+    }
+  }
+
   return {
     async missingBytes(files) {
       const cache = await open()
@@ -183,30 +227,17 @@ export function createModelStore(deps: ModelStoreDeps): ModelStore {
         if (hit) out.set(file.path, hit)
         else missing.push(file)
       }
-      const total = missing.reduce((n, f) => n + f.bytes, 0)
-      const perFile = new Map<string, number>()
-      let loaded = 0
-      if (missing.length > 0) onProgress(0, total)
-      for (const file of missing) {
-        const flight = download(cache, file)
-        flight.users++
-        const listener = (n: number) => {
-          loaded += n - (perFile.get(file.path) ?? 0)
-          perFile.set(file.path, n)
-          onProgress(loaded, total)
-        }
-        flight.listeners.add(listener)
-        if (flight.loaded > 0) listener(flight.loaded)
-        try {
-          const buffer = await flight.promise
-          // A shared download gives each caller its own copy: a caller may
-          // transfer its buffer to a worker, detaching it (spec 0013).
-          out.set(file.path, flight.users > 1 ? buffer.slice(0) : buffer)
-        } finally {
-          flight.listeners.delete(listener)
-        }
-      }
+      await fetchMissing(cache, missing, onProgress, out)
       return out
+    },
+
+    async ensure(files, onProgress) {
+      const cache = await open()
+      const missing: ModelFile[] = []
+      for (const file of files) {
+        if (!(await cache.match(keyOf(file)))) missing.push(file)
+      }
+      await fetchMissing(cache, missing, onProgress, null)
     },
   }
 }

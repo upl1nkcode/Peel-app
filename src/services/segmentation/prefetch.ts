@@ -24,7 +24,7 @@ export async function prefetchModels(
   }
   let shown = -1
   try {
-    await store.get(files, (loaded, total) => {
+    await store.ensure(files, (loaded, total) => {
       const percent = total > 0 ? Math.floor((loaded * 100) / total) : 100
       if (percent > shown) {
         shown = percent

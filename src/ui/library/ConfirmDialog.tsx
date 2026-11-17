@@ -12,6 +12,8 @@ export interface ConfirmDialogProps {
   actions: readonly DialogAction[]
   /** Escape and a tap outside do this. */
   onCancel: () => void
+  /** Every action is disabled, and Escape and outside taps do nothing. */
+  busy?: boolean
 }
 
 /**
@@ -28,7 +30,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     <div
       className="dialog-backdrop"
       onClick={(e) => {
-        if (e.target === e.currentTarget) props.onCancel()
+        if (e.target === e.currentTarget && !props.busy) props.onCancel()
       }}
     >
       <div
@@ -36,10 +38,11 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-busy={props.busy ?? false}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             e.stopPropagation()
-            props.onCancel()
+            if (!props.busy) props.onCancel()
           }
         }}
       >
@@ -54,6 +57,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
               ref={i === 0 ? first : undefined}
               type="button"
               className={`dialog-${a.kind}`}
+              disabled={props.busy ?? false}
               onClick={a.onClick}
             >
               {a.label}

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createModelStore,
   prefetchModels,
@@ -37,9 +37,20 @@ const streamed = (data: Uint8Array, failAfterFirst = false): Response => {
 class FakeCache {
   readonly entries = new Map<string, ArrayBuffer>()
   failPut: Error | null = null
+  /** Cached bodies read so far. */
+  reads = 0
   match(key: string) {
     const v = this.entries.get(key)
-    return Promise.resolve(v ? new Response(v.slice(0)) : undefined)
+    return Promise.resolve(
+      v
+        ? {
+            arrayBuffer: () => {
+              this.reads++
+              return Promise.resolve(v.slice(0))
+            },
+          }
+        : undefined,
+    )
   }
   async put(key: string, res: Response) {
     if (this.failPut) throw this.failPut
@@ -271,6 +282,39 @@ describe('offline after the first visit (spec 0013)', () => {
     )
     expect(again).toEqual([{ kind: 'ready' }])
     expect(env.calls).toHaveLength(4)
+  })
+
+  it('should_not_read_cached_files_on_each_start (final review I-2)', async () => {
+    const served = {
+      'models/fast.tflite': bytes(500, 3),
+      'models/precise.task': bytes(1500, 4),
+    }
+    const files = await Promise.all(
+      Object.entries(served).map(([p, d]) => fileOf(p, d)),
+    )
+    const env = setup(served)
+    await prefetchModels(env.store, files, { saveData: false }, () => undefined)
+    const statuses: OfflineStatus[] = []
+    await prefetchModels(env.store, files, { saveData: false }, (s) =>
+      statuses.push(s),
+    )
+    expect(statuses).toEqual([{ kind: 'ready' }])
+    expect(env.cache.reads).toBe(0)
+  })
+
+  it('should_not_copy_a_download_that_auto_joins (final review I-2)', async () => {
+    const data = bytes(4000, 7)
+    const f = await fileOf('models/fast.tflite', data)
+    const env = setup({ 'models/fast.tflite': data })
+    const slices = vi.spyOn(ArrayBuffer.prototype, 'slice')
+    const [, got] = await Promise.all([
+      prefetchModels(env.store, [f], { saveData: false }, () => undefined),
+      env.store.get([f], () => undefined),
+    ])
+    expect(env.calls).toEqual(['models/fast.tflite'])
+    expect(new Uint8Array(got.get(f.path) as ArrayBuffer)).toEqual(data)
+    expect(slices).not.toHaveBeenCalled()
+    slices.mockRestore()
   })
 
   it('should_skip_the_download_on_save_data (AC-18, Decision 13)', async () => {
