@@ -134,6 +134,10 @@ export function renderWorkerClient(port: Port) {
         [],
       )
     },
+    /** A saved sticker's file in its saved finish (spec 0013 AC-8); never cancels the editor's jobs. */
+    finishSaved(png: Uint8Array, settings: FinishSettings) {
+      return client.request({ type: 'finishSaved', png, settings }, [])
+    },
   }
 }
 

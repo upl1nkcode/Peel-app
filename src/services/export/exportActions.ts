@@ -31,6 +31,28 @@ export function canShareType(
   }
 }
 
+/** Spec 0013 AC-8: `canShare` accepts one probe file of each type at once. */
+export function canShareFiles(
+  nav: Pick<Navigator, 'canShare'> | undefined,
+  types: readonly ('image/png' | 'image/webp')[],
+): boolean {
+  if (typeof nav?.canShare !== 'function' || types.length === 0) return false
+  try {
+    return nav.canShare({
+      files: [...new Set(types)].map(
+        (mime) =>
+          new File(
+            [ONE_PIXEL[mime] as Uint8Array<ArrayBuffer>],
+            `probe.${mime === 'image/webp' ? 'webp' : 'png'}`,
+            { type: mime },
+          ),
+      ),
+    })
+  } catch {
+    return false
+  }
+}
+
 export interface ClipboardEnv {
   clipboard?: Pick<Clipboard, 'write'> | undefined
   ClipboardItem?: { supports?: (type: string) => boolean } | undefined
@@ -57,7 +79,15 @@ export function shareFile(
   nav: Pick<Navigator, 'share'>,
   file: File,
 ): Promise<'shared' | 'cancelled'> {
-  return nav.share({ files: [file] }).then(
+  return shareFiles(nav, [file])
+}
+
+/** Spec 0013 AC-8: `shareFile` for several files in one sheet. */
+export function shareFiles(
+  nav: Pick<Navigator, 'share'>,
+  files: File[],
+): Promise<'shared' | 'cancelled'> {
+  return nav.share({ files }).then(
     () => 'shared' as const,
     (e: unknown) => {
       // DOMException isn't an Error subclass everywhere: check the name.
