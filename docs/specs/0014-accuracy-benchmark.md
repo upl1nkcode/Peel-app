@@ -1,6 +1,6 @@
 # 0014 — Accuracy benchmark and device verification
 
-- **Status:** Draft
+- **Status:** Approved (product owner, 2026-11-20)
 - **Issues:** story #92; tasks #93 (ground-truth fixtures), #94 (benchmark script), #95 (full end-to-end flows incl. offline), #96 (Lighthouse budgets), #97 (real iPhone and Android pass)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md Phase 10, §10 (definition of done)
 
@@ -125,9 +125,9 @@ Functions in `src/core/accuracy/`: pure, no DOM, unit-tested with small hand-mad
 
 ### Full end-to-end flows (#95)
 
-- **AC-11** On the iPhone 15 and Pixel 8 projects, with the fake engine, one test walks the whole path without seeding:
+- **AC-11** On the iPhone 15 and Pixel 8 projects, one test walks the whole path without seeding. It cuts out with Lasso, because the built app has no fake engine and real-model runs are desktop-only:
   1. Library;
-  2. + → photo → tap → Done;
+  2. + → photo → Lasso around the subject → Done;
   3. Finish (WhatsApp output) → Save;
   4. Library;
   5. reopen, change, save;
