@@ -4,6 +4,8 @@ Written by `npm run bench:accuracy` (spec 0014). Each score is the cutout agains
 
 Targets (near-perfect, reported, not failed): IoU ≥ 0.98, mean edge error ≤ 1 px, 99th-percentile edge error ≤ 4 px, extra ≤ 0.005, soft-edge error ≤ 0.05. CI fails only when a score gets worse than `bench/accuracy-baseline.json`.
 
+Changed cells show baseline → now.
+
 ## Worst five (finished cutouts, by IoU)
 
 - hole 600: IoU 0.7661 (−0.2139), edge 14.3289 px
@@ -197,13 +199,13 @@ Selection to dots and back at 1000 px (AC-7): within IoU 0.002 and 0.1 px.
 | hair | lasso | −0.0003 | +0.0222 | ✅ |
 | pet | finished | −0.0007 | +0.0308 | ✅ |
 | pet | lasso | +0.0002 | −0.0108 | ✅ |
-| two-people | finished | +0.0006 | −0.1193 | ❌ |
+| two-people | finished | +0.0006 | −0.1193 | ❌ known miss |
 | two-people | lasso | +0.0000 | +0.0026 | ✅ |
 | skin-object | finished | +0.0019 | −0.0970 | ✅ |
 | skin-object | lasso | −0.0007 | +0.0229 | ✅ |
 | glossy | finished | −0.0002 | +0.0419 | ✅ |
 | glossy | lasso | −0.0001 | +0.0193 | ✅ |
-| hole | finished | +0.0000 | +1.1166 | ❌ |
+| hole | finished | +0.0000 | +1.1166 | ❌ known miss |
 | hole | lasso | +0.0000 | +0.0114 | ✅ |
 
 
