@@ -36,4 +36,4 @@ Deployed build: <https://peel-app-9kg.pages.dev>. Clear the site's data (or use 
 | 7 | After a new deploy, the Library shows "A new version of Peel is ready." and Reload loads it | | |
 | 8 | Android Back: Finish → editor → Library (asking first when there are unsaved changes) | n/a | ✅ |
 
-Tested by: · Date: · Devices:
+Tested by: product owner · Date: 2026-11-20 · Devices: Samsung Galaxy S23, Chrome (Android column). iPhone: not yet.

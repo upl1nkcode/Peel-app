@@ -206,6 +206,62 @@ describe('useShareFiles (spec 0013)', () => {
     expect(env.hook.result.current.preparing).toBe(false)
   })
 
+  it('should_share_up_to_15_and_prepare_nothing_past_that (#153 AC-1, AC-2, AC-3)', async () => {
+    const nav = sharing()
+    const ids = Array.from({ length: 16 }, (_, k) =>
+      String.fromCharCode(97 + k),
+    )
+    const env = setup(
+      Object.fromEntries(ids.map((id) => [id, record(id)])),
+      nav,
+    )
+    const fifteen = ids.slice(0, 15)
+
+    // 15 is fine (AC-1).
+    await env.tick(fifteen)
+    expect(env.hook.result.current.limited).toBe(false)
+    expect(env.createRenderer).toHaveBeenCalledTimes(1)
+    await env.finishNext()
+
+    // A 16th: the worker stops, files go, Share is held (AC-2).
+    await env.tick(ids)
+    expect(env.terminate).toHaveBeenCalledTimes(1)
+    expect(env.hook.result.current.limited).toBe(true)
+    expect(env.hook.result.current.shown).toBe(true)
+    expect(env.hook.result.current.preparing).toBe(false)
+    act(() => {
+      env.hook.result.current.onShare()
+    })
+    expect(nav.share).not.toHaveBeenCalled()
+    // The stopped worker never answers its job.
+    env.jobs.length = 0
+
+    // Back to 15: made again, then shared (AC-3).
+    await env.tick(fifteen)
+    expect(env.hook.result.current.limited).toBe(false)
+    expect(env.createRenderer).toHaveBeenCalledTimes(2)
+    for (let k = 0; k < 15; k++) await env.finishNext()
+    expect(env.hook.result.current.preparing).toBe(false)
+    act(() => {
+      env.hook.result.current.onShare()
+    })
+    expect(nav.share.mock.calls[0]?.[0]?.files).toHaveLength(15)
+  })
+
+  it('should_not_start_a_worker_for_16_ticked_at_once (#153 AC-2)', async () => {
+    const nav = sharing()
+    const ids = Array.from({ length: 16 }, (_, k) =>
+      String.fromCharCode(97 + k),
+    )
+    const env = setup(
+      Object.fromEntries(ids.map((id) => [id, record(id)])),
+      nav,
+    )
+    await env.tick(ids)
+    expect(env.createRenderer).not.toHaveBeenCalled()
+    expect(env.hook.result.current.limited).toBe(true)
+  })
+
   it('should_treat_a_closed_sheet_as_no_error (AC-8)', async () => {
     const nav = sharing()
     const env = setup({ a: record('a') }, nav)

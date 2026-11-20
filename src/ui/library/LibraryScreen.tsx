@@ -5,12 +5,17 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { useLongPress } from './useLongPress'
 import './LibraryScreen.css'
 
+/** The most stickers Share sends at once (#153): each file is held in memory. */
+export const SHARE_LIMIT = 15
+
 /** Share from the Library (Task 8 fills it). */
 export interface ShareState {
   /** The browser can share the ticked stickers' files. */
   shown: boolean
   /** A ticked sticker's file is still being made. */
   preparing: boolean
+  /** More are ticked than Share takes at once (#153). */
+  limited: boolean
   /** The last share error, already worded. */
   message: string | null
   onShare: () => void
@@ -180,18 +185,24 @@ export function LibraryScreen(props: LibraryProps) {
       )}
       {selecting ? (
         <div className="library-bar">
-          {(props.share.preparing || props.share.message) && (
+          {(props.share.preparing ||
+            props.share.limited ||
+            props.share.message) && (
             <p className="library-bar-note" role="status">
-              {props.share.preparing
-                ? t('library.preparing')
-                : props.share.message}
+              {props.share.limited
+                ? t('library.shareLimit', { count: SHARE_LIMIT })
+                : props.share.preparing
+                  ? t('library.preparing')
+                  : props.share.message}
             </p>
           )}
           <div className="library-bar-actions">
             {props.share.shown && (
               <button
                 type="button"
-                disabled={actionsOff || props.share.preparing}
+                disabled={
+                  actionsOff || props.share.preparing || props.share.limited
+                }
                 onClick={props.share.onShare}
               >
                 {t('library.share')}

@@ -27,7 +27,13 @@ function setup(over: Partial<LibraryProps> = {}) {
     onExport: vi.fn(() => Promise.resolve()),
     onDelete: vi.fn(() => Promise.resolve()),
     onTicked: vi.fn(),
-    share: { shown: false, preparing: false, message: null, onShare: vi.fn() },
+    share: {
+      shown: false,
+      preparing: false,
+      limited: false,
+      message: null,
+      onShare: vi.fn(),
+    },
     menu: null,
     top: null,
     ...over,
@@ -240,7 +246,13 @@ describe('Library (spec 0013)', () => {
   it('should_show_share_when_offered (AC-8)', () => {
     const onShare = vi.fn()
     setup({
-      share: { shown: true, preparing: true, message: null, onShare },
+      share: {
+        shown: true,
+        preparing: true,
+        limited: false,
+        message: null,
+        onShare,
+      },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Select' }))
     const [a] = tiles()
@@ -248,5 +260,28 @@ describe('Library (spec 0013)', () => {
     fireEvent.click(a)
     expect(screen.getByRole('button', { name: 'Share' })).toBeDisabled()
     expect(screen.getByText('Preparing…')).toBeVisible()
+  })
+
+  it('should_hold_share_past_15_and_point_to_export (#153 AC-2)', () => {
+    setup({
+      share: {
+        shown: true,
+        preparing: false,
+        limited: true,
+        message: null,
+        onShare: vi.fn(),
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }))
+    const [a] = tiles()
+    if (!a) throw new Error('no tile')
+    fireEvent.click(a)
+    expect(screen.getByRole('button', { name: 'Share' })).toBeDisabled()
+    expect(
+      screen.getByText(
+        'Share works with up to 15 stickers at a time. Export works with any number.',
+      ),
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled()
   })
 })
