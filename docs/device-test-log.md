@@ -33,7 +33,7 @@ Deployed build: <https://peel-app-9kg.pages.dev>. Clear the site's data (or use 
 | 4 | Install with the iPhone guide; its steps match what Safari shows | | n/a |
 | 5 | After the first visit says "Ready to use offline.": airplane mode, reopen, pick a photo, Auto, all three outputs, Save | | ✅ |
 | 6 | Phone language Romanian: everything is in Romanian; Automatic/English/Română switch at once | | ✅ |
-| 7 | After a new deploy, the Library shows "A new version of Peel is ready." and Reload loads it | | |
+| 7 | After a new deploy, the Library shows "A new version of Peel is ready." and Reload loads it | | ✅ |
 | 8 | Android Back: Finish → editor → Library (asking first when there are unsaved changes) | n/a | ✅ |
 
 Tested by: product owner · Date: 2026-11-20 · Devices: Samsung Galaxy S23, Chrome (Android column). iPhone: not yet.
