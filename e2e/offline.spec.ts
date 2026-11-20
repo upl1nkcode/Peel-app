@@ -18,6 +18,40 @@ const FIXTURES = JSON.parse(
   { image: string; subjects: Record<'A', { tap: { x: number; y: number } }> }
 >
 
+/** The accuracy benchmark's hole photo (spec 0014 AC-12). */
+const BENCH = resolve('bench/fixtures')
+const HOLE = (
+  JSON.parse(readFileSync(resolve(BENCH, 'fixtures.json'), 'utf8')) as Record<
+    'hole',
+    {
+      image: string
+      tap: { x: number; y: number }
+      holeProbe: { x: number; y: number; width: number; height: number }
+    }
+  >
+).hole
+
+/** The largest cutout alpha inside the hole (2 px in from its box), scaled to the canvas. */
+function holeAlpha(page: Page, photoWidth: number) {
+  return page.getByTestId('cutout').evaluate(
+    (el, { box, photoWidth }) => {
+      const c = el as HTMLCanvasElement
+      const ctx = c.getContext('2d')
+      if (!ctx) throw new Error('no 2D context')
+      const k = c.width / photoWidth
+      const x0 = Math.ceil((box.x + 2) * k)
+      const y0 = Math.ceil((box.y + 2) * k)
+      const x1 = Math.floor((box.x + box.width - 2) * k)
+      const y1 = Math.floor((box.y + box.height - 2) * k)
+      const data = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data
+      let max = 0
+      for (let i = 3; i < data.length; i += 4) max = Math.max(max, data[i] ?? 0)
+      return max
+    },
+    { box: HOLE.holeProbe, photoWidth },
+  )
+}
+
 const phase = (page: Page) =>
   page.getByTestId('editor').getAttribute('data-phase')
 
@@ -114,5 +148,29 @@ test.describe('offline after the first visit', () => {
     await expect(
       page.getByRole('button', { name: 'Open sticker' }),
     ).toHaveCount(2)
+
+    // 6. Still offline, Auto on the hole photo: the hole stays empty (spec 0014 AC-12).
+    await page
+      .getByLabel('Pick a photo')
+      .setInputFiles(resolve(BENCH, HOLE.image))
+    await expect(page.getByTestId('canvas')).toHaveAttribute(
+      'data-image-size',
+      '1600x1000',
+    )
+    const hole = await imageToClient(page, HOLE.tap)
+    await page.mouse.click(hole.x, hole.y)
+    await expect.poll(() => phase(page), { timeout: 200_000 }).toBe('done')
+    await page
+      .getByTestId('editor')
+      .getByRole('button', { name: 'Save', exact: true })
+      .click()
+    await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible()
+    // Known miss #158 (spec 0014 Decision 8): Auto fills the hole today, so
+    // this asserts that and goes red when a fix lands. The fix makes it the
+    // real AC-12 check: expect(...).toBeLessThan(26).
+    expect(
+      await holeAlpha(page, 1600),
+      'alpha inside the hole: if this fails, #158 may be fixed',
+    ).toBeGreaterThanOrEqual(26)
   })
 })

@@ -63,6 +63,15 @@ const fromJson = (text: string) =>
     v === 'Infinity' ? Infinity : v,
   ) as BenchFile
 
+/** Pass-or-fail checks today's app fails, each guarded at today's value (spec 0014 Decision 8). */
+const KNOWN_MISSES = [
+  '## Known misses',
+  '',
+  '- #156: the dots round trip changes the finished `hole` and `two-people` cutouts beyond AC-7.',
+  '- #158: Auto fills the holes of the `hole` photo (AC-12); `e2e/offline.spec.ts` guards it.',
+  '',
+].join('\n')
+
 const fixtures = JSON.parse(
   readFileSync(resolve(ROOT, 'bench/fixtures/fixtures.json'), 'utf8'),
 ) as Record<string, Fixture>
@@ -100,7 +109,7 @@ test('should_score_every_fixture_size_and_stage (AC-6, AC-7)', async ({
   const base = existsSync(BASELINE)
     ? fromJson(readFileSync(BASELINE, 'utf8'))
     : null
-  writeFileSync(REPORT, formatReport(file, base) + '\n')
+  writeFileSync(REPORT, `${formatReport(file, base)}\n${KNOWN_MISSES}`)
 
   const names = Object.keys(fixtures)
   expect(results).toHaveLength(names.length * SIZES.length * STAGES.length)

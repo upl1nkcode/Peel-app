@@ -206,3 +206,8 @@ Selection to dots and back at 1000 px (AC-7): within IoU 0.002 and 0.1 px.
 | hole | finished | +0.0000 | +1.1166 | ❌ |
 | hole | lasso | +0.0000 | +0.0114 | ✅ |
 
+
+## Known misses
+
+- #156: the dots round trip changes the finished `hole` and `two-people` cutouts beyond AC-7.
+- #158: Auto fills the holes of the `hole` photo (AC-12); `e2e/offline.spec.ts` guards it.
