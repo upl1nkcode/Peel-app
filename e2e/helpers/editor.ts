@@ -354,3 +354,33 @@ export async function seedMany(n: number): Promise<Buffer> {
   const entries = backupEntries(records, new Date(2026, 10, 2))
   return Buffer.concat(writeZip(entries, new Date(2026, 10, 2)))
 }
+
+/**
+ * A backup with one sticker per size, each thumbnail solid edge to edge, as
+ * a trimmed cutout's is (issue #151: a tall one spilled out of its tile).
+ */
+export async function seedShapes(
+  sizes: readonly { width: number; height: number }[],
+): Promise<Buffer> {
+  const base = await seedRecord()
+  const records: StickerRecord[] = []
+  for (const [k, { width, height }] of sizes.entries()) {
+    records.push({
+      ...base,
+      id: `5a1e7d0c-2b8f-4e3a-9c61-${String(k).padStart(12, '0')}`,
+      updatedAt: base.updatedAt + k,
+      thumbnail: await encodePng(
+        {
+          width,
+          height,
+          data: new Uint8Array(width * height * 4).map((_, i) =>
+            i % 4 === 3 ? 255 : i % 4 === 0 ? 220 : 40,
+          ),
+        },
+        storedDeflate,
+      ),
+    })
+  }
+  const entries = backupEntries(records, new Date(2026, 10, 2))
+  return Buffer.concat(writeZip(entries, new Date(2026, 10, 2)))
+}

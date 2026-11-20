@@ -27,13 +27,13 @@ Deployed build: <https://peel-app-9kg.pages.dev>. Clear the site's data (or use 
 
 | # | Check | iPhone | Android |
 |---|---|---|---|
-| 1 | Touch and hold a sticker: it's ticked and nothing opens; tick a second; Share sends both in one sheet | | |
-| 2 | Delete (with its dialog) and Duplicate on ticked stickers | | |
-| 3 | Install with the "Install Peel" button (⋯ menu or the card) | n/a | |
+| 1 | Touch and hold a sticker: it's ticked and nothing opens; tick a second; Share sends both in one sheet | | ✅ (tall stickers spilled out of their tiles: #151) |
+| 2 | Delete (with its dialog) and Duplicate on ticked stickers | | ✅ |
+| 3 | Install with the "Install Peel" button (⋯ menu or the card) | n/a | ✅ |
 | 4 | Install with the iPhone guide; its steps match what Safari shows | | n/a |
-| 5 | After the first visit says "Ready to use offline.": airplane mode, reopen, pick a photo, Auto, all three outputs, Save | | |
-| 6 | Phone language Romanian: everything is in Romanian; Automatic/English/Română switch at once | | |
+| 5 | After the first visit says "Ready to use offline.": airplane mode, reopen, pick a photo, Auto, all three outputs, Save | | ✅ |
+| 6 | Phone language Romanian: everything is in Romanian; Automatic/English/Română switch at once | | ✅ |
 | 7 | After a new deploy, the Library shows "A new version of Peel is ready." and Reload loads it | | |
-| 8 | Android Back: Finish → editor → Library (asking first when there are unsaved changes) | n/a | |
+| 8 | Android Back: Finish → editor → Library (asking first when there are unsaved changes) | n/a | ✅ |
 
 Tested by: · Date: · Devices:
