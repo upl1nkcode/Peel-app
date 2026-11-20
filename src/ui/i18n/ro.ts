@@ -179,6 +179,8 @@ export const ro: Record<MessageKey, string> = {
   'library.delete': 'Șterge',
   'library.preparing': 'Se pregătește…',
   'library.shareFailed': 'Nu s-a putut partaja. Încearcă Exportă.',
+  'library.shareLimit':
+    'Poți partaja cel mult {count} autocolante odată. Exportul merge cu oricâte.',
   'library.deleteOne': 'Ștergi acest autocolant?',
   'library.deleteMany_plural':
     'Ștergi {count} autocolant?|Ștergi {count} autocolante?|Ștergi {count} de autocolante?',

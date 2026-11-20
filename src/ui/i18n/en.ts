@@ -179,6 +179,8 @@ export const en = {
   'library.delete': 'Delete',
   'library.preparing': 'Preparing…',
   'library.shareFailed': "Couldn't share. Try Export instead.",
+  'library.shareLimit':
+    'Share works with up to {count} stickers at a time. Export works with any number.',
   'library.deleteOne': 'Delete this sticker?',
   'library.deleteMany_plural':
     'Delete {count} sticker?|Delete {count} stickers?',

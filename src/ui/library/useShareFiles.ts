@@ -10,7 +10,7 @@ import type { StickerStore } from '../../services/storage'
 import type { Cancelled } from '../../services/workerClient'
 import type { FromRenderWorker } from '../../workers/protocol'
 import { useT } from '../i18n'
-import type { ShareState } from './LibraryScreen'
+import { SHARE_LIMIT, type ShareState } from './LibraryScreen'
 
 type Mime = 'image/png' | 'image/webp'
 
@@ -52,7 +52,8 @@ function unique(name: string, used: Set<string>): string {
  * Share from the Library (spec 0013 AC-8): makes each ticked sticker's file
  * in its saved finish, one at a time in tick order, ahead of the tap, so
  * Share calls `navigator.share` at once (Safari needs the tap's activation).
- * The render worker starts with the first tick and stops when none is left.
+ * The render worker starts with the first tick and stops when none is left,
+ * or when more than SHARE_LIMIT are ticked (#153): then nothing is held.
  */
 export function useShareFiles(
   ticked: readonly string[],
@@ -130,7 +131,9 @@ export function useShareFiles(
     // Without file sharing nothing is prepared (and no worker starts).
     // PNG is every output's base type; WebP is probed once it's made.
     const active =
-      typeof nav?.share === 'function' && canShareFiles(nav, ['image/png'])
+      ticked.length <= SHARE_LIMIT &&
+      typeof nav?.share === 'function' &&
+      canShareFiles(nav, ['image/png'])
     tickedRef.current = active ? ticked : []
     if (!active || ticked.length === 0) {
       if (renderer.current) {
@@ -180,10 +183,12 @@ export function useShareFiles(
   // One probe per set of types, not per render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const shown = useMemo(() => canShareFiles(nav, mimes), [nav, mimeKey])
-  const preparing = shown && states.some((p) => !p || p.status === 'pending')
+  const limited = ticked.length > SHARE_LIMIT
+  const preparing =
+    shown && !limited && states.some((p) => !p || p.status === 'pending')
 
   const onShare = () => {
-    if (!nav || preparing) return
+    if (!nav || preparing || limited) return
     if (states.some((p) => p?.status === 'failed')) {
       setSaid({ text: t('library.shareFailed'), for: ticked })
       return
@@ -209,5 +214,5 @@ export function useShareFiles(
     )
   }
 
-  return { shown, preparing, message, onShare }
+  return { shown, preparing, limited, message, onShare }
 }
