@@ -281,9 +281,9 @@ Each task: failing test → see it fail → minimal code → pass → refactor �
 - [x] Library: grid, re-open and re-edit, select several, share, duplicate, delete, export; offline after the first visit; English and Romanian (spec 0013). *Tests.*
 
 ### Phase 10 — Accuracy & device verification
-- [ ] **Accuracy benchmark** (`npm run bench:accuracy`): fixtures (person with loose hair, person in front of busy background, pet, glossy object, object with hole) vs. ground-truth masks; report IoU and edge error for: Auto alone, Auto + smart edge, Lasso + dots. Store results in `docs/accuracy.md`; fail CI if they regress.
-- [ ] Full E2E on emulated iPhone + Pixel; offline run.
-- [ ] Lighthouse budgets.
+- [x] **Accuracy benchmark** (`npm run bench:accuracy`): fixtures (person with loose hair, person in front of busy background, pet, glossy object, object with hole) vs. ground-truth masks; report IoU and edge error for: Auto alone, Auto + smart edge, Lasso + dots. Store results in `docs/accuracy.md`; fail CI if they regress.
+- [x] Full E2E on emulated iPhone + Pixel; offline run.
+- [x] Lighthouse budgets.
 - [ ] Manual checklist on a **real iPhone (installed to Home Screen)** and Android phone: cut out a person with hair, a mug via lasso + dots, a shape with a hole; save → Photos → Add Sticker; airplane mode; 12 MP photo. Log in `docs/device-test-log.md`.
 
 ### Phase 11 — Launch (free)

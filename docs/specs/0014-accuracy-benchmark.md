@@ -1,6 +1,6 @@
 # 0014 — Accuracy benchmark and device verification
 
-- **Status:** Approved (product owner, 2026-11-20)
+- **Status:** Implemented (2026-11-20; AC-15's real-phone pass is the product owner's, from the main deploy)
 - **Issues:** story #92; tasks #93 (ground-truth fixtures), #94 (benchmark script), #95 (full end-to-end flows incl. offline), #96 (Lighthouse budgets), #97 (real iPhone and Android pass)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md Phase 10, §10 (definition of done)
 
