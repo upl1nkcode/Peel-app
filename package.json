@@ -15,7 +15,8 @@
     "test:e2e": "playwright test",
     "typecheck": "tsc -b",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "bench:accuracy": "node scripts/bench-accuracy.mjs"
   },
   "dependencies": {
     "@jsquash/webp": "1.5.0",

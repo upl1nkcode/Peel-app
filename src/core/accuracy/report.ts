@@ -47,6 +47,37 @@ export const TOLERANCES: Readonly<Record<Metric, number>> = {
 
 /** The AC-7 limits on the round trip. */
 const ROUND_TRIP = { dIou: 0.002, dEdgeMean: 0.1 }
+/** How much a known round-trip miss may grow before CI fails (Decision 8; AC-9's iou and edgeMean tolerances). */
+const ROUND_TRIP_TOLERANCE = { dIou: 0.002, dEdgeMean: 0.05 }
+const TRIP_METRICS = ['dIou', 'dEdgeMean'] as const
+
+const tripKey = (t: RoundTrip) => `${t.fixture} ${t.stage}`
+const tripOk = (t: RoundTrip) =>
+  TRIP_METRICS.every((m) => Math.abs(t[m]) <= ROUND_TRIP[m])
+
+/**
+ * Round-trip rows that fail CI (AC-7, Decision 8): outside AC-7's limits,
+ * unless the baseline already missed by as much (a known miss, held at
+ * today's value within a tolerance).
+ */
+function roundTripRegressions(now: BenchFile, base: BenchFile): string[] {
+  const before = new Map(base.roundTrip.map((t) => [tripKey(t), t]))
+  const out: string[] = []
+  for (const t of now.roundTrip) {
+    const b = before.get(tripKey(t))
+    for (const m of TRIP_METRICS) {
+      const v = Math.abs(t[m])
+      if (v <= ROUND_TRIP[m]) continue
+      const w = b ? Math.abs(b[m]) : null
+      if (w !== null && w > ROUND_TRIP[m] && v <= w + ROUND_TRIP_TOLERANCE[m])
+        continue
+      out.push(
+        `${tripKey(t)} round trip: ${m} ${b ? signed(b[m]) : 'none'} → ${signed(t[m])} (limit ${String(ROUND_TRIP[m])})`,
+      )
+    }
+  }
+  return out
+}
 
 const METRICS: readonly Metric[] = [
   'iou',
@@ -129,6 +160,7 @@ export function compareToBaseline(
       }
     }
   }
+  regressions.push(...roundTripRegressions(now, base))
   const dropped = base.results.map(key).filter((k) => !seen.has(k))
   return { regressions, added, dropped }
 }
@@ -218,12 +250,14 @@ export function formatReport(now: BenchFile, base: BenchFile | null): string {
       '| Fixture | Stage | ΔIoU | ΔEdge mean (px) | OK |',
       '|---|---|---|---|---|',
     )
+    const tripsBefore = new Map(
+      (base?.roundTrip ?? []).map((t) => [tripKey(t), t]),
+    )
     for (const t of now.roundTrip) {
-      const ok =
-        Math.abs(t.dIou) <= ROUND_TRIP.dIou &&
-        Math.abs(t.dEdgeMean) <= ROUND_TRIP.dEdgeMean
+      const b = tripsBefore.get(tripKey(t))
+      const mark = tripOk(t) ? '✅' : b && !tripOk(b) ? '❌ known miss' : '❌'
       lines.push(
-        `| ${t.fixture} | ${t.stage} | ${signed(t.dIou)} | ${signed(t.dEdgeMean)} | ${ok ? '✅' : '❌'} |`,
+        `| ${t.fixture} | ${t.stage} | ${signed(t.dIou)} | ${signed(t.dEdgeMean)} | ${mark} |`,
       )
     }
     lines.push('')

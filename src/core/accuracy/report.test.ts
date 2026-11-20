@@ -111,6 +111,40 @@ describe('accuracy report (spec 0014)', () => {
     })
   })
 
+  it('should_guard_the_round_trip_and_its_known_misses (AC-7, Decision 8)', () => {
+    const trip = (dIou: number, dEdgeMean: number): BenchFile => ({
+      version: 1,
+      results: [],
+      roundTrip: [{ fixture: 'hole', stage: 'finished', dIou, dEdgeMean }],
+    })
+    // Within AC-7's limits: fine, whatever the baseline says.
+    expect(
+      compareToBaseline(trip(-0.001, 0.09), trip(0, 0)).regressions,
+    ).toEqual([])
+    // A new miss fails.
+    expect(compareToBaseline(trip(0, 0.3), trip(0, 0.05)).regressions).toEqual([
+      'hole finished round trip: dEdgeMean +0.0500 → +0.3000 (limit 0.1)',
+    ])
+    // A known miss (also outside the limits in the baseline) holds at today's value.
+    expect(
+      compareToBaseline(trip(0, 1.14), trip(0, 1.1166)).regressions,
+    ).toEqual([])
+    expect(
+      compareToBaseline(trip(0, 1.2), trip(0, 1.1166)).regressions,
+    ).toHaveLength(1)
+    expect(
+      compareToBaseline(trip(-0.0045, 0), trip(-0.003, 0)).regressions,
+    ).toEqual([])
+    expect(
+      compareToBaseline(trip(-0.0051, 0), trip(-0.003, 0)).regressions,
+    ).toHaveLength(1)
+    // The report names it.
+    expect(formatReport(trip(0, 1.1166), trip(0, 1.1166))).toContain(
+      '❌ known miss',
+    )
+    expect(formatReport(trip(0, 1.1166), null)).not.toContain('known miss')
+  })
+
   it('should_mark_targets_and_list_the_worst_five (AC-6)', () => {
     const rows: Row[] = [
       row({ fixture: 'hair', iou: 0.962 }),

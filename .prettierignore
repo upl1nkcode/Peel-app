@@ -8,3 +8,6 @@ package-lock.json
 peel-github-setup
 e2e/fixtures
 bench/fixtures
+dist-bench
+bench/accuracy.json
+bench/accuracy-baseline.json
