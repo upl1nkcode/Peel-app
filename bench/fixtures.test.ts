@@ -58,7 +58,8 @@ const alphaOf = async (file: string) => {
   return { width: img.width, height: img.height, alpha }
 }
 
-describe('accuracy test photos (spec 0014)', () => {
+// Decoding 1600 × 1000 PNGs in JavaScript takes seconds under coverage on CI.
+describe('accuracy test photos (spec 0014)', { timeout: 60_000 }, () => {
   it('should_list_six_fixtures_with_files (AC-1)', async () => {
     const all = fixtures()
     expect(Object.keys(all).sort()).toEqual([...NAMES].sort())
