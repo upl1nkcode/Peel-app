@@ -110,6 +110,27 @@ describe('accuracy stages (spec 0014)', () => {
     expect(scoreCutout(snapped, truth).edgeMean).toBeLessThanOrEqual(1)
   })
 
+  it('should_subtract_holes_with_the_lasso (AC-5, final review)', () => {
+    // A disc of radius 70 with a hole of radius 30 (18% of its area) and a
+    // pinhole of radius 3 (under 1%, which no finger would trace).
+    const w = 220
+    const h = 220
+    const data = new Uint8Array(w * h)
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const d = Math.hypot(x + 0.5 - 110, y + 0.5 - 110)
+        const pin = Math.hypot(x + 0.5 - 110, y + 0.5 - 165)
+        const inside = d <= 70 && d >= 30 && pin >= 3
+        data[y * w + x] = inside ? 255 : 0
+      }
+    }
+    const truth: Mask = { width: w, height: h, data }
+    const got = lassoAlpha(photoOf(truth), truth, { seed: 1, snap: false })
+    expect(got.data[110 * w + 110], 'the hole is empty').toBe(0)
+    expect(got.data[165 * w + 110], 'the pinhole is not traced').toBe(255)
+    expect(scoreCutout(got, truth).iou).toBeGreaterThanOrEqual(0.95)
+  })
+
   it('should_keep_a_result_through_the_dots_round_trip (AC-7)', () => {
     const truth = disc(240, 180, 60)
     const image = photoOf(truth)

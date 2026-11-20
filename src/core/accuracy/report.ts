@@ -236,7 +236,8 @@ export function formatReport(now: BenchFile, base: BenchFile | null): string {
     for (const r of rows) {
       const b = before.get(key(r))
       const cells = METRICS.map((m) => cell(m, r[m], b?.[m]))
-      lines.push(`| ${r.fixture} | ${String(r.size)} | ${cells.join(' | ')} |`)
+      const name = base && !b ? `${r.fixture} (new)` : r.fixture
+      lines.push(`| ${name} | ${String(r.size)} | ${cells.join(' | ')} |`)
     }
     lines.push('')
   }

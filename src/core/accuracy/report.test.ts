@@ -75,6 +75,15 @@ describe('accuracy report (spec 0014)', () => {
     expect(got.dropped).toEqual(['hole 600 finished'])
   })
 
+  it('should_mark_rows_new_since_the_baseline (AC-9, Review Focus 4)', () => {
+    const now = file([row(), row({ fixture: 'pet' })])
+    const md = formatReport(now, file([row()]))
+    expect(md).toContain('| pet (new) | 600 |')
+    expect(md).toContain('| hair | 600 |')
+    // Without a baseline nothing is "new".
+    expect(formatReport(now, null)).not.toContain('(new)')
+  })
+
   it('should_flag_soft_error_appearing_or_vanishing (AC-9, Review Focus 5)', () => {
     const appeared = compare({ softError: 0.02 }, { softError: null })
     expect(appeared.regressions).toHaveLength(1)

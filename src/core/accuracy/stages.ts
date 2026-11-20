@@ -6,7 +6,7 @@ import {
   snapReachPx,
   type LassoSection,
 } from '../editor/lasso'
-import type { Size } from '../geometry/types'
+import type { Point, Size } from '../geometry/types'
 import { renderMask } from '../mask/render'
 import { resizeRgba } from '../mask/resize'
 import type { AlphaMask, RgbaImage } from '../mask/types'
@@ -16,7 +16,7 @@ import { applyCommand } from '../selection/commands'
 import { fitRing } from '../selection/density'
 import { emptySelection } from '../selection/model'
 import type { Selection } from '../selection/types'
-import { lassoAround } from './lassoAround'
+import { lassoAround, lassoHoles } from './lassoAround'
 import type { Mask } from './score'
 
 /** The phone screen a lasso is traced on, in points (spec 0014 Decision 12). */
@@ -101,20 +101,29 @@ export function lassoAlpha(
   const k = traceZoom(truth)
   const finger = lassoAround(truth, opts.seed, WOBBLE_PT / k)
   if (finger.length < 4) return zeros(image)
-  const section: LassoSection = opts.snap
-    ? {
-        points: snapToEdges(image, finger, snapReachPx(k)),
-        snapped: true,
-        tolerancePx: sectionTolerance(k, true),
-      }
-    : {
-        points: finger,
-        snapped: false,
-        tolerancePx: sectionTolerance(k, false),
-      }
-  const path = joinSections([section], SMOOTHING)
-  const nodes = fitRing(path, ringTolerance([section]))
-  const selection = applyCommand(emptySelection(), { type: 'addRing', nodes })
+  /** One closed trace made into dots, as the app's lasso does on lifting. */
+  const ring = (points: Point[]) => {
+    const section: LassoSection = opts.snap
+      ? {
+          points: snapToEdges(image, points, snapReachPx(k)),
+          snapped: true,
+          tolerancePx: sectionTolerance(k, true),
+        }
+      : { points, snapped: false, tolerancePx: sectionTolerance(k, false) }
+    return fitRing(joinSections([section], SMOOTHING), ringTolerance([section]))
+  }
+  let selection = applyCommand(emptySelection(), {
+    type: 'addRing',
+    nodes: ring(finger),
+  })
+  // Each hole lassoed again in Subtract mode, at the same zoom (final review).
+  for (const hole of lassoHoles(truth, opts.seed, WOBBLE_PT / k)) {
+    if (hole.length < 4) continue
+    selection = applyCommand(selection, {
+      type: 'subtractRing',
+      nodes: ring(hole),
+    })
+  }
   return renderMask(selection, image)
 }
 

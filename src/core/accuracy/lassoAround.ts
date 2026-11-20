@@ -16,26 +16,35 @@ function mulberry32(seed: number): () => number {
   }
 }
 
-/** The largest add ring's curve, sampled at most 1 px apart, without the closing repeat. */
-function outlinePath(truth: Mask): Point[] {
-  const rings = maskToRings(fromAlphaMask(truth)).filter((r) => r.op === 'add')
-  let best: Point[] = []
-  let bestArea = -1
-  for (const ring of rings) {
+/** Holes smaller than this share of the subject's area are not traced: a finger wouldn't. */
+export const MIN_HOLE_SHARE = 0.01
+
+interface RingPath {
+  op: 'add' | 'subtract'
+  /** The ring's curve, sampled at most 1 px apart, without the closing repeat. */
+  pts: Point[]
+  area: number
+}
+
+function ringPaths(truth: Mask): RingPath[] {
+  return maskToRings(fromAlphaMask(truth)).map((ring) => {
     const pts: Point[] = []
     for (const seg of toBezierSegments(ring.nodes, true)) {
       const s = sampleSegment(seg, 1)
       pts.push(...(pts.length === 0 ? s : s.slice(1)))
     }
     pts.pop()
-    const a = area(pts)
-    if (a > bestArea) {
-      best = pts
-      bestArea = a
-    }
-  }
-  return best
+    return { op: ring.op, pts, area: Math.abs(area(pts)) }
+  })
 }
+
+const largestAdd = (rings: readonly RingPath[]) =>
+  rings
+    .filter((r) => r.op === 'add')
+    .reduce<RingPath | null>(
+      (best, r) => (best && best.area >= r.area ? best : r),
+      null,
+    )
 
 /**
  * A finger-like lasso around the truth (spec 0014 AC-5): its 50% outline,
@@ -48,7 +57,33 @@ export function lassoAround(
   seed: number,
   wobblePx: number,
 ): Point[] {
-  const line = outlinePath(truth)
+  return wobbled(largestAdd(ringPaths(truth))?.pts ?? [], seed, wobblePx)
+}
+
+/**
+ * Finger-like traces around the truth's holes, the way a user lassoes them
+ * in Subtract mode: one per hole of at least MIN_HOLE_SHARE of the subject's
+ * area, each wobbling like `lassoAround` (seeds `seed + 1`, `seed + 2`, …).
+ */
+export function lassoHoles(
+  truth: Mask,
+  seed: number,
+  wobblePx: number,
+): Point[][] {
+  const rings = ringPaths(truth)
+  const subject = largestAdd(rings)?.area ?? 0
+  return rings
+    .filter((r) => r.op === 'subtract' && r.area >= MIN_HOLE_SHARE * subject)
+    .map((r, i) => wobbled(r.pts, seed + 1 + i, wobblePx))
+    .filter((path) => path.length > 0)
+}
+
+/** `line` pushed along its normal by the two-sine wobble; closed, or empty under 3 points. */
+function wobbled(
+  line: readonly Point[],
+  seed: number,
+  wobblePx: number,
+): Point[] {
   const n = line.length
   if (n < 3) return []
   const rand = mulberry32(seed)

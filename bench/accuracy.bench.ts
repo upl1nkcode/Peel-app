@@ -152,4 +152,9 @@ test('should_not_regress (AC-9, AC-10)', () => {
   )
   expect(got.regressions, 'worse than bench/accuracy-baseline.json').toEqual([])
   expect(got.dropped, 'rows missing since the baseline').toEqual([])
+  // A new fixture, size or stage is unguarded until it is in the baseline.
+  expect(
+    got.added,
+    'rows not in the baseline: update it with npm run bench:accuracy -- --update from the CI artifact',
+  ).toEqual([])
 })

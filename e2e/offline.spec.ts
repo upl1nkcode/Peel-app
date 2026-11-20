@@ -31,24 +31,36 @@ const HOLE = (
   >
 ).hole
 
-/** The largest cutout alpha inside the hole (2 px in from its box), scaled to the canvas. */
-function holeAlpha(page: Page, photoWidth: number) {
+/** Keeps clear of the hole's wall by the smart edge's band (AUTO_BAND_PX). */
+const HOLE_INSET_PX = 8
+
+/**
+ * The cutout as the editor shows it, read at photo points: the largest alpha
+ * inside the hole (inset from its box), at the tap and at a corner. The canvas
+ * holds the whole photo at `data-mask-scale`.
+ */
+async function holeReadings(page: Page) {
+  const scale = Number(
+    await page.getByTestId('canvas').getAttribute('data-mask-scale'),
+  )
   return page.getByTestId('cutout').evaluate(
-    (el, { box, photoWidth }) => {
+    (el, { box, tap, k, inset }) => {
       const c = el as HTMLCanvasElement
       const ctx = c.getContext('2d')
       if (!ctx) throw new Error('no 2D context')
-      const k = c.width / photoWidth
-      const x0 = Math.ceil((box.x + 2) * k)
-      const y0 = Math.ceil((box.y + 2) * k)
-      const x1 = Math.floor((box.x + box.width - 2) * k)
-      const y1 = Math.floor((box.y + box.height - 2) * k)
+      const at = (x: number, y: number) =>
+        ctx.getImageData(Math.floor(x * k), Math.floor(y * k), 1, 1).data[3]
+      const x0 = Math.ceil((box.x + inset) * k)
+      const y0 = Math.ceil((box.y + inset) * k)
+      const x1 = Math.floor((box.x + box.width - inset) * k)
+      const y1 = Math.floor((box.y + box.height - inset) * k)
       const data = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data
-      let max = 0
-      for (let i = 3; i < data.length; i += 4) max = Math.max(max, data[i] ?? 0)
-      return max
+      let hole = 0
+      for (let i = 3; i < data.length; i += 4)
+        hole = Math.max(hole, data[i] ?? 0)
+      return { width: c.width, hole, tap: at(tap.x, tap.y), corner: at(2, 2) }
     },
-    { box: HOLE.holeProbe, photoWidth },
+    { box: HOLE.holeProbe, tap: HOLE.tap, k: scale, inset: HOLE_INSET_PX },
   )
 }
 
@@ -165,11 +177,24 @@ test.describe('offline after the first visit', () => {
       .getByRole('button', { name: 'Save', exact: true })
       .click()
     await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible()
+    // The shown cutout is the subject (the tap opaque, the background clear),
+    // so the hole reading below can't pass on a stale or wrong cutout.
+    await expect
+      .poll(async () => {
+        const r = await holeReadings(page)
+        return { tap: r.tap, corner: r.corner }
+      })
+      .toEqual({ tap: 255, corner: 0 })
+    const readings = await holeReadings(page)
+    const scale = Number(
+      await page.getByTestId('canvas').getAttribute('data-mask-scale'),
+    )
+    expect(readings.width).toBe(Math.round(1600 * scale))
     // Known miss #158 (spec 0014 Decision 8): Auto fills the hole today, so
     // this asserts that and goes red when a fix lands. The fix makes it the
     // real AC-12 check: expect(...).toBeLessThan(26).
     expect(
-      await holeAlpha(page, 1600),
+      readings.hole,
       'alpha inside the hole: if this fails, #158 may be fixed',
     ).toBeGreaterThanOrEqual(26)
   })
