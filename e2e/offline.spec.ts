@@ -40,12 +40,10 @@ const HOLE_INSET_PX = 8
  * holds the whole photo at `data-mask-scale`.
  */
 async function holeReadings(page: Page) {
-  const scale = Number(
-    await page.getByTestId('canvas').getAttribute('data-mask-scale'),
-  )
   return page.getByTestId('cutout').evaluate(
-    (el, { box, tap, k, inset }) => {
+    (el, { box, tap, inset }) => {
       const c = el as HTMLCanvasElement
+      const k = c.width / 1600
       const ctx = c.getContext('2d')
       if (!ctx) throw new Error('no 2D context')
       const at = (x: number, y: number) =>
@@ -60,7 +58,7 @@ async function holeReadings(page: Page) {
         hole = Math.max(hole, data[i] ?? 0)
       return { width: c.width, hole, tap: at(tap.x, tap.y), corner: at(2, 2) }
     },
-    { box: HOLE.holeProbe, tap: HOLE.tap, k: scale, inset: HOLE_INSET_PX },
+    { box: HOLE.holeProbe, tap: HOLE.tap, inset: HOLE_INSET_PX },
   )
 }
 
@@ -189,7 +187,8 @@ test.describe('offline after the first visit', () => {
     const scale = Number(
       await page.getByTestId('canvas').getAttribute('data-mask-scale'),
     )
-    expect(readings.width).toBe(Math.round(1600 * scale))
+    // The canvas holds the whole 1600 px photo (data-mask-scale is rounded).
+    expect(Math.abs(readings.width - 1600 * scale)).toBeLessThanOrEqual(1)
     // Known miss #158 (spec 0014 Decision 8): Auto fills the hole today, so
     // this asserts that and goes red when a fix lands. The fix makes it the
     // real AC-12 check: expect(...).toBeLessThan(26).

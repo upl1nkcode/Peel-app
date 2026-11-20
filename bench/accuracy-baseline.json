@@ -1035,21 +1035,21 @@
       "fixture": "glossy",
       "size": 1600,
       "stage": "lasso",
-      "iou": 0.8934,
-      "edgeMean": 12.026,
-      "edgeP99": 142.0211,
+      "iou": 0.974,
+      "edgeMean": 3.1517,
+      "edgeP99": 8.544,
       "extra": 0,
-      "softError": 0.5658
+      "softError": 0.1746
     },
     {
       "fixture": "glossy",
       "size": 1600,
       "stage": "lasso-snap",
-      "iou": 0.8916,
-      "edgeMean": 12.6257,
-      "edgeP99": 151.921,
+      "iou": 0.9634,
+      "edgeMean": 4.5492,
+      "edgeP99": 26.6833,
       "extra": 0,
-      "softError": 0.5209
+      "softError": 0.1454
     },
     {
       "fixture": "glossy",
@@ -1085,21 +1085,21 @@
       "fixture": "glossy",
       "size": 1000,
       "stage": "lasso",
-      "iou": 0.8926,
-      "edgeMean": 7.5052,
-      "edgeP99": 88.2383,
+      "iou": 0.9735,
+      "edgeMean": 2.0132,
+      "edgeP99": 5,
       "extra": 0,
-      "softError": 0.5126
+      "softError": 0.1487
     },
     {
       "fixture": "glossy",
       "size": 1000,
       "stage": "lasso-snap",
-      "iou": 0.8906,
-      "edgeMean": 8.0822,
-      "edgeP99": 97.6729,
+      "iou": 0.9659,
+      "edgeMean": 2.5877,
+      "edgeP99": 15.6205,
       "extra": 0,
-      "softError": 0.4905
+      "softError": 0.1403
     },
     {
       "fixture": "glossy",
@@ -1135,21 +1135,21 @@
       "fixture": "glossy",
       "size": 600,
       "stage": "lasso",
-      "iou": 0.8932,
-      "edgeMean": 4.4305,
-      "edgeP99": 52.9245,
+      "iou": 0.9743,
+      "edgeMean": 1.1789,
+      "edgeP99": 3,
       "extra": 0,
-      "softError": 0.4413
+      "softError": 0.1093
     },
     {
       "fixture": "glossy",
       "size": 600,
       "stage": "lasso-snap",
-      "iou": 0.8927,
-      "edgeMean": 4.6397,
-      "edgeP99": 57.8705,
+      "iou": 0.9765,
+      "edgeMean": 1.0803,
+      "edgeP99": 8,
       "extra": 0,
-      "softError": 0.4306
+      "softError": 0.0847
     },
     {
       "fixture": "glossy",
@@ -1185,21 +1185,21 @@
       "fixture": "glossy",
       "size": 400,
       "stage": "lasso",
-      "iou": 0.8926,
-      "edgeMean": 2.9687,
-      "edgeP99": 35.3553,
+      "iou": 0.9736,
+      "edgeMean": 0.8298,
+      "edgeP99": 2,
       "extra": 0,
-      "softError": 0.3691
+      "softError": 0.0867
     },
     {
       "fixture": "glossy",
       "size": 400,
       "stage": "lasso-snap",
-      "iou": 0.893,
-      "edgeMean": 2.8876,
-      "edgeP99": 35.5106,
+      "iou": 0.9779,
+      "edgeMean": 0.6802,
+      "edgeP99": 5,
       "extra": 0,
-      "softError": 0.3648
+      "softError": 0.0701
     },
     {
       "fixture": "glossy",
@@ -1235,21 +1235,21 @@
       "fixture": "glossy",
       "size": "forwarded",
       "stage": "lasso",
-      "iou": 0.893,
-      "edgeMean": 9.6126,
-      "edgeP99": 113.7585,
+      "iou": 0.9732,
+      "edgeMean": 2.593,
+      "edgeP99": 6.7082,
       "extra": 0,
-      "softError": 0.54
+      "softError": 0.1665
     },
     {
       "fixture": "glossy",
       "size": "forwarded",
       "stage": "lasso-snap",
-      "iou": 0.8883,
-      "edgeMean": 10.4656,
-      "edgeP99": 121.4331,
+      "iou": 0.9569,
+      "edgeMean": 4.2888,
+      "edgeP99": 21.9317,
       "extra": 0,
-      "softError": 0.5193
+      "softError": 0.1749
     },
     {
       "fixture": "hole",
@@ -1285,21 +1285,21 @@
       "fixture": "hole",
       "size": 1600,
       "stage": "lasso",
-      "iou": 0.8176,
-      "edgeMean": 33.8144,
-      "edgeP99": 213.5275,
+      "iou": 0.9604,
+      "edgeMean": 2.77,
+      "edgeP99": 6.7082,
       "extra": 0,
-      "softError": 0.3539
+      "softError": 0.2607
     },
     {
       "fixture": "hole",
       "size": 1600,
       "stage": "lasso-snap",
-      "iou": 0.8236,
-      "edgeMean": 32.7931,
-      "edgeP99": 214.8953,
+      "iou": 0.9745,
+      "edgeMean": 1.8612,
+      "edgeP99": 22.0907,
       "extra": 0,
-      "softError": 0.2628
+      "softError": 0.1036
     },
     {
       "fixture": "hole",
@@ -1335,21 +1335,21 @@
       "fixture": "hole",
       "size": 1000,
       "stage": "lasso",
-      "iou": 0.8184,
-      "edgeMean": 21.0353,
-      "edgeP99": 133.544,
+      "iou": 0.9625,
+      "edgeMean": 1.6399,
+      "edgeP99": 4.2426,
       "extra": 0,
-      "softError": 0.3061
+      "softError": 0.1859
     },
     {
       "fixture": "hole",
       "size": 1000,
       "stage": "lasso-snap",
-      "iou": 0.8115,
-      "edgeMean": 21.3045,
-      "edgeP99": 134.7924,
+      "iou": 0.9513,
+      "edgeMean": 2.2178,
+      "edgeP99": 16,
       "extra": 0,
-      "softError": 0.295
+      "softError": 0.15
     },
     {
       "fixture": "hole",
@@ -1385,21 +1385,21 @@
       "fixture": "hole",
       "size": 600,
       "stage": "lasso",
-      "iou": 0.8192,
-      "edgeMean": 12.5533,
-      "edgeP99": 80.4301,
+      "iou": 0.9622,
+      "edgeMean": 1.0089,
+      "edgeP99": 2.8284,
       "extra": 0,
-      "softError": 0.2644
+      "softError": 0.1283
     },
     {
       "fixture": "hole",
       "size": 600,
       "stage": "lasso-snap",
-      "iou": 0.8042,
-      "edgeMean": 13.0845,
-      "edgeP99": 80.5233,
+      "iou": 0.927,
+      "edgeMean": 2.03,
+      "edgeP99": 8.4853,
       "extra": 0,
-      "softError": 0.3034
+      "softError": 0.1957
     },
     {
       "fixture": "hole",
@@ -1435,21 +1435,21 @@
       "fixture": "hole",
       "size": 400,
       "stage": "lasso",
-      "iou": 0.819,
-      "edgeMean": 8.3137,
-      "edgeP99": 53.0848,
+      "iou": 0.9633,
+      "edgeMean": 0.6708,
+      "edgeP99": 2,
       "extra": 0,
-      "softError": 0.2399
+      "softError": 0.0907
     },
     {
       "fixture": "hole",
       "size": 400,
       "stage": "lasso-snap",
-      "iou": 0.797,
-      "edgeMean": 9.2785,
-      "edgeP99": 55.0727,
+      "iou": 0.9092,
+      "edgeMean": 1.76,
+      "edgeP99": 7,
       "extra": 0,
-      "softError": 0.3044
+      "softError": 0.2042
     },
     {
       "fixture": "hole",
@@ -1485,21 +1485,21 @@
       "fixture": "hole",
       "size": "forwarded",
       "stage": "lasso",
-      "iou": 0.8179,
-      "edgeMean": 27.1063,
-      "edgeP99": 170.2058,
+      "iou": 0.9614,
+      "edgeMean": 2.1544,
+      "edgeP99": 5.3852,
       "extra": 0,
-      "softError": 0.3304
+      "softError": 0.2205
     },
     {
       "fixture": "hole",
       "size": "forwarded",
       "stage": "lasso-snap",
-      "iou": 0.818,
-      "edgeMean": 26.7182,
-      "edgeP99": 171.5721,
+      "iou": 0.9637,
+      "edgeMean": 2.1368,
+      "edgeP99": 18.2483,
       "extra": 0,
-      "softError": 0.2819
+      "softError": 0.1345
     }
   ],
   "roundTrip": [
@@ -1560,8 +1560,8 @@
     {
       "fixture": "glossy",
       "stage": "lasso",
-      "dIou": -0.00011335509447463199,
-      "dEdgeMean": 0.019272532778041196
+      "dIou": -0.0000754138618045408,
+      "dEdgeMean": 0.004943952774145721
     },
     {
       "fixture": "hole",
@@ -1572,8 +1572,8 @@
     {
       "fixture": "hole",
       "stage": "lasso",
-      "dIou": 0.000026069547993112785,
-      "dEdgeMean": 0.01136064917770696
+      "dIou": 0.000026202834050859103,
+      "dEdgeMean": 0.001651872506732488
     }
   ]
 }
