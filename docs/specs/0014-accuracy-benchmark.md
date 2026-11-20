@@ -89,7 +89,7 @@ This story builds the **scorecard**. It is a fixed set of test photos with known
   - `<fixture>.truth.png`: the subject's alpha exactly as composited;
   - `<fixture>.extra.png` for `two-people` and `skin-object`: the distractor's alpha;
   - an entry in `bench/fixtures/fixtures.json` with the tap point (the alpha-weighted centroid moved to the nearest fully opaque pixel, as in spec 0007).
-- **AC-2** Every source is CC0 or public domain. Each is recorded with its URL, author and licence in `bench/fixtures/README.md` and `docs/licenses.md`. Each committed photo is ≤ 400 KB and the folder is ≤ 5 MB.
+- **AC-2** Every source is CC0, public domain or CC BY (Decision 9). Each is recorded with its URL, author and licence in `bench/fixtures/README.md` and `docs/licenses.md`. Each committed file is ≤ 800 KB and the folder is ≤ 6 MB (amended 2026-11-20: busy 1600 × 1000 backgrounds at JPEG quality 90 measured 250–775 KB, and quality matters more than size, since every smaller test size is made from these photos).
 - **AC-3** The `hair` and `pet` truths have real soft edges. At least 2% of the subject's pixels inside its bounding box have alpha in 1–254. The script refuses a source that doesn't, so a hard-cut PNG can't pass for a hair truth.
 
 ### Scores (#94)

@@ -169,13 +169,13 @@
 
 - [ ] **Step 1: Write the failing test** `fixtures.test.ts`:
   - `should_list_six_fixtures_with_files (AC-1)`: each image, truth and extra exists, each base is 1600 px on its long side (read the JPEG SOF header and the PNG IHDR), and each tap is fully opaque in its truth;
-  - `should_keep_photos_small (AC-2)`: each file ≤ 400 KB and the folder ≤ 5 MB;
+  - `should_keep_photos_small (AC-2)`: each file ≤ 800 KB and the folder ≤ 6 MB (spec amended);
   - `should_credit_every_source (AC-2)`: each source in `README.md`'s table has a URL, an author and a licence from {CC0, Public domain, CC BY 4.0, CC BY 3.0, CC BY 2.0}, and appears in `docs/licenses.md`;
   - `should_have_soft_hair_and_fur (AC-3)`: for `hair` and `pet`, at least 2% of the bounding-box pixels have alpha in 1–254, unless `fixtures.json` marks the fixture `"hardTruth": true` (the Decision 9 fallback), in which case an issue number must be present.
 - [ ] **Step 2: Run** `npx vitest run src/core/accuracy/fixtures.test.ts`. Expected: FAIL, no fixtures.
 - [ ] **Step 3: Find the sources** (Wikimedia Commons first, filtered to CC0, PD and CC BY transparent PNGs, plus backgrounds). Download them into a new scratchpad folder. Check each subject PNG's soft share before choosing it.
 - [ ] **Step 4: Write `compose-accuracy-fixtures.py`**, following `scripts/compose-fixtures.py`:
-  - a premultiplied LANCZOS resize; JPEG quality 90, raising the compression until the photo fits 400 KB, never below 80;
+  - a premultiplied LANCZOS resize; JPEG quality 90 (fail, rather than compress harder, if a photo is over 800 KB);
   - truths as 8-bit L PNGs;
   - tap points as in spec 0007;
   - `holeProbe` by flood fill;

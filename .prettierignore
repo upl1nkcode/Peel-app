@@ -7,3 +7,4 @@ package-lock.json
 .github
 peel-github-setup
 e2e/fixtures
+bench/fixtures
