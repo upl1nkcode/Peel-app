@@ -13,6 +13,7 @@ Every dependency and model is recorded here when it is added (rule in `CLAUDE.md
 | react | 19.3.1 | MIT | runtime |
 | react-dom | 19.3.1 | MIT | runtime |
 | @eslint/js | 10.0.1 | MIT | dev |
+| @lhci/cli | 0.15.1 | Apache-2.0 | dev (Lighthouse CI: speed and accessibility budgets on the built app, spec 0014 AC-13; brings Lighthouse, Apache-2.0; results stay on disk, no upload) |
 | @playwright/test | 1.64.1 | Apache-2.0 | dev |
 | @testing-library/dom | 10.4.2 | MIT | dev |
 | @testing-library/jest-dom | 7.0.1 | MIT | dev |
@@ -43,6 +44,27 @@ Every dependency and model is recorded here when it is added (rule in `CLAUDE.md
 | MediaPipe MagicTouch (Tap v1, fast engine) | `models/magic_touch.tflite` | Apache-2.0 (model card) | storage.googleapis.com/mediapipe-models, see `models/README.md` |
 | MediaPipe interactive segmenter v2 (Tap v2, precise engine) | `models/interactive_segmentation.task` | Apache-2.0 | storage.googleapis.com/mediapipe-models, see `models/README.md` |
 | MediaPipe Tasks Vision WebAssembly engine | copied from `@mediapipe/tasks-vision` at build (`/engine/`) | Apache-2.0 | npm package |
+
+## Test photos (accuracy benchmark, spec 0014)
+
+Composited into `bench/fixtures/` (test data only, not shipped in the app). Details in `bench/fixtures/README.md`.
+
+| Work | Author | License | Source |
+|---|---|---|---|
+| Woman in White Sleeveless Dress Sitting on Gray Concrete Seat during Daytime transparent.png | dzeeshah (via Pixabay) | CC0 | https://commons.wikimedia.org/wiki/File:Woman_in_White_Sleeveless_Dress_Sitting_on_Gray_Concrete_Seat_during_Daytime_transparent.png |
+| Public bookcase of the Muri-Gümligen municipal library.jpg | Dafadllyn | CC0 | https://commons.wikimedia.org/wiki/File:Public_bookcase_of_the_Muri-G%C3%BCmligen_municipal_library.jpg |
+| Lilac tortoiseshell and white Oriental Shorthair cat no background.png | Heikki Siltala (catza.net) | CC BY 3.0 | https://commons.wikimedia.org/wiki/File:Lilac_tortoiseshell_and_white_Oriental_Shorthair_cat_no_background.png |
+| Grass at a lawn with morning dew 01.jpg | Leonhard Lenz | CC0 | https://commons.wikimedia.org/wiki/File:Grass_at_a_lawn_with_morning_dew_01.jpg |
+| 160803-N-RY232-001 - Navy Working Uniform (NWU) Type III.png | USN | Public domain | https://commons.wikimedia.org/wiki/File:160803-N-RY232-001_-_Navy_Working_Uniform_(NWU)_Type_III.png |
+| 160803-N-RY232-004 - Navy Working Uniform (NWU) Type III.png | USN | Public domain | https://commons.wikimedia.org/wiki/File:160803-N-RY232-004_-_Navy_Working_Uniform_(NWU)_Type_III.png |
+| Living room of a typical rural house in northeast Brazil.jpg | Wilfredor | CC0 | https://commons.wikimedia.org/wiki/File:Living_room_of_a_typical_rural_house_in_northeast_Brazil.jpg |
+| 160803-N-RY232-002 - Navy Working Uniform (NWU) Type III.png | MC1 Julia A. Casper, US Navy | Public domain | https://commons.wikimedia.org/wiki/File:160803-N-RY232-002_-_Navy_Working_Uniform_(NWU)_Type_III.png |
+| Crisp bread.png | Tiia Monto | CC BY 4.0 | https://commons.wikimedia.org/wiki/File:Crisp_bread.png |
+| Snowy Sainte-Famille Street in Quebec City.jpg | Wilfredor | CC0 | https://commons.wikimedia.org/wiki/File:Snowy_Sainte-Famille_Street_in_Quebec_City.jpg |
+| Teacup.png | Rijksmuseum | CC0 | https://commons.wikimedia.org/wiki/File:Teacup.png |
+| Laminate Kitchen Countertop Beige.jpg | Kurtkaiser | CC0 | https://commons.wikimedia.org/wiki/File:Laminate_Kitchen_Countertop_Beige.jpg |
+| Wii-Wheel.png | Evan-Amos, modified by Gunnar.offel | Public domain | https://commons.wikimedia.org/wiki/File:Wii-Wheel.png |
+| Autumn leaves, Dumitru Rascanu park.jpg | Iurie Nistor | CC0 | https://commons.wikimedia.org/wiki/File:Autumn_leaves,_Dumitru_Rascanu_park.jpg |
 
 ## Fonts and assets
 

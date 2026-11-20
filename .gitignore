@@ -32,3 +32,10 @@ playwright-report
 .env
 .env.*
 !.env.example
+
+# Accuracy benchmark build
+dist-bench
+bench/accuracy.json
+
+# Lighthouse CI results
+.lighthouseci

@@ -1,0 +1,58 @@
+{
+  "hair": {
+    "image": "hair.jpg",
+    "truth": "hair.truth.png",
+    "tap": {
+      "x": 826.5,
+      "y": 684.5
+    }
+  },
+  "pet": {
+    "image": "pet.jpg",
+    "truth": "pet.truth.png",
+    "tap": {
+      "x": 815.5,
+      "y": 569.5
+    }
+  },
+  "two-people": {
+    "image": "two-people.jpg",
+    "truth": "two-people.truth.png",
+    "extra": "two-people.extra.png",
+    "tap": {
+      "x": 701.5,
+      "y": 511.5
+    }
+  },
+  "skin-object": {
+    "image": "skin-object.jpg",
+    "truth": "skin-object.truth.png",
+    "extra": "skin-object.extra.png",
+    "tap": {
+      "x": 757.5,
+      "y": 521.5
+    }
+  },
+  "glossy": {
+    "image": "glossy.jpg",
+    "truth": "glossy.truth.png",
+    "tap": {
+      "x": 708.5,
+      "y": 470.5
+    }
+  },
+  "hole": {
+    "image": "hole.jpg",
+    "truth": "hole.truth.png",
+    "tap": {
+      "x": 812.5,
+      "y": 470.5
+    },
+    "holeProbe": {
+      "x": 548,
+      "y": 476,
+      "width": 88,
+      "height": 129
+    }
+  }
+}

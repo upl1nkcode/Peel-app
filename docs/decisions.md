@@ -197,3 +197,19 @@ The product owner made decisions 1 to 3 on 2026-11-17; the rest are Claude's cal
 - **Save-Data skips the first-visit download**; Auto then downloads on first use. Every e2e test but the offline one sets it, so 51 MB isn't fetched each time.
 - **Android's Back gesture goes back one screen:** opening the editor and the Finish screen adds a history entry; Back with unsaved changes asks first. With the ⋯ menu, selection or a Delete dialog open on the Library, Back still leaves (decided 2026-11-20 by the product owner).
 - **Share from the Library takes at most 15 stickers at a time** (decided 2026-11-20 by the product owner, #153). Each file is made ahead of the tap and held in memory, so a large selection could make an older iPhone reload the page; past 15 nothing is made and Share is disabled with a note pointing to Export.
+
+## Accuracy benchmark decisions (spec 0014)
+
+The product owner made decisions 1 and 2 on 2026-11-20; the rest are Claude's calls, listed in the spec for checking.
+
+- **Scorecard first, fixes after:** this story only measures and protects. Each later fix is its own PR with before-and-after scores and a preview link, so it can be undone on its own.
+- **Near-perfect targets, reported, not failed:** IoU ≥ 0.98, mean edge error ≤ 1 px, 99th-percentile edge error ≤ 4 px, extra ≤ 0.5%, soft-edge error ≤ 0.05. CI fails only when a score gets worse than the baseline.
+- **The test photos are composites** of free-licence cut-outs on real photos, built by `scripts/compose-accuracy-fixtures.py`, so the exact truth is known. Sources may be CC0, public domain or CC BY, credited in `bench/fixtures/README.md` and `docs/licenses.md`. Each file may be up to 800 KB and the folder up to 6 MB (amended 2026-11-20: busy backgrounds at JPEG quality 90 measured 250–775 KB).
+- **Low resolution is a size ladder** made at run time from each 1600 px photo: 1000, 600, 400 px and "forwarded" (1280 px at JPEG quality 60).
+- **Stages are scored separately:** fast (Tap v1), precise (Tap v2), finished (what Auto saves), lasso and lasso-snap.
+- **Real models run in desktop Chromium** from a bench-only build (`bench.html`, `dist-bench/`) that uses the app's own engine and smart-edge code; the app's build doesn't include it.
+- **The finger-like lasso** is traced where the subject fills 90% of a 390 × 700 pt screen, wobbling ±3 pt, with Smoothing 1; scored with Snap to edges off (the default) and on.
+- **The dots round trip retraces a result and renders it back without running the smart edge again:** the app runs the smart edge once, on dots traced from the model's mask, and never retraces a finished cutout.
+- **A pass-or-fail check today's app fails is a known miss:** it gets an issue, `docs/accuracy.md` lists it, and CI holds it at today's value. Today: #156 (the dots round trip on the hole and two-people cutouts) and #158 (Auto fills the hole; `e2e/offline.spec.ts` asserts today's behaviour and goes red when a fix lands).
+- **The baseline is made on CI** and committed from the `accuracy` artifact. Local and CI runs gave identical scores, so AC-9's tolerances stand.
+- **Lighthouse measures the first screen with the model download blocked** (spec 0014 AC-13, builder's call). The first-visit download (about 47 MB) starts once the Library shows; on Lighthouse's simulated slow connection it would take minutes and be counted against the page (performance 58–67, largest contentful paint about 74 s). Budgets, set 2026-11-20 at 110% of the measured gzipped size: JavaScript 133,120 bytes, CSS 4,096 bytes. Changing a budget needs a line here.

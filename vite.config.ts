@@ -1,21 +1,31 @@
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { defineConfig } from 'vitest/config'
+import { benchFixtures } from './vite/benchFixtures'
 import { peelModels } from './vite/peelModels'
 
 const THEME_COLOR = '#6d28d9'
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   // The WebP encoder finds its wasm next to its own script (new URL(…, import.meta.url));
   // pre-bundling would move the script away from it in the dev server (spec 0012).
   optimizeDeps: { exclude: ['@jsquash/webp'] },
   // Module workers (services/workers.ts), so a worker's dynamic import (the
   // WebP encoder) becomes its own chunk instead of being inlined.
   worker: { format: 'es' },
+  // The accuracy benchmark's own build (spec 0014): adds bench.html and its
+  // test photos, in dist-bench/; the app's build never includes them.
+  ...(mode === 'bench' && {
+    build: {
+      outDir: 'dist-bench',
+      rollupOptions: { input: { main: 'index.html', bench: 'bench.html' } },
+    },
+  }),
   plugins: [
     react(),
     peelModels(),
+    ...(mode === 'bench' ? [benchFixtures()] : []),
     VitePWA({
       // A new version waits until the Library's Reload (spec 0013 AC-22, AC-23).
       registerType: 'prompt',
@@ -59,7 +69,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'bench/**/*.test.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text-summary', 'html', 'lcov'],
@@ -75,4 +85,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

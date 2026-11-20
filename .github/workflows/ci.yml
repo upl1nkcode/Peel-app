@@ -65,9 +65,57 @@ jobs:
             test-results
           if-no-files-found: ignore
 
+  # The accuracy scorecard (spec 0014): real models on every test photo.
+  # Fails only when a score gets worse than bench/accuracy-baseline.json.
+  accuracy:
+    name: accuracy
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run bench:accuracy
+      # The baseline is made here (Decision 11): download, check, commit as
+      # bench/accuracy-baseline.json.
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: accuracy
+          path: |
+            bench/accuracy.json
+            docs/accuracy.md
+            test-results
+          if-no-files-found: ignore
+
+  # Speed and accessibility budgets on the built Library (spec 0014 AC-13).
+  lighthouse:
+    name: lighthouse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lighthouse
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: lighthouse
+          path: .lighthouseci
+          include-hidden-files: true
+          if-no-files-found: ignore
+
   deploy:
     name: deploy
-    needs: [check, e2e]
+    needs: [check, e2e, accuracy, lighthouse]
     # Fork PRs get no secrets, so only deploy pushes and same-repo PRs.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest

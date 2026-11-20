@@ -25,6 +25,8 @@
     "vite",
     "eslint.config.js",
     "playwright.config.ts",
-    "e2e"
+    "playwright.bench.config.ts",
+    "e2e",
+    "bench"
   ]
 }

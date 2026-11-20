@@ -37,3 +37,20 @@ Deployed build: <https://peel-app-9kg.pages.dev>. Clear the site's data (or use 
 | 8 | Android Back: Finish → editor → Library (asking first when there are unsaved changes) | n/a | ✅ |
 
 Tested by: product owner · Date: 2026-11-20 · Devices: Samsung Galaxy S23, Chrome (Android column). iPhone: not yet.
+
+## Accuracy, on real phones (spec 0014, story #92)
+
+From the main deploy, installed to the Home Screen (iPhone: from Safari; Android: from Chrome). Anything that looks wrong becomes an issue.
+
+| # | Check | iPhone 15 Pro | Samsung Galaxy S23 |
+|---|---|---|---|
+| 1 | A person with loose hair, by Auto: the hair edge looks right | | |
+| 2 | A mug by Lasso, then fixed with Dots | | |
+| 3 | A shape with a hole: the background inside the hole is removed (known miss #158 for Auto) | | |
+| 4 | A low-resolution photo (a screenshot or a forwarded WhatsApp image), by Auto | | |
+| 5 | Two people, keeping only one | | |
+| 6 | Save → Photos → Add Sticker on iPhone; WhatsApp on Android | | |
+| 7 | Airplane mode: reopen, pick a photo, Auto, Save | | |
+| 8 | A 12 MP photo straight from the camera | | |
+
+Tested by: · Date: · Devices:
