@@ -211,3 +211,21 @@ Selection to dots and back at 1000 px (AC-7): within IoU 0.002 and 0.1 px.
 
 - #156: the dots round trip changes the finished `hole` and `two-people` cutouts beyond AC-7.
 - #158: Auto fills the holes of the `hole` photo (AC-12); `e2e/offline.spec.ts` guards it.
+
+## Speed
+
+Lighthouse on the built app's Library (spec 0014 AC-13, AC-14): `npm run lighthouse`, mobile preset with simulated throttling, three runs, median. The first-visit model download (about 47 MB, spec 0013 AC-18) is blocked in these runs, so they measure the first screen; that download starts only once the Library shows.
+
+Measured 2026-11-20 on a laptop, median of three runs:
+
+| | Measured | Budget (CI fails beyond) |
+|---|---|---|
+| Performance | 98 | ≥ 90 |
+| Accessibility | 100 | ≥ 95 |
+| Best practices | 100 | ≥ 95 |
+| Largest contentful paint | 1.96 s | ≤ 2.5 s |
+| Total blocking time | 68 ms | ≤ 200 ms |
+| JavaScript, gzipped | 117.5 KB (120,282 bytes) | ≤ 130 KB (133,120 bytes, 110%) |
+| CSS, gzipped | 3.2 KB (3,284 bytes) | ≤ 4 KB (4,096 bytes, 110%) |
+
+With the model download left on, the same runs score performance 58–67, largest contentful paint about 74 s and total blocking time 335–661 ms: on the simulated slow phone connection the 47 MB download takes minutes and Lighthouse counts it against the page. Changing a budget needs a line in `docs/decisions.md`.

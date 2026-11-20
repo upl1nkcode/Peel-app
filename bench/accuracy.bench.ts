@@ -109,7 +109,11 @@ test('should_score_every_fixture_size_and_stage (AC-6, AC-7)', async ({
   const base = existsSync(BASELINE)
     ? fromJson(readFileSync(BASELINE, 'utf8'))
     : null
-  writeFileSync(REPORT, `${formatReport(file, base)}\n${KNOWN_MISSES}`)
+  // The "Speed" section (AC-14) is written by hand from Lighthouse; keep it.
+  const old = existsSync(REPORT) ? readFileSync(REPORT, 'utf8') : ''
+  const speedAt = old.indexOf('\n## Speed')
+  const speed = speedAt === -1 ? '' : old.slice(speedAt)
+  writeFileSync(REPORT, `${formatReport(file, base)}\n${KNOWN_MISSES}${speed}`)
 
   const names = Object.keys(fixtures)
   expect(results).toHaveLength(names.length * SIZES.length * STAGES.length)

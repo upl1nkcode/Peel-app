@@ -13,6 +13,7 @@ Every dependency and model is recorded here when it is added (rule in `CLAUDE.md
 | react | 19.3.1 | MIT | runtime |
 | react-dom | 19.3.1 | MIT | runtime |
 | @eslint/js | 10.0.1 | MIT | dev |
+| @lhci/cli | 0.15.1 | Apache-2.0 | dev (Lighthouse CI: speed and accessibility budgets on the built app, spec 0014 AC-13; brings Lighthouse, Apache-2.0; results stay on disk, no upload) |
 | @playwright/test | 1.64.1 | Apache-2.0 | dev |
 | @testing-library/dom | 10.4.2 | MIT | dev |
 | @testing-library/jest-dom | 7.0.1 | MIT | dev |

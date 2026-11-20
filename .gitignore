@@ -36,3 +36,6 @@ playwright-report
 # Accuracy benchmark build
 dist-bench
 bench/accuracy.json
+
+# Lighthouse CI results
+.lighthouseci

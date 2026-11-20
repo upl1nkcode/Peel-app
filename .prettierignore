@@ -11,3 +11,4 @@ bench/fixtures
 dist-bench
 bench/accuracy.json
 bench/accuracy-baseline.json
+.lighthouseci

@@ -16,7 +16,8 @@
     "typecheck": "tsc -b",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "bench:accuracy": "node scripts/bench-accuracy.mjs"
+    "bench:accuracy": "node scripts/bench-accuracy.mjs",
+    "lighthouse": "lhci autorun"
   },
   "dependencies": {
     "@jsquash/webp": "1.5.0",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@lhci/cli": "0.15.1",
     "@playwright/test": "^1.64.1",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",
