@@ -43,6 +43,52 @@ export function sizeFor(base: Size, longSide: number): Size {
   }
 }
 
+/** A second add tap for timing (spec 0015 AC-5): a fully opaque truth pixel at least this share of the subject's diagonal from the first. */
+const SECOND_TAP_AWAY = 0.1
+
+/**
+ * The fully opaque truth pixel nearest the centre of the truth's bounding
+ * box (alpha ≥ 128) that lies at least 10% of that box's diagonal from
+ * `first`; ties go to the first in scan order. Returns a pixel centre.
+ */
+export function secondTap(truth: Mask, first: Point): Point {
+  const { width: W, height: H, data } = truth
+  let x0 = W
+  let y0 = H
+  let x1 = -1
+  let y1 = -1
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if ((data[y * W + x] as number) < 128) continue
+      x0 = Math.min(x0, x)
+      y0 = Math.min(y0, y)
+      x1 = Math.max(x1, x)
+      y1 = Math.max(y1, y)
+    }
+  }
+  if (x1 < 0) throw new RangeError('the truth is empty')
+  const away = SECOND_TAP_AWAY * Math.hypot(x1 - x0 + 1, y1 - y0 + 1)
+  const cx = (x0 + x1 + 1) / 2
+  const cy = (y0 + y1 + 1) / 2
+  let best: Point | null = null
+  let bestD = Infinity
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      if (data[y * W + x] !== 255) continue
+      const p = { x: x + 0.5, y: y + 0.5 }
+      if (Math.hypot(p.x - first.x, p.y - first.y) < away) continue
+      const d = Math.hypot(p.x - cx, p.y - cy)
+      if (d < bestD) {
+        bestD = d
+        best = p
+      }
+    }
+  }
+  if (!best)
+    throw new RangeError('no opaque pixel far enough from the first tap')
+  return best
+}
+
 /** Area-averages a mask with the photo's own filter (`resizeRgba`'s alpha). */
 export function resizeMask(mask: Mask, width: number, height: number): Mask {
   const rgba = new Uint8Array(mask.width * mask.height * 4)

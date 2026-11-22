@@ -1,3 +1,4 @@
+export * from './blur'
 export * from './cutout'
 export * from './feather'
 export * from './flatten'
