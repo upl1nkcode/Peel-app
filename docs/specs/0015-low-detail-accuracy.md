@@ -1,6 +1,6 @@
 # 0015 — Clean Auto cutouts on low-detail photos
 
-- **Status:** Draft
+- **Status:** Approved (2026-11-22, product owner)
 - **Issues:** story #164; tasks #160 (scorecard), #161 (zoomed sharpening), #162 (smart edge sized to the photo), #159 (only the tapped person), #163 (real-phone check)
 - **Plan reference:** STICKER_WEBAPP_PLAN.md Phase 10; follows spec 0014 (the scorecard)
 
@@ -87,7 +87,7 @@ The scorecard also can't yet see the owner's main complaint. Today's "extra" sco
   - then re-encoded at JPEG quality 50.
 
   This is roughly a screenshot of a video frame, like #159's photo. Its truth is the base truth downscaled the same way and blurred by the same σ. The ladder is then: 1600, 1000, 600, 400, forwarded, screenshot.
-- **AC-5** The bench's **precise** and **finished** stages run what Auto runs: the fast engine first, then the precise engine on Auto's own path, through the same shared code. When #161 lands, that path is the zoomed one, and the bench scores it without a bench-only copy. The bench also records, per fixture and size, the milliseconds from the tap to the precise result (the sharper result the user waits for), for the first tap and for a second add tap on the same subject. `docs/accuracy.md` shows it as information. It is never compared with the baseline, because CI machines differ.
+- **AC-5** The bench's **precise** and **finished** stages run what Auto runs: the fast engine first, then the precise engine on Auto's own path, through the same shared code. When #161 lands, that path is the zoomed one, and the bench scores it without a bench-only copy. The bench also records, per fixture and size, the milliseconds from the tap to the precise result (the sharper result the user waits for), for the first tap, and at 1000 px and screenshot also for a second add tap on the same subject (only those two sizes, to keep the CI job under its 45 minutes). `docs/accuracy.md` shows it as information. It is never compared with the baseline, because CI machines differ.
 
 ### Zoomed sharpening (#161)
 
@@ -137,11 +137,11 @@ The scorecard also can't yet see the owner's main complaint. Today's "extra" sco
 
 - `scoreCutout` returns `Scores` with `background: number` and `missed: number` added. `bench/accuracy.json` and the baseline gain both fields per row, plus `ms` per row, which is never compared.
 - In `src/core/segmentation/` (pure, no DOM, React, Node or browser imports):
-  - `zoomCrop(fastAlpha: AlphaMask | null, taps: readonly Tap[], photo: Size, padding: number): Rect | null`: the crop, or `null` for "use the whole photo";
+  - `zoomCrop(fastAlpha: AlphaMask | null, taps: readonly Tap[], photo: Size, padding: number): Bounds | null`: the crop (max exclusive, as `cropRgba`), or `null` for "use the whole photo";
   - `tapsInCrop(taps, crop): Tap[]`;
-  - `placeCrop(alpha: AlphaMask, crop: Rect, photo: Size): AlphaMask`.
+  - `cutsSubject(alpha, crop, photo): boolean`.
 
-  Coordinates are image pixels (float). The services layer uses them for the precise run. The bench uses the same services code (AC-5).
+  Coordinates are image pixels (float). The precise worker engine sends the crop to its worker as a region of the photo. The worker places the result back at full photo size, so `AutoResult` keeps its meaning. The bench uses the same engine code (AC-5).
 
 ## Out of scope
 
