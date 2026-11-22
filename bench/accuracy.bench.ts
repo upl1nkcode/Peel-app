@@ -76,7 +76,7 @@ const fromJson = (text: string) =>
 const KNOWN_MISSES = [
   '## Known misses',
   '',
-  '- #156: the dots round trip changes the finished `hole` and `two-people` cutouts beyond AC-7.',
+  '- #156: the dots round trip changes the finished `hole`, `two-people` and `overlap` cutouts beyond AC-7.',
   '- #158: Auto fills the holes of the `hole` photo (AC-12); `e2e/offline.spec.ts` guards it.',
   '',
 ].join('\n')
