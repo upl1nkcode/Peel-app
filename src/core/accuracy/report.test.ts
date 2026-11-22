@@ -246,6 +246,37 @@ describe('accuracy report: low detail (spec 0015)', () => {
     ])
   })
 
+  it('should_show_time_to_sharper_result_as_information (spec 0015 AC-5)', () => {
+    const t = (size: 1000 | 400, firstMs: number, secondMs: number | null) => ({
+      fixture: 'x',
+      size,
+      firstMs,
+      secondMs,
+      path: 'whole' as const,
+    })
+    const md = formatReport(
+      {
+        ...file([row()]),
+        timing: [
+          t(1000, 900, 400),
+          t(1000, 1100, 600),
+          t(1000, 5000, 500),
+          t(400, 300, null),
+        ],
+      },
+      null,
+    )
+    const at = md.indexOf('## Time to sharper result')
+    expect(at).toBeGreaterThan(-1)
+    const section = md.slice(at)
+    expect(section).toContain('information only')
+    expect(section).toContain('| 1000 | 1100 | 500 |')
+    expect(section).toContain('| 400 | 300 | — |')
+    expect(formatReport(file([row()]), null)).not.toContain(
+      '## Time to sharper',
+    )
+  })
+
   it('should_never_compare_timing (spec 0015 AC-5)', () => {
     const now: BenchFile = {
       ...file([row()]),

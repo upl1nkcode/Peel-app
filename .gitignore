@@ -39,3 +39,4 @@ bench/accuracy.json
 
 # Lighthouse CI results
 .lighthouseci
+bench/accuracy-only.json

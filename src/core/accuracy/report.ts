@@ -211,6 +211,35 @@ function cell(
 
 const sizeOrder = (s: Size) => SIZES.indexOf(s)
 
+/** The median of `values` (the lower middle for an even count, so it is always a measured value). */
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b)
+  return sorted[Math.floor((sorted.length - 1) / 2)] as number
+}
+
+/** Median time from the tap to the sharper result, by size (spec 0015 AC-5). */
+function timingLines(timing: readonly Timing[]): string[] {
+  const lines = [
+    '## Time to sharper result',
+    '',
+    'Median milliseconds from the tap to the precise result on the machine that ran the bench: information only, never compared with the baseline (spec 0015 AC-5).',
+    '',
+    '| Size | First tap (ms) | Second tap (ms) |',
+    '|---|---|---|',
+  ]
+  for (const size of SIZES) {
+    const at = timing.filter((t) => t.size === size)
+    if (at.length === 0) continue
+    const second = at.flatMap((t) => (t.secondMs === null ? [] : [t.secondMs]))
+    const secondCell = second.length > 0 ? String(median(second)) : '—'
+    lines.push(
+      `| ${String(size)} | ${String(median(at.map((t) => t.firstMs)))} | ${secondCell} |`,
+    )
+  }
+  lines.push('')
+  return lines
+}
+
 /** `docs/accuracy.md` (AC-6): targets, the worst five, a table per stage, the round trip. */
 export function formatReport(now: BenchFile, base: BenchFile | null): string {
   const before = new Map((base?.results ?? []).map((r) => [key(r), r]))
@@ -296,5 +325,7 @@ export function formatReport(now: BenchFile, base: BenchFile | null): string {
     }
     lines.push('')
   }
+  if (now.timing && now.timing.length > 0)
+    lines.push(...timingLines(now.timing))
   return lines.join('\n')
 }

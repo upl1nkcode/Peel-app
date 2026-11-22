@@ -43,6 +43,9 @@ export function sizeFor(base: Size, longSide: number): Size {
   }
 }
 
+/** "Screenshot" (spec 0015 AC-4): a video frame screenshotted, roughly: this long side, a Gaussian blur of this σ (px), then JPEG at this quality. */
+export const SCREENSHOT = { longSide: 720, sigma: 1.5, quality: 0.5 }
+
 /** A second add tap for timing (spec 0015 AC-5): a fully opaque truth pixel at least this share of the subject's diagonal from the first. */
 const SECOND_TAP_AWAY = 0.1
 

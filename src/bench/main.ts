@@ -10,16 +10,24 @@ import {
   finishedAlpha,
   lassoAlpha,
   resizeMask,
+  SCREENSHOT,
   scoreCutout,
+  secondTap,
   sizeFor,
   type BenchFile,
   type Mask,
   type Row,
   type Size,
   type Stage,
+  type Timing,
 } from '../core/accuracy'
 import type { Point } from '../core/geometry/types'
-import { resizeRgba, type AlphaMask, type RgbaImage } from '../core/mask'
+import {
+  gaussianBlur,
+  resizeRgba,
+  type AlphaMask,
+  type RgbaImage,
+} from '../core/mask'
 import { decodePng } from '../core/png'
 import { browserInflate } from '../services/deflate'
 import { loadPhoto } from '../services/photo/loadPhoto'
@@ -43,12 +51,15 @@ export interface RunInput {
 export interface RunOutput {
   rows: Row[]
   roundTrip: BenchFile['roundTrip']
+  timing: Timing
 }
 
 /** "Forwarded": re-sent at this long side and JPEG quality, roughly what WhatsApp does (spec 0014). */
 const FORWARDED = { longSide: 1280, quality: 0.6 }
 /** The round trip is checked at this size only (AC-7). */
 const ROUND_TRIP_SIZE: Size = 1000
+/** A second tap is timed at these sizes only (spec 0015 AC-5: CI time). */
+const SECOND_TAP_SIZES: readonly Size[] = [1000, 'screenshot']
 const LASSO_SEED = 1
 
 const store = createModelStore({
@@ -99,37 +110,74 @@ const sizedMask = (mask: Mask, width: number, height: number) =>
     ? mask
     : resizeMask(mask, width, height)
 
-/** The photo as Auto sees it at `size`: scaled down, or forwarded (scaled, then JPEG at quality 60). */
-async function photoAt(original: RgbaImage, size: Size): Promise<RgbaImage> {
-  if (size !== 'forwarded') {
-    const s = sizeFor(original, size)
-    return sized(original, s.width, s.height)
+/** A truth or distractor at `size`: scaled like the photo, and blurred like it for "screenshot" (spec 0015 AC-4). */
+function maskAt(mask: Mask, size: Size, width: number, height: number): Mask {
+  const small = sizedMask(mask, width, height)
+  if (size !== 'screenshot') return small
+  return {
+    width,
+    height,
+    data: gaussianBlur(small.data, width, height, 1, SCREENSHOT.sigma),
   }
-  const s = sizeFor(original, FORWARDED.longSide)
-  const small = sized(original, s.width, s.height)
-  const canvas = new OffscreenCanvas(s.width, s.height)
+}
+
+/** `image` re-encoded as a JPEG at `quality` and decoded again, as a re-sent photo is. */
+async function reencoded(
+  image: RgbaImage,
+  quality: number,
+): Promise<RgbaImage> {
+  const { width, height } = image
+  const canvas = new OffscreenCanvas(width, height)
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('no 2D canvas')
   ctx.putImageData(
-    new ImageData(new Uint8ClampedArray(small.data), s.width, s.height),
+    new ImageData(new Uint8ClampedArray(image.data), width, height),
     0,
     0,
   )
-  const jpeg = await canvas.convertToBlob({
-    type: 'image/jpeg',
-    quality: FORWARDED.quality,
-  })
+  const jpeg = await canvas.convertToBlob({ type: 'image/jpeg', quality })
   return (await loadPhoto(jpeg)).image
 }
 
-async function segment(
-  engine: SegmentationEngine,
+/**
+ * The photo as Auto sees it at `size`: scaled down; forwarded (scaled, then
+ * JPEG at quality 60); or screenshot (scaled, blurred, then JPEG at 50).
+ */
+async function photoAt(original: RgbaImage, size: Size): Promise<RgbaImage> {
+  if (size === 'forwarded') {
+    const s = sizeFor(original, FORWARDED.longSide)
+    return reencoded(sized(original, s.width, s.height), FORWARDED.quality)
+  }
+  if (size === 'screenshot') {
+    const s = sizeFor(original, SCREENSHOT.longSide)
+    const small = sized(original, s.width, s.height)
+    const blurred = {
+      width: s.width,
+      height: s.height,
+      data: gaussianBlur(small.data, s.width, s.height, 4, SCREENSHOT.sigma),
+    }
+    return reencoded(blurred, SCREENSHOT.quality)
+  }
+  const s = sizeFor(original, size)
+  return sized(original, s.width, s.height)
+}
+
+/**
+ * Both engines on `taps`, started together as Auto starts them today (spec
+ * 0007); `ms` is from the start to the precise (sharper) result (spec 0015 AC-5).
+ */
+async function segmentBoth(
   id: string,
-  image: RgbaImage,
-  tap: Point,
-): Promise<AutoResult> {
-  await engine.setImage(id, image)
-  return engine.segment(id, [{ imagePt: tap, mode: 'add' }])
+  taps: readonly Point[],
+): Promise<{ fast: AutoResult; precise: AutoResult; ms: number }> {
+  const [fastEngine, preciseEngine] = engines
+  if (!fastEngine || !preciseEngine) throw new Error('two engines expected')
+  const list = taps.map((imagePt) => ({ imagePt, mode: 'add' as const }))
+  const start = performance.now()
+  const fastRun = fastEngine.segment(id, list)
+  const precise = await preciseEngine.segment(id, list)
+  const ms = performance.now() - start
+  return { fast: await fastRun, precise, ms }
 }
 
 /** How much the round trip moved a result's scores against the truth (AC-7). */
@@ -154,18 +202,28 @@ async function run(input: RunInput): Promise<RunOutput> {
   const original = (await loadPhoto(await bytesOf(input.photo))).image
   const image = await photoAt(original, input.size)
   const { width, height } = image
-  const truth = sizedMask(await maskOf(input.truth), width, height)
+  const truth = maskAt(await maskOf(input.truth), input.size, width, height)
   const extra = input.extra
-    ? sizedMask(await maskOf(input.extra), width, height)
+    ? maskAt(await maskOf(input.extra), input.size, width, height)
     : undefined
   const scale = width / original.width
   const tap = { x: input.tap.x * scale, y: input.tap.y * scale }
   const id = `${input.photo}@${String(input.size)}`
 
-  const [v1, v2] = await Promise.all(
-    engines.map((e) => segment(e, id, image, tap)),
-  )
-  if (!v1 || !v2) throw new Error('an engine gave no result')
+  await Promise.all(engines.map((e) => e.setImage(id, image)))
+  const first = await segmentBoth(id, [tap])
+  const v1 = first.fast
+  const v2 = first.precise
+  const secondMs = SECOND_TAP_SIZES.includes(input.size)
+    ? (await segmentBoth(id, [tap, secondTap(truth, tap)])).ms
+    : null
+  const timing: Timing = {
+    fixture: '',
+    size: input.size,
+    firstMs: Math.round(first.ms),
+    secondMs: secondMs === null ? null : Math.round(secondMs),
+    path: 'whole',
+  }
   const finished = finishedAlpha(image, v2)
   const lasso = lassoAlpha(image, truth, { seed: LASSO_SEED, snap: false })
   const stages: Record<Stage, AlphaMask> = {
@@ -202,7 +260,7 @@ async function run(input: RunInput): Promise<RunOutput> {
       },
     )
   }
-  return { rows, roundTrip }
+  return { rows, roundTrip, timing }
 }
 
 declare global {
