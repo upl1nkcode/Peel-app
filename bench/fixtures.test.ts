@@ -14,6 +14,8 @@ const NAMES = [
   'skin-object',
   'glossy',
   'hole',
+  'small-subject',
+  'overlap',
 ] as const
 const LICENCES = ['CC0', 'Public domain', 'CC BY 4.0', 'CC BY 3.0', 'CC BY 2.0']
 
@@ -60,7 +62,7 @@ const alphaOf = async (file: string) => {
 
 // Decoding 1600 × 1000 PNGs in JavaScript takes seconds under coverage on CI.
 describe('accuracy test photos (spec 0014)', { timeout: 60_000 }, () => {
-  it('should_list_six_fixtures_with_files (AC-1)', async () => {
+  it('should_list_eight_fixtures_with_files (AC-1, spec 0015 AC-3)', async () => {
     const all = fixtures()
     expect(Object.keys(all).sort()).toEqual([...NAMES].sort())
     for (const name of NAMES) {
@@ -80,6 +82,7 @@ describe('accuracy test photos (spec 0014)', { timeout: 60_000 }, () => {
     }
     expect(all['two-people'].extra).toBeDefined()
     expect(all['skin-object'].extra).toBeDefined()
+    expect(all.overlap.extra).toBeDefined()
     expect(all.hole.holeProbe).toBeDefined()
   })
 

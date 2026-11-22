@@ -32,6 +32,11 @@ MAX_BYTES = 800 * 1024
 CROP_ALPHA = 8
 # Hair and fur truths must be this soft (AC-3).
 MIN_SOFT_SHARE = 0.02
+# spec 0015 AC-3: the small subject's box is this share of the long side;
+# overlap's B covers at least this much of A's box, in colours this close.
+SMALL_SHARE = 0.2
+MIN_OVERLAP = 0.3
+MAX_COLOUR_GAP = 40
 
 
 def normalised_alpha(im: Image.Image) -> Image.Image:
@@ -155,6 +160,38 @@ def hole_probe(alpha: Image.Image) -> dict[str, int]:
     return {"x": best[1], "y": best[2], "width": best[3], "height": best[4]}
 
 
+def box_long_side(alpha: Image.Image) -> int:
+    """The long side of the subject's box (alpha >= 128)."""
+    box = alpha.point(lambda a: 255 if a >= 128 else 0).getbbox()
+    assert box is not None
+    return max(box[2] - box[0], box[3] - box[1])
+
+
+def box_overlap(a: Image.Image, b: Image.Image) -> float:
+    """How much of a's box (alpha >= 128) b's box covers."""
+    ba = a.point(lambda v: 255 if v >= 128 else 0).getbbox()
+    bb = b.point(lambda v: 255 if v >= 128 else 0).getbbox()
+    assert ba is not None and bb is not None
+    w = min(ba[2], bb[2]) - max(ba[0], bb[0])
+    h = min(ba[3], bb[3]) - max(ba[1], bb[1])
+    if w <= 0 or h <= 0:
+        return 0.0
+    return w * h / ((ba[2] - ba[0]) * (ba[3] - ba[1]))
+
+
+def colour_gap(canvas: Image.Image, a: Image.Image, b: Image.Image) -> float:
+    """The largest per-channel gap between the mean colours of a and b as composited (alpha >= 128)."""
+    rgb = canvas.convert("RGB")
+
+    def mean(alpha: Image.Image) -> list[float]:
+        m = alpha.point(lambda v: 255 if v >= 128 else 0)
+        n = m.histogram()[255]
+        sums = [sum(i * c for i, c in enumerate(rgb.getchannel(ch).histogram(mask=m))) for ch in range(3)]
+        return [s / n for s in sums]
+
+    return max(abs(x - y) for x, y in zip(mean(a), mean(b)))
+
+
 def save_jpeg(canvas: Image.Image, path: Path) -> None:
     buf = io.BytesIO()
     canvas.convert("RGB").save(buf, format="JPEG", quality=90)
@@ -233,6 +270,34 @@ def main() -> None:
     entry = save("hole", canvas, truth)
     entry["holeProbe"] = hole_probe(truth)
     fixtures["hole"] = entry
+
+    # small-subject (spec 0015 AC-3): the woman small in a busy street photo,
+    # standing on the bottom edge (her cut-out ends in a straight line there).
+    canvas = background(src / "street.jpg")
+    woman = subject(src / "woman.png")
+    s = SMALL_SHARE * SIZE[0] / max(woman.size)
+    small = woman.resize((round(woman.width * s), round(woman.height * s)), Image.Resampling.LANCZOS)
+    truth = place(canvas, small, (1040, SIZE[1] - small.height))
+    box_long = box_long_side(truth)
+    if not 0.15 <= box_long / max(SIZE) <= 0.25:
+        raise SystemExit(f"small-subject: its box is {box_long / max(SIZE):.1%} of the long side; AC-3 needs 15-25%")
+    fixtures["small-subject"] = save("small-subject", canvas, truth)
+
+    # overlap (spec 0015 AC-3, #159): person A in front, person B behind and
+    # partly hidden by A, in similar colours; tap A.
+    canvas = background(src / "bookcase.jpg")
+    b = subject(src / "navy-4.png", 880)
+    a = subject(src / "navy-2.png", 900)
+    alpha_b = place(canvas, b, centred(b, 880, 40))
+    alpha_a = place(canvas, a, centred(a, 800, 20))
+    shown_b = behind(alpha_b, alpha_a)
+    share = box_overlap(alpha_a, shown_b)
+    if share < MIN_OVERLAP:
+        raise SystemExit(f"overlap: B covers {share:.0%} of A's box; AC-3 needs {MIN_OVERLAP:.0%}")
+    gap = colour_gap(canvas, alpha_a, shown_b)
+    if gap > MAX_COLOUR_GAP:
+        raise SystemExit(f"overlap: mean colours differ by {gap:.0f} levels; AC-3 allows {MAX_COLOUR_GAP}")
+    fixtures["overlap"] = save("overlap", canvas, alpha_a, shown_b)
 
     for name in ("hair", "pet"):
         share = soft_share(Image.open(OUT / f"{name}.truth.png").getchannel("A"))

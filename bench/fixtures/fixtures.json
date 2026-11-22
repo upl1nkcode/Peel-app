@@ -54,5 +54,22 @@
       "width": 88,
       "height": 129
     }
+  },
+  "small-subject": {
+    "image": "small-subject.jpg",
+    "truth": "small-subject.truth.png",
+    "tap": {
+      "x": 1148.5,
+      "y": 859.5
+    }
+  },
+  "overlap": {
+    "image": "overlap.jpg",
+    "truth": "overlap.truth.png",
+    "extra": "overlap.extra.png",
+    "tap": {
+      "x": 804.5,
+      "y": 526.5
+    }
   }
 }
