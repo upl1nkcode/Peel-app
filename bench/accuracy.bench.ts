@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, test } from '@playwright/test'
 import {
@@ -9,6 +9,7 @@ import {
   type Row,
   type Size,
   type Stage,
+  type Timing,
 } from '../src/core/accuracy/report'
 
 /** The accuracy benchmark (spec 0014 AC-6 to AC-9), run by `npm run bench:accuracy`. */
@@ -33,16 +34,24 @@ declare global {
     peelBench?: {
       run(
         input: RunInput,
-      ): Promise<Pick<BenchFile, 'roundTrip'> & { rows: Row[] }>
+      ): Promise<Pick<BenchFile, 'roundTrip'> & { rows: Row[]; timing: Timing }>
     }
   }
 }
 
 const ROOT = resolve(import.meta.dirname, '..')
-const NOW = resolve(ROOT, 'bench/accuracy.json')
+/** `--only=a,b` (spec 0015): just those fixtures, for tuning; not compared and the report is left alone. */
+const ONLY = (process.env['BENCH_ONLY'] ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter((s) => s !== '')
+const NOW = resolve(
+  ROOT,
+  ONLY.length > 0 ? 'bench/accuracy-only.json' : 'bench/accuracy.json',
+)
 const BASELINE = resolve(ROOT, 'bench/accuracy-baseline.json')
 const REPORT = resolve(ROOT, 'docs/accuracy.md')
-const SIZES: readonly Size[] = [1600, 1000, 600, 400, 'forwarded']
+const SIZES: readonly Size[] = [1600, 1000, 600, 400, 'forwarded', 'screenshot']
 const STAGES: readonly Stage[] = [
   'fast',
   'precise',
@@ -67,14 +76,23 @@ const fromJson = (text: string) =>
 const KNOWN_MISSES = [
   '## Known misses',
   '',
-  '- #156: the dots round trip changes the finished `hole` and `two-people` cutouts beyond AC-7.',
+  '- #156: the dots round trip changes the finished `hole`, `two-people` and `overlap` cutouts beyond AC-7.',
   '- #158: Auto fills the holes of the `hole` photo (AC-12); `e2e/offline.spec.ts` guards it.',
   '',
 ].join('\n')
 
-const fixtures = JSON.parse(
+const allFixtures = JSON.parse(
   readFileSync(resolve(ROOT, 'bench/fixtures/fixtures.json'), 'utf8'),
 ) as Record<string, Fixture>
+for (const name of ONLY) {
+  if (!(name in allFixtures)) throw new Error(`--only: no fixture ${name}`)
+}
+const fixtures =
+  ONLY.length > 0
+    ? Object.fromEntries(
+        Object.entries(allFixtures).filter(([name]) => ONLY.includes(name)),
+      )
+    : allFixtures
 
 test.describe.configure({ mode: 'serial' })
 
@@ -87,6 +105,7 @@ test('should_score_every_fixture_size_and_stage (AC-6, AC-7)', async ({
   })
   const results: Row[] = []
   const roundTrip: BenchFile['roundTrip'] = []
+  const timing: Timing[] = []
   for (const [name, f] of Object.entries(fixtures)) {
     for (const size of SIZES) {
       const input: RunInput = {
@@ -102,10 +121,12 @@ test('should_score_every_fixture_size_and_stage (AC-6, AC-7)', async ({
       }, input)
       results.push(...got.rows.map((r) => roundRow({ ...r, fixture: name })))
       roundTrip.push(...got.roundTrip.map((t) => ({ ...t, fixture: name })))
+      timing.push({ ...got.timing, fixture: name })
     }
   }
-  const file: BenchFile = { version: 1, results, roundTrip }
+  const file: BenchFile = { version: 1, results, roundTrip, timing }
   writeFileSync(NOW, toJson(file))
+  if (ONLY.length > 0) return
   const base = existsSync(BASELINE)
     ? fromJson(readFileSync(BASELINE, 'utf8'))
     : null
@@ -138,8 +159,12 @@ test('should_score_every_fixture_size_and_stage (AC-6, AC-7)', async ({
 })
 
 test('should_not_regress (AC-9, AC-10)', () => {
+  test.skip(ONLY.length > 0, '--only runs are not compared')
   if (process.env['BENCH_UPDATE'] === '1') {
-    copyFileSync(NOW, BASELINE)
+    // Timing differs between machines and is never compared (spec 0015 AC-5).
+    const kept = fromJson(readFileSync(NOW, 'utf8'))
+    delete kept.timing
+    writeFileSync(BASELINE, toJson(kept))
     return
   }
   expect(

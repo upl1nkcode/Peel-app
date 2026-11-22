@@ -45,9 +45,9 @@ Every dependency and model is recorded here when it is added (rule in `CLAUDE.md
 | MediaPipe interactive segmenter v2 (Tap v2, precise engine) | `models/interactive_segmentation.task` | Apache-2.0 | storage.googleapis.com/mediapipe-models, see `models/README.md` |
 | MediaPipe Tasks Vision WebAssembly engine | copied from `@mediapipe/tasks-vision` at build (`/engine/`) | Apache-2.0 | npm package |
 
-## Test photos (accuracy benchmark, spec 0014)
+## Test photos (accuracy benchmark, specs 0014 and 0015)
 
-Composited into `bench/fixtures/` (test data only, not shipped in the app). Details in `bench/fixtures/README.md`.
+Composited into `bench/fixtures/` (test data only, not shipped in the app). Spec 0015's two fixtures reuse these works. Details in `bench/fixtures/README.md`.
 
 | Work | Author | License | Source |
 |---|---|---|---|

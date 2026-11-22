@@ -8,6 +8,7 @@ import {
   finishedAlpha,
   lassoAlpha,
   resizeMask,
+  secondTap,
   sizeFor,
   traceZoom,
 } from './stages'
@@ -161,6 +162,37 @@ describe('accuracy stages (spec 0014)', () => {
     expect(traceZoom({ width: 1000, height: 1000, data })).toBeCloseTo(
       0.9 * Math.min(390 / 200, 700 / 400),
       12,
+    )
+  })
+})
+
+describe('secondTap (spec 0015 AC-5)', () => {
+  it('should_pick_a_second_tap_inside_the_subject (spec 0015 AC-5)', () => {
+    const W = 60
+    const H = 30
+    const data = new Uint8Array(W * H)
+    // A 40 × 20 bar, x 10–49, y 5–24, with a soft rim column on the right.
+    for (let y = 5; y < 25; y++) {
+      for (let x = 10; x < 50; x++) data[y * W + x] = x === 49 ? 128 : 255
+    }
+    const truth = { width: W, height: H, data }
+    const first = { x: 10.5, y: 14.5 }
+    const p = secondTap(truth, first)
+    expect(data[Math.floor(p.y) * W + Math.floor(p.x)]).toBe(255)
+    expect(Math.hypot(p.x - first.x, p.y - first.y)).toBeGreaterThanOrEqual(
+      0.1 * Math.hypot(40, 20),
+    )
+    expect(secondTap(truth, first)).toEqual(p)
+  })
+
+  it('should_move_away_from_a_first_tap_at_the_centre (spec 0015 AC-5)', () => {
+    const W = 50
+    const data = new Uint8Array(W * W).fill(255)
+    const truth = { width: W, height: W, data }
+    const first = { x: 25, y: 25 }
+    const p = secondTap(truth, first)
+    expect(Math.hypot(p.x - first.x, p.y - first.y)).toBeGreaterThanOrEqual(
+      0.1 * Math.hypot(50, 50),
     )
   })
 })

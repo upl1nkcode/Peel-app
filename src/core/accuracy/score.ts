@@ -16,6 +16,10 @@ export interface Scores {
   extra: number
   /** Mean |got − truth| ÷ 255 over the soft band; `null` under 500 band pixels. */
   softError: number | null
+  /** Cutout outside the truth and the distractor, ÷ the truth's size (spec 0015 AC-1). */
+  background: number
+  /** Truth outside the cutout, ÷ the truth's size (spec 0015 AC-1). */
+  missed: number
 }
 
 /** softError needs a band at least this big to mean anything. */
@@ -106,14 +110,19 @@ export function scoreCutout(got: Mask, truth: Mask, extra?: Mask): Scores {
   let either = 0
   let mine = 0
   let onExtra = 0
+  let truthPx = 0
+  let stray = 0
   for (let i = 0; i < got.data.length; i++) {
     const g = (got.data[i] as number) >= INSIDE
     const t = (truth.data[i] as number) >= INSIDE
     if (g && t) both++
     if (g || t) either++
+    if (t) truthPx++
     if (g) {
       mine++
-      if (extra && (extra.data[i] as number) >= INSIDE) onExtra++
+      const onDistractor = !!extra && (extra.data[i] as number) >= INSIDE
+      if (onDistractor) onExtra++
+      else if (!t) stray++
     }
   }
   const edge = edgeErrors(got, truth)
@@ -123,5 +132,8 @@ export function scoreCutout(got: Mask, truth: Mask, extra?: Mask): Scores {
     edgeP99: edge.p99,
     extra: mine === 0 ? 0 : onExtra / mine,
     softError: softError(got, truth),
+    // An empty truth gives the stray pixel count itself (never Infinity).
+    background: truthPx === 0 ? stray : stray / truthPx,
+    missed: truthPx === 0 ? 0 : (truthPx - both) / truthPx,
   }
 }

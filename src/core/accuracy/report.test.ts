@@ -18,6 +18,8 @@ const row = (over: Partial<Row> = {}): Row => ({
   edgeP99: 3,
   extra: 0,
   softError: 0.04,
+  background: 0.001,
+  missed: 0.002,
   ...over,
 })
 
@@ -38,6 +40,8 @@ describe('accuracy report (spec 0014)', () => {
       edgeP99: 4,
       extra: 0.005,
       softError: 0.05,
+      background: 0.005,
+      missed: 0.005,
     })
     expect(TOLERANCES).toEqual({
       iou: 0.002,
@@ -45,6 +49,8 @@ describe('accuracy report (spec 0014)', () => {
       edgeP99: 0.5,
       extra: 0.001,
       softError: 0.003,
+      background: 0.001,
+      missed: 0.001,
     })
   })
 
@@ -176,5 +182,124 @@ describe('accuracy report (spec 0014)', () => {
     expect(md).toContain('## Worst five')
     expect(md.indexOf('hair 600')).toBeLessThan(md.indexOf('## Finished'))
     expect(md).toContain('## Dots round trip')
+  })
+})
+
+describe('accuracy report: low detail (spec 0015)', () => {
+  it('should_show_and_guard_background_and_missed (spec 0015 AC-2)', () => {
+    const md = formatReport(
+      file([row({ background: 0.004, missed: 0.009 })]),
+      null,
+    )
+    expect(md).toContain('| Extra | Soft error | Background | Missed |')
+    expect(md).toContain('0.0040 ✅')
+    expect(md).toContain('0.0090 ❌ +0.0040')
+    expect(
+      compare({ background: 0.0031 }, { background: 0.002 }).regressions,
+    ).toEqual([expect.stringContaining('background 0.0020 → 0.0031')])
+    expect(
+      compare({ background: 0.0029 }, { background: 0.002 }).regressions,
+    ).toEqual([])
+    expect(compare({ missed: 0.0031 }, { missed: 0.002 }).regressions).toEqual([
+      expect.stringContaining('missed'),
+    ])
+  })
+
+  it('should_list_the_most_background_left_on (spec 0015 AC-2)', () => {
+    const rows = [0.01, 0.05, 0.002, 0.03, 0.02, 0.04, 0.0].map((b, i) =>
+      row({ fixture: `f${String(i)}`, background: b }),
+    )
+    rows.push(row({ fixture: 'lassoed', stage: 'lasso', background: 0.9 }))
+    const md = formatReport(file(rows), null)
+    const at = md.indexOf('## Most background left on (finished)')
+    expect(at).toBeGreaterThan(-1)
+    const list = md.slice(at, md.indexOf('\n## ', at + 5))
+    const names = [...list.matchAll(/^- (\S+) /gm)].map((m) => m[1])
+    expect(names).toEqual(['f1', 'f5', 'f3', 'f4', 'f0'])
+  })
+
+  it('should_not_fail_on_scores_the_baseline_lacks (spec 0015 AC-2)', () => {
+    const old = row({ background: 0.5, missed: 0.5 }) as Partial<Row>
+    delete old.background
+    delete old.missed
+    const base = file([old as Row])
+    expect(
+      compareToBaseline(file([row({ background: 0.3, missed: 0.3 })]), base)
+        .regressions,
+    ).toEqual([])
+  })
+
+  it('should_order_the_screenshot_size_last (spec 0015 AC-4)', () => {
+    const sizes = ['screenshot', 400, 'forwarded', 1600, 600, 1000] as const
+    const md = formatReport(file(sizes.map((size) => row({ size }))), null)
+    const finished = md.slice(md.indexOf('## Finished'))
+    const order = [...finished.matchAll(/^\| hair \| (\S+) \|/gm)]
+      .slice(0, 6)
+      .map((m) => m[1])
+    expect(order).toEqual([
+      '1600',
+      '1000',
+      '600',
+      '400',
+      'forwarded',
+      'screenshot',
+    ])
+  })
+
+  it('should_show_time_to_sharper_result_as_information (spec 0015 AC-5)', () => {
+    const t = (size: 1000 | 400, firstMs: number, secondMs: number | null) => ({
+      fixture: 'x',
+      size,
+      firstMs,
+      secondMs,
+      path: 'whole' as const,
+    })
+    const md = formatReport(
+      {
+        ...file([row()]),
+        timing: [
+          t(1000, 900, 400),
+          t(1000, 1100, 600),
+          t(1000, 5000, 500),
+          t(400, 300, null),
+        ],
+      },
+      null,
+    )
+    const at = md.indexOf('## Time to sharper result')
+    expect(at).toBeGreaterThan(-1)
+    const section = md.slice(at)
+    expect(section).toContain('information only')
+    expect(section).toContain('| 1000 | 1100 | 500 |')
+    expect(section).toContain('| 400 | 300 | — |')
+    expect(formatReport(file([row()]), null)).not.toContain(
+      '## Time to sharper',
+    )
+  })
+
+  it('should_never_compare_timing (spec 0015 AC-5)', () => {
+    const now: BenchFile = {
+      ...file([row()]),
+      timing: [
+        {
+          fixture: 'hair',
+          size: 1000,
+          firstMs: 99999,
+          secondMs: 99999,
+          path: 'whole',
+        },
+      ],
+    }
+    const base: BenchFile = {
+      ...file([row()]),
+      timing: [
+        { fixture: 'hair', size: 1000, firstMs: 1, secondMs: 1, path: 'crop' },
+      ],
+    }
+    expect(compareToBaseline(now, base)).toEqual({
+      regressions: [],
+      added: [],
+      dropped: [],
+    })
   })
 })

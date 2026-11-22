@@ -54,3 +54,17 @@ From the main deploy, installed to the Home Screen (iPhone: from Safari; Android
 | 8 | A 12 MP photo straight from the camera | | |
 
 Tested by: · Date: · Devices:
+
+## Low-detail Auto (spec 0015, story #164)
+
+The product owner's own photos (never committed), checked by Auto on each fix PR's preview and then on the main deploy. "Cleaner" means less background left on, with none of the subject cut away; "slower" means "Sharpening…" took noticeably longer than before.
+
+| # | Photo | iPhone 15 Pro: cleaner than before? | iPhone 15 Pro: Sharpening felt slower? | Galaxy S23: cleaner than before? | Galaxy S23: Sharpening felt slower? |
+|---|---|---|---|---|---|
+| 1 | A low-resolution photo | | | | |
+| 2 | A forwarded photo (WhatsApp or similar) | | | | |
+| 3 | A screenshot (of a video or a story) | | | | |
+| 4 | A small subject in a bigger photo | | | | |
+| 5 | Two overlapping people, keeping one | | | | |
+
+Tested by: · Date: · Build (PR preview or main):
