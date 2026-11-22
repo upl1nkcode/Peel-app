@@ -36,6 +36,8 @@ describe('scoreCutout (spec 0014)', () => {
       edgeP99: 0,
       extra: 0,
       softError: null,
+      background: 0,
+      missed: 0,
     })
   })
 
@@ -96,5 +98,54 @@ describe('scoreCutout (spec 0014)', () => {
     ).toThrow(RangeError)
     const m = box(10, 10, 0, 0, 5, 5)
     expect(() => scoreCutout(m, m, box(9, 10, 0, 0, 5, 5))).toThrow(RangeError)
+  })
+})
+
+describe('background and missed (spec 0015)', () => {
+  it('should_score_background_left_on_and_subject_missed (spec 0015 AC-1)', () => {
+    const truth = box(20, 20, 5, 5, 15, 15)
+    const got = box(20, 20, 7, 5, 17, 15)
+    const s = scoreCutout(got, truth)
+    expect(s.background).toBeCloseTo(0.2, 10)
+    expect(s.missed).toBeCloseTo(0.2, 10)
+  })
+
+  it('should_not_count_the_distractor_as_background (spec 0015 AC-1)', () => {
+    const truth = box(30, 20, 2, 2, 12, 12)
+    const extra = box(30, 20, 14, 2, 24, 12)
+    const got = box(30, 20, 2, 2, 24, 12)
+    const s = scoreCutout(got, truth, extra)
+    // Columns 12–13 are neither truth nor distractor: 2 × 10 = 20 px over a 100 px subject.
+    expect(s.background).toBeCloseTo(0.2, 10)
+    expect(s.extra).toBeGreaterThan(0)
+    const onlyBoth = scoreCutout(
+      mask(30, 20, (x, y) =>
+        y >= 2 && y < 12 && ((x >= 2 && x < 12) || (x >= 14 && x < 24))
+          ? 255
+          : 0,
+      ),
+      truth,
+      extra,
+    )
+    expect(onlyBoth.background).toBe(0)
+    expect(onlyBoth.extra).toBeGreaterThan(0)
+  })
+
+  it('should_score_empty_masks_without_infinity (spec 0015 AC-1)', () => {
+    const empty = box(10, 10, 0, 0, 0, 0)
+    const truth = box(10, 10, 2, 2, 6, 6)
+    expect(scoreCutout(empty, truth)).toMatchObject({
+      background: 0,
+      missed: 1,
+    })
+    expect(scoreCutout(empty, empty)).toMatchObject({
+      background: 0,
+      missed: 0,
+    })
+    const seven = mask(10, 10, (x, y) => (y === 0 && x < 7 ? 255 : 0))
+    expect(scoreCutout(seven, empty)).toMatchObject({
+      background: 7,
+      missed: 0,
+    })
   })
 })

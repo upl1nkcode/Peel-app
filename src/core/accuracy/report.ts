@@ -1,6 +1,6 @@
 import type { Scores } from './score'
 
-export type Size = 1600 | 1000 | 600 | 400 | 'forwarded'
+export type Size = 1600 | 1000 | 600 | 400 | 'forwarded' | 'screenshot'
 export type Stage = 'fast' | 'precise' | 'finished' | 'lasso' | 'lasso-snap'
 
 /** One fixture at one size and stage (spec 0014 AC-6). */
@@ -18,11 +18,22 @@ export interface RoundTrip {
   dEdgeMean: number
 }
 
-/** `bench/accuracy.json` and `bench/accuracy-baseline.json`. */
+/** Time from the tap to the sharper result (spec 0015 AC-5): information only, never compared. */
+export interface Timing {
+  fixture: string
+  size: Size
+  firstMs: number
+  /** A second add tap, at 1000 px and screenshot only. */
+  secondMs: number | null
+  path: 'whole' | 'crop' | 'cut'
+}
+
+/** `bench/accuracy.json` and `bench/accuracy-baseline.json` (the baseline has no `timing`). */
 export interface BenchFile {
   version: 1
   results: Row[]
   roundTrip: RoundTrip[]
+  timing?: Timing[]
 }
 
 type Metric = keyof Scores
@@ -34,6 +45,8 @@ export const TARGETS: Readonly<Record<Metric, number>> = {
   edgeP99: 4,
   extra: 0.005,
   softError: 0.05,
+  background: 0.005,
+  missed: 0.005,
 }
 
 /** How much worse than the baseline fails CI (AC-9). */
@@ -43,6 +56,8 @@ export const TOLERANCES: Readonly<Record<Metric, number>> = {
   edgeP99: 0.5,
   extra: 0.001,
   softError: 0.003,
+  background: 0.001,
+  missed: 0.001,
 }
 
 /** The AC-7 limits on the round trip. */
@@ -85,6 +100,8 @@ const METRICS: readonly Metric[] = [
   'edgeP99',
   'extra',
   'softError',
+  'background',
+  'missed',
 ]
 const STAGES: readonly { stage: Stage; title: string }[] = [
   { stage: 'finished', title: 'Finished (what Auto saves)' },
@@ -93,7 +110,7 @@ const STAGES: readonly { stage: Stage; title: string }[] = [
   { stage: 'lasso', title: 'Lasso (snap off, the default)' },
   { stage: 'lasso-snap', title: 'Lasso (snap on)' },
 ]
-const SIZES: readonly Size[] = [1600, 1000, 600, 400, 'forwarded']
+const SIZES: readonly Size[] = [1600, 1000, 600, 400, 'forwarded', 'screenshot']
 
 const key = (r: Pick<Row, 'fixture' | 'size' | 'stage'>) =>
   `${r.fixture} ${String(r.size)} ${r.stage}`
@@ -143,7 +160,9 @@ export function compareToBaseline(
     }
     for (const m of METRICS) {
       const v = r[m]
-      const w = b[m]
+      // A baseline written before a score existed (spec 0015 AC-2) has nothing to compare.
+      const w = b[m] as number | null | undefined
+      if (w === undefined) continue
       if (v === null || w === null) {
         if (v !== w) {
           regressions.push(
@@ -200,7 +219,7 @@ export function formatReport(now: BenchFile, base: BenchFile | null): string {
     '',
     'Written by `npm run bench:accuracy` (spec 0014). Each score is the cutout against the exact truth of a composited test photo, at that photo size, in its own pixels.',
     '',
-    `Targets (near-perfect, reported, not failed): IoU ≥ ${String(TARGETS.iou)}, mean edge error ≤ ${String(TARGETS.edgeMean)} px, 99th-percentile edge error ≤ ${String(TARGETS.edgeP99)} px, extra ≤ ${String(TARGETS.extra)}, soft-edge error ≤ ${String(TARGETS.softError)}. CI fails only when a score gets worse than \`bench/accuracy-baseline.json\`.`,
+    `Targets (near-perfect, reported, not failed): IoU ≥ ${String(TARGETS.iou)}, mean edge error ≤ ${String(TARGETS.edgeMean)} px, 99th-percentile edge error ≤ ${String(TARGETS.edgeP99)} px, extra ≤ ${String(TARGETS.extra)}, soft-edge error ≤ ${String(TARGETS.softError)}, background left on ≤ ${String(TARGETS.background)}, subject missed ≤ ${String(TARGETS.missed)} (both as a share of the subject's size). CI fails only when a score gets worse than \`bench/accuracy-baseline.json\`.`,
     '',
   ]
   if (base) lines.push('Changed cells show baseline → now.', '')
@@ -218,6 +237,20 @@ export function formatReport(now: BenchFile, base: BenchFile | null): string {
   if (finished.length === 0) lines.push('- None scored.')
   lines.push('')
 
+  const stray = now.results
+    .filter((r) => r.stage === 'finished')
+    .sort((a, b) => b.background - a.background)
+    .slice(0, 5)
+  if (stray.length > 0) {
+    lines.push('## Most background left on (finished)', '')
+    for (const r of stray) {
+      lines.push(
+        `- ${r.fixture} ${String(r.size)}: background ${num(r.background)}, missed ${num(r.missed)}`,
+      )
+    }
+    lines.push('')
+  }
+
   for (const { stage, title } of STAGES) {
     const rows = now.results
       .filter((r) => r.stage === stage)
@@ -230,8 +263,8 @@ export function formatReport(now: BenchFile, base: BenchFile | null): string {
     lines.push(
       `## ${title}`,
       '',
-      '| Fixture | Size | IoU | Edge mean (px) | Edge p99 (px) | Extra | Soft error |',
-      '|---|---|---|---|---|---|---|',
+      '| Fixture | Size | IoU | Edge mean (px) | Edge p99 (px) | Extra | Soft error | Background | Missed |',
+      '|---|---|---|---|---|---|---|---|---|',
     )
     for (const r of rows) {
       const b = before.get(key(r))
